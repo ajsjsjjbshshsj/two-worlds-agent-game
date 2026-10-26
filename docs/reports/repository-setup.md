@@ -11,13 +11,14 @@
 | 本地仓库 | F:\two-worlds-agent-game\.git |
 | Git根目录 | F:/two-worlds-agent-game，不再向上使用F:/父仓库 |
 | 当前分支 | codex/bootstrap |
+| 初始本地提交 | 71fca44，docs: initialize TwoWorlds project baseline，22个文件 |
 | GitHub | [ajsjsjjbshshsj/two-worlds-agent-game](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game) |
 | 可见性 | PRIVATE，已通过GitHub CLI查询确认 |
 | origin | https://github.com/ajsjsjjbshshsj/two-worlds-agent-game.git |
 | 远端内容 | 创建后查询isEmpty=true；尚未上传项目文件 |
 | 推送 | 自动审批拒绝，等待用户明确授权上传当前文件范围到上述远端 |
 
-本地基线提交在本环节收尾创建并用git log与git status核验，准确提交标识以实际Git历史和本轮最终回复为准。GitHub创建成功不代表文件已经同步。
+初始本地提交已创建，并用git log、git remote和git status核验；提交后工作区无未提交变更。后续交接状态修订另作本地文档提交，实际最新标识以git log为准。GitHub创建成功不代表文件已经同步。
 
 ## 2. 文件范围
 
