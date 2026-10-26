@@ -2,7 +2,7 @@
 
 > 版本：v0.2 设计提案 · 2026-10-26  
 > 项目目录：`F:\two-worlds-agent-game`  
-> 当前状态：T00.1环境检查完成，T00.2.1已建立独立本地Git与GitHub空私有仓库；基线上传等待用户明确授权。已有设计、依赖与测试草稿；业务代码尚未实现、启动或部署。
+> 当前状态：T00.1环境检查、T00.2.1独立本地Git与GitHub私有仓库设置完成；基线已获授权并推送，等待用户观察后继续。已有设计、依赖与测试草稿；业务代码尚未实现、启动或部署。
 
 TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本平台。两个人进入同一剧本，拥有不同的观察信息与操作能力，通过探索、试验和交流改变彼此的世界。平台提供多个剧本，每个剧本保存各自的进度和记忆，手机与电脑可以继续同一段旅程。
 
@@ -122,7 +122,7 @@ flowchart TD
 | 后端/前端运行 | 未实现 | 现有文件主要是测试与配置草稿 |
 | 测试、Mongo 真库、真机、部署 | 未验证 | 本次文档工作没有运行产品测试或上线 |
 | T00.1工作区与环境检查 | 已完成 | [环境报告](docs/reports/environment.md)；Python/Node和Edge探针可用；20:55复核Docker引擎可连接，Mongo仍未验证 |
-| 本地Git与GitHub仓库 | 已创建，尚未推送 | [仓库设置报告](docs/reports/repository-setup.md)；[私有远端](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game) |
+| 本地Git与GitHub仓库 | 已创建并推送 | [仓库设置报告](docs/reports/repository-setup.md)；[私有远端](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game)，默认分支codex/bootstrap |
 
 ## 七、开发交接规则
 
