@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-当前是T00.2.2交付的可安装Python包骨架，业务规则、API路由、数据库和AI调用尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
+当前已有T00.2.2可安装Python包骨架和T00.3修订的38个契约测试条目，业务规则、API路由、数据库和AI调用尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
 
 ## 1. 先看这几个文件
 
@@ -23,7 +23,7 @@
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 仅模块边界 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
-| tests | 后续迁移与新增行为测试 | 只有测试范围说明，尚无测试用例 |
+| tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -42,7 +42,7 @@ uv run --project backend --locked ruff check backend/src
 
 第二条命令应打印本项目`backend/src/twoworlds/__init__.py`的绝对路径。`-I`排除当前目录和用户Python路径的干扰；能导入说明本项目确实已安装到所选环境。
 
-当前没有游戏服务启动入口，不要运行并不存在的`uvicorn twoworlds.api:app`。旧草稿的`create_app`和`SQLiteRepository`尚未实现，旧测试也尚未迁移。
+当前没有游戏服务启动入口，不要运行并不存在的`uvicorn twoworlds.api:app`。新契约的`twoworlds.api.app.create_app`和`twoworlds.storage.sqlite.SQLiteRepository`尚未实现，测试调用工厂时会明确失败。
 
 ## 4. 构建与验证
 
@@ -52,10 +52,10 @@ uv build --project backend --python 3.12 --no-python-downloads --no-sources --ou
 
 构建产物应包含wheel与源码归档。wheel只包含`twoworlds`源码及包元信息，不包含项目原始聊天、密钥、环境目录或根目录的历史资料。具体本轮执行命令与结果见[工程布局报告](../docs/reports/backend-layout.md)。
 
-`tests/`当前没有用例，执行pytest收集可能显示“没有测试”；这不表示产品测试通过。当前阶段用包安装/隔离导入、构建和代码检查验证工程基础，T00.3再处理旧测试契约。
+T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests --collect-only -q`可查看38个要求；执行用例目前会报告缺少T04/T08实现。收集成功不表示行为通过，T01～T14将按阶段实现并补齐更低层测试。
 
 ## 5. 依赖策略
 
-本阶段运行依赖为空；开发依赖锁定pytest9.0.2和ruff0.15.4。旧草稿列出的FastAPI、uvicorn、pydantic、httpx、LangGraph和pymongo仅作后续选型输入，在对应实现环节加入并锁定、验证，不依赖全局环境恰好存在这些包。
+本阶段运行依赖为空；开发依赖锁定pytest9.0.2、ruff0.15.4、FastAPI0.132.0和httpx0.28.1。后两项供TestClient测试装配使用；实际API实现时再将FastAPI提升为运行依赖。uvicorn、LangGraph和pymongo等在对应实现环节加入，不依赖全局环境恰好存在这些包。
 
 Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。当前包和构建只在本地验证，没有发布到PyPI。
