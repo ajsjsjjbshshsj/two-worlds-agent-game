@@ -4,7 +4,7 @@
 <rect width="2400" height="1900" fill="#0B1220"/>
 <text x="64.00" y="47" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="62" font-weight="700" fill="#EDF4FC">TwoWorlds</text>
 <text x="465.00" y="62" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="42" font-weight="700" fill="#EDF4FC">双人 AI 互动剧本平台</text>
-<text x="64.00" y="128" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="28" font-weight="400" fill="#A9BDD3">多剧本独立存档 · 非对称合作 · 跨设备继续</text>
+<text x="64.00" y="128" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="28" font-weight="400" fill="#A9BDD3">多剧本独立存档 · 非对称合作 · 场景动效与声音 · 跨设备继续</text>
 <rect x="1928" y="66" width="408" height="51" rx="25" fill="#203047" stroke="#3A526F" stroke-width="2"/>
 <text x="1995.50" y="78" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="23" font-weight="400" fill="#A9BDD3">设计架构 v0.2  /  尚未实现</text>
 <rect x="560" y="200" width="1280" height="210" rx="20" fill="#111D30" stroke="#30455E" stroke-width="2"/>
@@ -16,6 +16,7 @@
 <rect x="1250" y="274" width="550" height="106" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
 <text x="1272.00" y="291" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#74B6FA">玩家 B · 独立身份与角色</text>
 <text x="1272.00" y="328" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">各自线索、装置与 NPC 私聊</text>
+<text x="882.00" y="386" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="400" fill="#A9BDD3">场景渲染 · 局部动效 · 环境音 / 音效 / 短叙事与字幕（按个人快照驱动）</text>
 <text x="64.00" y="237" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="32" font-weight="700" fill="#EDF4FC">同一个故事</text>
 <text x="64.00" y="285" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="400" fill="#A9BDD3">不同的观察与操作能力</text>
 <text x="64.00" y="329" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="400" fill="#A9BDD3">双方合作，程序确认结果</text>
@@ -33,8 +34,8 @@
 <text x="114.00" y="840" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">角色可见性、结局轨迹</text>
 <rect x="92" y="928" width="384" height="115" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
 <text x="114.00" y="945" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EBC479">不可变版本内容包</text>
-<text x="114.00" y="982" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">每份存档绑定剧本版本</text>
-<text x="114.00" y="1012" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">首版精确读取，无向量依赖</text>
+<text x="114.00" y="982" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">规则 / 角色可见性 / 版本</text>
+<text x="114.00" y="1012" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">场景图、动效与音频素材清单</text>
 <polyline points="284,699 284,756" fill="none" stroke="#EBC479" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
 <polygon points="284.00,756.00 277.48,742.49 290.52,742.49" fill="#EBC479"/>
 <polyline points="284,871 284,928" fill="none" stroke="#EBC479" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
