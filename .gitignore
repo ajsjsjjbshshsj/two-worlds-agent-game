@@ -1,0 +1,50 @@
+# Python environments and generated caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Frontend dependencies and build artifacts
+node_modules/
+dist/
+build/
+coverage/
+.coverage
+htmlcov/
+playwright-report/
+test-results/
+
+# Local credentials and machine configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+.codex/
+.agents/
+
+# Local databases and logs
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.log
+
+# Raw conversations and temporary work stay on this computer.
+# Keep the architecture generator so exported diagrams can be reproduced.
+/work/*
+!/work/generate_architecture.py
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini

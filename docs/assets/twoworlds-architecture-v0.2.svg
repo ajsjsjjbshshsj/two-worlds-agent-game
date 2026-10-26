@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1900" viewBox="0 0 2400 1900">
+<title>TwoWorlds 双人 AI 互动剧本平台：设计架构 v0.2</title>
+<desc>展示双人客户端、FastAPI、确定性规则、角色投影、原子存档、受限 AI 文本流程、内容发布和后续语音边界。</desc>
+<rect width="2400" height="1900" fill="#0B1220"/>
+<text x="64.00" y="47" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="62" font-weight="700" fill="#EDF4FC">TwoWorlds</text>
+<text x="465.00" y="62" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="42" font-weight="700" fill="#EDF4FC">双人 AI 互动剧本平台</text>
+<text x="64.00" y="128" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="28" font-weight="400" fill="#A9BDD3">多剧本独立存档 · 非对称合作 · 跨设备继续</text>
+<rect x="1928" y="66" width="408" height="51" rx="25" fill="#203047" stroke="#3A526F" stroke-width="2"/>
+<text x="1995.50" y="78" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="23" font-weight="400" fill="#A9BDD3">设计架构 v0.2  /  尚未实现</text>
+<rect x="560" y="200" width="1280" height="210" rx="20" fill="#111D30" stroke="#30455E" stroke-width="2"/>
+<text x="600.00" y="220" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#74B6FA">01   双人客户端</text>
+<text x="1436.52" y="228" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="24" font-weight="400" fill="#A9BDD3">Vue 3 + TypeScript + PWA</text>
+<rect x="600" y="274" width="550" height="106" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="622.00" y="291" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#74B6FA">玩家 A · 独立身份与角色</text>
+<text x="622.00" y="328" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">iPhone / Android / 电脑浏览器</text>
+<rect x="1250" y="274" width="550" height="106" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1272.00" y="291" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#74B6FA">玩家 B · 独立身份与角色</text>
+<text x="1272.00" y="328" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">各自线索、装置与 NPC 私聊</text>
+<text x="64.00" y="237" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="32" font-weight="700" fill="#EDF4FC">同一个故事</text>
+<text x="64.00" y="285" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="400" fill="#A9BDD3">不同的观察与操作能力</text>
+<text x="64.00" y="329" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="400" fill="#A9BDD3">双方合作，程序确认结果</text>
+<rect x="64" y="480" width="440" height="700" rx="20" fill="#111D30" stroke="#30455E" stroke-width="2"/>
+<rect x="92" y="509" width="43" height="37" rx="8" fill="#EBC479" stroke="#EBC479" stroke-width="2"/>
+<text x="99.50" y="513" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700" fill="#0B1220">02</text>
+<text x="151.00" y="506" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#EDF4FC">内容准备与发布</text>
+<rect x="92" y="584" width="384" height="115" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="114.00" y="601" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EBC479">原创剧本与世界设定</text>
+<text x="114.00" y="638" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">灯塔：光路与反向供电</text>
+<text x="114.00" y="668" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">星轨：功率与信号协同</text>
+<rect x="92" y="756" width="384" height="115" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="114.00" y="773" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EBC479">内容校验与规则测试</text>
+<text x="114.00" y="810" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">场景引用、前置、可解性</text>
+<text x="114.00" y="840" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">角色可见性、结局轨迹</text>
+<rect x="92" y="928" width="384" height="115" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="114.00" y="945" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EBC479">不可变版本内容包</text>
+<text x="114.00" y="982" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">每份存档绑定剧本版本</text>
+<text x="114.00" y="1012" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">首版精确读取，无向量依赖</text>
+<polyline points="284,699 284,756" fill="none" stroke="#EBC479" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="284.00,756.00 277.48,742.49 290.52,742.49" fill="#EBC479"/>
+<polyline points="284,871 284,928" fill="none" stroke="#EBC479" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="284.00,928.00 277.48,914.49 290.52,914.49" fill="#EBC479"/>
+<text x="92.00" y="1094" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="24" font-weight="400" fill="#EBC479">谜底与规则只留在服务端</text>
+<text x="92.00" y="1133" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">此链路不调用玩家的私聊数据</text>
+<rect x="560" y="480" width="1280" height="700" rx="20" fill="#111D30" stroke="#30455E" stroke-width="2"/>
+<rect x="600" y="524" width="1200" height="96" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="622.00" y="541" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#74B6FA">03   FastAPI · 身份认证与成员授权</text>
+<text x="622.00" y="578" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">HTTP 查询与命令  /  WebSocket 首帧鉴权  /  统一权限检查</text>
+<rect x="600" y="700" width="1200" height="106" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="622.00" y="717" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EDF4FC">04   应用服务 · 操作编排</text>
+<text x="622.00" y="754" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">服务器确定角色 → 识别幂等回执 → 验证版本 → 执行规则或生成文本</text>
+<rect x="600" y="884" width="550" height="112" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="622.00" y="901" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EBC479">05   确定性规则引擎</text>
+<text x="622.00" y="938" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">角色、前置、装置、因果与结局</text>
+<text x="622.00" y="968" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">纯 Python · 不依赖模型判定</text>
+<rect x="1250" y="884" width="550" height="112" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1272.00" y="901" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#74B6FA">06   按角色裁剪可见数据</text>
+<text x="1272.00" y="938" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">公共事实 + 本人线索与对话</text>
+<text x="1272.00" y="968" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">同一投影供 HTTP、WS 和 AI</text>
+<rect x="600" y="1064" width="1200" height="84" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="630.00" y="1080" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="28" font-weight="700" fill="#72DBB6">07   仓储接口 · 数据库原子提交（CAS）</text>
+<text x="630.00" y="1119" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="23" font-weight="400" fill="#A9BDD3">同一次写入：状态 + 版本 + 幂等回执；AI 文本提交前再次检查版本</text>
+<polyline points="1200,410 1200,524" fill="none" stroke="#74B6FA" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1200.00,524.00 1193.48,510.49 1206.52,510.49" fill="#74B6FA"/>
+<rect x="1121.0" y="446" width="158.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1130.00" y="450" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#74B6FA">HTTPS / WSS</text>
+<polyline points="1200,620 1200,700" fill="none" stroke="#74B6FA" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1200.00,700.00 1193.48,686.49 1206.52,686.49" fill="#74B6FA"/>
+<rect x="1136.0" y="643" width="128.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1145.00" y="647" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">已认证请求</text>
+<polyline points="875,806 875,884" fill="none" stroke="#EBC479" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="875.00,884.00 868.48,870.49 881.52,870.49" fill="#EBC479"/>
+<rect x="822.0" y="834" width="106.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="831.00" y="838" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#EBC479">机关操作</text>
+<polyline points="1525,806 1525,884" fill="none" stroke="#74B6FA" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1525.00,884.00 1518.48,870.49 1531.52,870.49" fill="#74B6FA"/>
+<rect x="1427.5" y="834" width="195.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1436.50" y="838" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#74B6FA">查询 / 文本上下文</text>
+<polyline points="875,996 875,1064" fill="none" stroke="#72DBB6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="875.00,1064.00 868.48,1050.49 881.52,1050.49" fill="#72DBB6"/>
+<rect x="822.0" y="1019" width="106.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="831.00" y="1023" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#72DBB6">规则结果</text>
+<polyline points="1525,1064 1525,996" fill="none" stroke="#74B6FA" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1525.00,996.00 1531.52,1009.51 1518.48,1009.51" fill="#74B6FA"/>
+<rect x="1439.0" y="1019" width="172.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1448.00" y="1023" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#74B6FA">读取已确认存档</text>
+<polyline points="504,940 600,940" fill="none" stroke="#EBC479" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="600.00,940.00 586.49,946.52 586.49,933.48" fill="#EBC479"/>
+<polyline points="1800,930 1860,930 1860,327 1840,327" fill="none" stroke="#74B6FA" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1840.00,327.00 1853.51,320.48 1853.51,333.52" fill="#74B6FA"/>
+<rect x="1536.5" y="441" width="257.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1545.50" y="445" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#74B6FA">个人快照 · 断线全量恢复</text>
+<rect x="1900" y="480" width="436" height="700" rx="20" fill="#111D30" stroke="#30455E" stroke-width="2"/>
+<rect x="1928" y="509" width="43" height="37" rx="8" fill="#B7A3F7" stroke="#B7A3F7" stroke-width="2"/>
+<text x="1935.50" y="513" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700" fill="#0B1220">08</text>
+<text x="1987.00" y="506" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#EDF4FC">受限 AI 文本流程</text>
+<rect x="1928" y="584" width="380" height="115" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1950.00" y="601" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#B7A3F7">当前玩家可见上下文</text>
+<text x="1950.00" y="638" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">场景设定 + 本人近期对话</text>
+<text x="1950.00" y="668" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">不含伙伴秘密与完整谜底</text>
+<rect x="1928" y="760" width="380" height="91" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1950.00" y="777" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#B7A3F7">LangGraph 工作流</text>
+<text x="1950.00" y="814" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">整理上下文 → 生成 → 校验</text>
+<rect x="1928" y="912" width="380" height="107" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1950.00" y="929" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#B7A3F7">模型 Provider</text>
+<text x="1950.00" y="966" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">默认示例 / 可配置 Qwen 等</text>
+<text x="1950.00" y="996" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">超时、并发、长度与降级</text>
+<rect x="1928" y="1080" width="380" height="66" rx="20" fill="#2A2440" stroke="#655387" stroke-width="2"/>
+<text x="1993.00" y="1099" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="700" fill="#B7A3F7">输出：仅本人可见文本</text>
+<polyline points="2118,699 2118,760" fill="none" stroke="#B7A3F7" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="2118.00,760.00 2111.48,746.49 2124.52,746.49" fill="#B7A3F7"/>
+<polyline points="2118,851 2118,912" fill="none" stroke="#B7A3F7" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="2118.00,912.00 2111.48,898.49 2124.52,898.49" fill="#B7A3F7"/>
+<polyline points="2118,1019 2118,1080" fill="none" stroke="#B7A3F7" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="2118.00,1080.00 2111.48,1066.49 2124.52,1066.49" fill="#B7A3F7"/>
+<polyline points="1800,968 1880,968 1880,640 1928,640" fill="none" stroke="#B7A3F7" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1928.00,640.00 1914.49,646.52 1914.49,633.48" fill="#B7A3F7"/>
+<polyline points="1928,1113 1880,1113 1880,1236 1580,1236 1580,1148" fill="none" stroke="#B7A3F7" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1580.00,1148.00 1586.52,1161.51 1573.48,1161.51" fill="#B7A3F7"/>
+<rect x="1588.5" y="1246" width="249.0" height="35" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1597.50" y="1250" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="400" fill="#B7A3F7">版本复查后保存本人文本</text>
+<rect x="560" y="1310" width="1280" height="260" rx="20" fill="#111D30" stroke="#3A6E62" stroke-width="2"/>
+<rect x="600" y="1338" width="43" height="37" rx="8" fill="#72DBB6" stroke="#72DBB6" stroke-width="2"/>
+<text x="607.50" y="1342" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700" fill="#0B1220">09</text>
+<text x="659.00" y="1335" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#EDF4FC">正式存档与记忆 · MongoDB</text>
+<rect x="600" y="1403" width="350" height="111" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="622.00" y="1420" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#72DBB6">身份与房间</text>
+<text x="622.00" y="1457" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">恢复摘要 / 期限会话</text>
+<text x="622.00" y="1487" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">A、B 固定成员与邀请</text>
+<rect x="1025" y="1403" width="350" height="111" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1047.00" y="1420" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#72DBB6">每房间 × 每剧本独立档</text>
+<text x="1047.00" y="1457" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">世界状态 / 版本 / 回执</text>
+<text x="1047.00" y="1487" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">装置、共同选择与里程碑</text>
+<rect x="1450" y="1403" width="350" height="111" rx="20" fill="#17273E" stroke="#30455E" stroke-width="2"/>
+<text x="1472.00" y="1420" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#72DBB6">本人对话与公开回顾</text>
+<text x="1472.00" y="1457" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">私聊按角色隔离</text>
+<text x="1472.00" y="1487" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">正式事实可用于恢复</text>
+<text x="600.00" y="1534" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="23" font-weight="400" fill="#A9BDD3">SQLite 仅作显式本地演示；生产使用 MongoDB，不自动降级。</text>
+<polyline points="1200,1148 1200,1310" fill="none" stroke="#72DBB6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="1200.00,1310.00 1193.48,1296.49 1206.52,1296.49" fill="#72DBB6"/>
+<rect x="1080.5" y="1206" width="239.0" height="36" rx="6" fill="#0B1220" stroke="#0B1220" stroke-width="2"/>
+<text x="1089.50" y="1210" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#72DBB6">原子保存 / 持久化恢复</text>
+<rect x="64" y="1310" width="440" height="260" rx="20" fill="#111D30" stroke="#30455E" stroke-width="2"/>
+<rect x="92" y="1338" width="43" height="37" rx="8" fill="#A9BDD3" stroke="#A9BDD3" stroke-width="2"/>
+<text x="99.50" y="1342" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700" fill="#0B1220">10</text>
+<text x="151.00" y="1335" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#EDF4FC">质量与可观测性</text>
+<text x="92.00" y="1406" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="400" fill="#EDF4FC">规则、权限与并发测试</text>
+<text x="92.00" y="1450" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="400" fill="#EDF4FC">Prompt 版本 / 离线评估</text>
+<text x="92.00" y="1494" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="400" fill="#EDF4FC">脱敏耗时 / 错误 / 用量</text>
+<text x="92.00" y="1538" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="400" fill="#A9BDD3">本地报告；Opik 可选接入</text>
+<rect x="1900" y="1310" width="436" height="260" rx="20" fill="#111D30" stroke="#65748B" stroke-width="2" stroke-dasharray="10 8"/>
+<polyline points="1920,1310 2316,1310" fill="none" stroke="#65748B" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 8"/>
+<polyline points="1920,1570 2316,1570" fill="none" stroke="#65748B" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 8"/>
+<polyline points="1900,1330 1900,1550" fill="none" stroke="#65748B" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 8"/>
+<polyline points="2336,1330 2336,1550" fill="none" stroke="#65748B" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 8"/>
+<rect x="1928" y="1338" width="43" height="37" rx="8" fill="#A9BDD3" stroke="#A9BDD3" stroke-width="2"/>
+<text x="1935.50" y="1342" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700" fill="#0B1220">11</text>
+<text x="1987.00" y="1335" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#EDF4FC">后续语音扩展</text>
+<text x="1928.00" y="1406" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="24" font-weight="400" fill="#A9BDD3">玩家通话：WebRTC / LiveKit</text>
+<text x="1928.00" y="1450" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="24" font-weight="400" fill="#A9BDD3">NPC 语音：ASR / TTS</text>
+<text x="1928.00" y="1494" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="23" font-weight="400" fill="#A9BDD3">独立成员鉴权，首版 disabled</text>
+<text x="1928.00" y="1538" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="23" font-weight="400" fill="#A9BDD3">玩家通话不默认交给 AI</text>
+<rect x="64" y="1644" width="2272" height="143" rx="20" fill="#162439" stroke="#344C69" stroke-width="2"/>
+<text x="96.00" y="1667" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="700" fill="#EDF4FC">一条完整游戏操作链</text>
+<text x="96.00" y="1714" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="31" font-weight="400" fill="#EDF4FC">玩家操作 → 身份与成员校验 → 幂等与版本 → 规则裁决 → 原子落库 → 双方收到各自快照</text>
+<text x="64.00" y="1823" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="400" fill="#EBC479">核心边界：程序决定事实与结局；AI 负责表达；服务端始终掌握唯一权威进度。</text>
+<text x="64.00" y="1865" dominant-baseline="text-before-edge" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="400" fill="#A9BDD3">实线为首版设计流程  ·  虚线框为后续扩展  ·  可观测性为辅助能力  ·  2026-10-26</text>
+</svg>

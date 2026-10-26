@@ -1,0 +1,19 @@
+[project]
+name = "twoworlds-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.132.0", "uvicorn[standard]==0.41.0",
+  "pydantic==2.12.5", "httpx==0.28.1", "langgraph==1.0.8",
+  "pymongo==4.11.3"
+]
+
+[dependency-groups]
+dev = ["pytest==9.0.2", "ruff==0.15.4"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
