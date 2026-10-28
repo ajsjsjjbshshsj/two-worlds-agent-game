@@ -21,8 +21,10 @@
 - PR工作树按uv.lock离线安装22包；隔离导入路径指向该工作树，不依赖原目录的editable源码。
 - `python -m pytest backend/tests/content -q`：74 passed。
 - 全量测试：74 passed、38 failed，JUnit为112项、0 errors、0 skipped；38项全部缺api.app/storage.sqlite，未进入HTTP行为断言。既有Starlette/AnyIO弃用提示保留。
-- Ruff检查、格式、锁一致性与diff空白检查；另外检查发布树/新增历史不含IDE、缓存、环境、临时记录和凭证。具体收尾结论在本轮交接中记录。
+- Ruff检查通过、19个Python文件格式正确、锁一致性与diff空白检查通过；3个契约文件去掉注释/文档字符串的AST与基线一致。暂存清单22项无排除文件或常见凭证模式；新增历史查询.idea为空。
 
 ## 当前交付状态
 
-独立PR分支准备提交/推送；实际PR链接由成功创建后写入交接。用户审查并合并前，不执行T01.2。原学习目录仍含旧本地分支历史，后续不得直接把该分支整串推上默认分支，应先读交接并核对PR与远端状态。
+已推送`codex/t01-1-schema-review`并创建[PR #1](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/1)，目标`codex/bootstrap`。仅用户审查后合并；本次未合并、不启用自动合并，不执行T01.2。
+
+主学习目录的AGENTS、忽略规则、PR模板和交接/本报告同步为同一份待审查内容，确保跨聊天立即读到新约定；原分支与IDE文件保留，未替换其业务代码。原目录仍含旧本地分支历史，后续不得直接把该分支整串推上默认分支，应先读交接并核对PR与远端状态。
