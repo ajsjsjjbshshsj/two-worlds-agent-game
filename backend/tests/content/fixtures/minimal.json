@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "id": "schema_example",
+    "content_version": "1.0.0",
+    "title": "仅供Schema测试的小样",
+    "summary": "演示内容文件的字段，不是正式游戏剧本。",
+    "roles": [
+      {"id": "a", "name": "观察员", "description": "测试角色A"},
+      {"id": "b", "name": "记录员", "description": "测试角色B"}
+    ],
+    "difficulty": "easy",
+    "estimated_minutes": 10
+  },
+  "initial_state": {"scene_id": "opening", "discovered_clues": [], "shared_clues": [], "votes": [], "completed": false},
+  "scenes": [
+    {"id": "opening", "title": "开场", "observations": [{"role": "a", "text": "A的开场"}, {"role": "b", "text": "B的开场"}], "entry_conditions": [], "completion_conditions": [], "next_scene_ids": ["completed"], "terminal": false},
+    {"id": "completed", "title": "结束", "observations": [{"role": "a", "text": "A的结束"}, {"role": "b", "text": "B的结束"}], "entry_conditions": [], "completion_conditions": [], "next_scene_ids": [], "terminal": true}
+  ],
+  "facts": [{"id": "signal_ready", "audience": "public", "initial_value": false}],
+  "clues": [{"id": "a_log", "role": "a", "text": "PRIVATE_A_ONLY_测试线索", "shareable": true, "discovery_conditions": []}],
+  "devices": [{
+    "id": "emitter", "role": "a",
+    "fields": [
+      {"id": "angle", "value_type": "integer", "choices": [0, 90], "initial_value": 0},
+      {"id": "pattern", "value_type": "string", "choices": ["steady", "pulse"], "initial_value": "steady"}
+    ]
+  }],
+  "actions": [
+    {"id": "read_log", "kind": "inspect", "roles": ["a"], "scene_ids": ["opening"], "parameters": [{"id": "target", "value_type": "string", "choices": ["log"]}], "preconditions": [], "effects": [{"op": "discover_clue", "clue_id": "a_log"}], "error_codes": ["ALREADY_DISCOVERED"]},
+    {"id": "tune", "kind": "set_emitter", "roles": ["a"], "scene_ids": ["opening"], "parameters": [{"id": "angle", "value_type": "integer", "choices": [0, 90]}, {"id": "pattern", "value_type": "string", "choices": ["steady", "pulse"]}], "preconditions": [], "effects": [{"op": "set_device", "device_id": "emitter", "field": "angle", "parameter": "angle"}, {"op": "set_device", "device_id": "emitter", "field": "pattern", "parameter": "pattern"}], "error_codes": ["NO_STATE_CHANGE"]},
+    {"id": "finish", "kind": "lock_signal", "roles": ["b"], "scene_ids": ["opening"], "parameters": [], "preconditions": [{"kind": "clue", "clue_id": "a_log", "discovered": true}, {"kind": "device", "device_id": "emitter", "field": "angle", "equals": 90}, {"kind": "fact", "fact_id": "signal_ready", "equals": false}], "effects": [{"op": "set_fact", "fact_id": "signal_ready", "value": true}, {"op": "enter_scene", "scene_id": "completed"}, {"op": "observe", "audience": "public", "text": "确认信号"}], "error_codes": ["SIGNAL_UNSTABLE"]},
+    {"id": "choose", "kind": "vote_ending", "roles": ["a", "b"], "scene_ids": ["opening"], "parameters": [{"id": "choice", "value_type": "string", "choices": ["now", "later"]}], "preconditions": [], "effects": [{"op": "record_vote", "parameter": "choice"}], "error_codes": ["VOTE_UNAVAILABLE"]}
+  ],
+  "endings": [
+    {"id": "now", "scene_id": "completed", "summary_template": "现在出发"},
+    {"id": "later", "scene_id": "completed", "summary_template": "稍后出发"}
+  ],
+  "npc": {"name": "讲述者", "public_persona": "只描述获准事实", "allowed_topics": ["当前场景"], "hints": [{"scene_id": "opening", "level": 1, "text": "观察装置变化"}]},
+  "media": [
+    {"id": "opening_bg", "kind": "image", "content_version": "1.0.0", "audience": "public", "scene_ids": ["opening"], "conditions": [], "path": "fixtures/opening.webp", "alt_text": "开场测试图", "source": "test fixture; no actual asset", "license": "TEST ONLY; not a distribution license"},
+    {"id": "ending_bg", "kind": "image", "content_version": "1.0.0", "audience": "public", "scene_ids": ["completed"], "conditions": [], "path": "fixtures/ending.webp", "alt_text": "结尾测试图", "source": "test fixture; no actual asset", "license": "TEST ONLY; not a distribution license"},
+    {"id": "b_voice", "kind": "narration", "content_version": "1.0.0", "audience": "b", "scene_ids": ["opening"], "conditions": [], "path": "fixtures/b-voice.mp3", "alt_text": "B的测试旁白", "transcript": "PRIVATE_B_ONLY_测试旁白", "source": "test fixture; no actual asset", "license": "TEST ONLY; not a distribution license"}
+  ],
+  "presentation": [
+    {"scene_id": "opening", "role": "a", "background_asset_id": "opening_bg", "cues": []},
+    {"scene_id": "opening", "role": "b", "background_asset_id": "opening_bg", "cues": [{"id": "intro_b", "asset_ids": ["b_voice"], "conditions": [], "alt_text": "B看到的旁白字幕"}]},
+    {"scene_id": "completed", "role": "a", "background_asset_id": "ending_bg", "cues": []},
+    {"scene_id": "completed", "role": "b", "background_asset_id": "ending_bg", "cues": []}
+  ]
+}

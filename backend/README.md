@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-当前已有T00.2.2可安装Python包骨架和T00.3修订的38个契约测试条目，业务规则、API路由、数据库和AI调用尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
+当前已有可安装Python包、T01.1内容Schema与74个通过的内容校验测试；T00.3的38个契约仍因缺业务实现而失败。游戏规则、内容加载器、API路由、数据库和AI调用尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
 
 ## 1. 先看这几个文件
 
@@ -18,12 +18,13 @@
 | src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 仅模块边界 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 仅模块边界 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 仅模块边界 |
-| src/twoworlds/content | 版本化剧本、媒体清单的加载与校验 | 仅模块边界 |
+| src/twoworlds/content | 版本化剧本、媒体声明的结构与引用校验 | Schema已实现，加载器待T01.2 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | 仅模块边界 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 仅模块边界 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
+| tests/content | 内容字段、引用、角色媒体边界 | 本轮74个测试通过；不是完整游戏验收 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -52,10 +53,12 @@ uv build --project backend --python 3.12 --no-python-downloads --no-sources --ou
 
 构建产物应包含wheel与源码归档。wheel只包含`twoworlds`源码及包元信息，不包含项目原始聊天、密钥、环境目录或根目录的历史资料。具体本轮执行命令与结果见[工程布局报告](../docs/reports/backend-layout.md)。
 
-T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests --collect-only -q`可查看38个要求；执行用例目前会报告缺少T04/T08实现。收集成功不表示行为通过，T01～T14将按阶段实现并补齐更低层测试。
+T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；执行这些用例目前会报告缺少T04/T08实现。收集成功不表示行为通过，T01～T14将按阶段实现并补齐更低层测试。
+
+T01.1新增74个内容校验用例，因此当前全量收集为112个（74个已通过、38个仍缺实现）。可从项目根目录运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q`；源码阅读顺序、测试专用JSON与边界见[Schema报告](../docs/reports/content-schema.md)。模型返回冻结定义，游戏状态另建；不要把包含私有线索的ScriptVersion整体发给客户端。
 
 ## 5. 依赖策略
 
-本阶段运行依赖为空；开发依赖锁定pytest9.0.2、ruff0.15.4、FastAPI0.132.0和httpx0.28.1。后两项供TestClient测试装配使用；实际API实现时再将FastAPI提升为运行依赖。uvicorn、LangGraph和pymongo等在对应实现环节加入，不依赖全局环境恰好存在这些包。
+本阶段运行依赖为Pydantic2.14.1，用于内容Schema；开发依赖锁定pytest9.0.2、ruff0.15.4、FastAPI0.132.0和httpx0.28.1。后两项供TestClient测试装配使用；实际API实现时再将FastAPI提升为运行依赖。uvicorn、LangGraph和pymongo等在对应实现环节加入，不依赖全局环境恰好存在这些包。
 
 Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。当前包和构建只在本地验证，没有发布到PyPI。

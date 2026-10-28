@@ -30,6 +30,10 @@ test-results/
 .codex/
 .agents/
 
+# Local IDE settings (interpreter names, inspections and workspace state)
+/.idea/
+*.iml
+
 # Local databases and logs
 *.db
 *.db-*
