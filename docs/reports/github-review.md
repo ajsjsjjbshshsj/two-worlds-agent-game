@@ -25,6 +25,8 @@
 
 ## 当前交付状态
 
-已推送`codex/t01-1-schema-review`并创建[PR #1](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/1)，目标`codex/bootstrap`。仅用户审查后合并；本次未合并、不启用自动合并，不执行T01.2。
+已推送`codex/t01-1-schema-review`并创建[PR #1](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/1)，目标`codex/bootstrap`；2026-10-28用户ajsjsjjbshshsj已将其合并为`020c221`。代理没有执行合并或启用自动合并。
+
+合并时尚未包含的收尾交接文档已从该合并基线单独整理为[PR #2](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/2)，分支`codex/pr-review-checkpoint`，仅修改本报告和交接文件，继续由用户审查后合并。本轮不执行T01.2。
 
 主学习目录的AGENTS、忽略规则、PR模板和交接/本报告同步为同一份待审查内容，确保跨聊天立即读到新约定；原分支与IDE文件保留，未替换其业务代码。原目录仍含旧本地分支历史，后续不得直接把该分支整串推上默认分支，应先读交接并核对PR与远端状态。
