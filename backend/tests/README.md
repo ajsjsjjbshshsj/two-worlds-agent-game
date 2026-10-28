@@ -1,5 +1,7 @@
 # 测试目录
 
+2026-10-27补充：T01.1的`content/test_schema.py`有74个内容字段/引用/媒体声明测试已通过，示例在`content/fixtures/minimal.json`。下面的38个数字专指contracts，不是当前全部测试；全量为112个，实际结果74通过、38失败。Schema阅读与命令见[本轮报告](../../docs/reports/content-schema.md)。
+
 T00.3已将历史平台测试的意图修订为`contracts/`下的可执行要求。它们不是已通过的产品测试：目前应用工厂和SQLite仓储尚未实现，执行会明确失败；没有skip、xfail或假服务把它们变绿。
 
 ## 建议阅读顺序
