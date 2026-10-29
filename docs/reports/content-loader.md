@@ -15,7 +15,7 @@
 - [x] 先写加载/缺版/路径/JSON/Schema/标识错误的真实文件测试，确认缺实现失败。
 - [x] 在content/loader.py实现只读加载器与明确错误；不改Schema或引入新依赖。
 - [x] 验证本轮测试、既有74例、全量中原38项缺实现失败、Ruff/锁及打包检查。
-- [ ] 更新阅读/复现/交接，提交到codex主题分支并创建PR；完成即停。
+- [x] 更新阅读/复现/交接，提交到codex主题分支并创建[PR #4](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/4)；完成即停。
 
 ## T01.2拆分
 
@@ -43,7 +43,7 @@
 
 wheel已成功构建，但首次uv pip独立离线解析缺少registry缓存；随后先按现有锁文件同步运行依赖，再用--no-deps替换项目包为同一wheel，完成实际安装验证，没有联网更新依赖。硬链接不可用时uv自动复制文件，不影响结果。
 
-本轮代码/测试在`F:\two-worlds-agent-game\work\pr-t01-1-schema`，分支`codex/t01-2-1-version-loader`；原学习目录的IDE设置、空根pyproject及旧分支保留。包产物、环境、demo和JUnit均在被忽略的work下，未发布PyPI。
+本轮提交/测试在`F:\two-worlds-agent-game\work\pr-t01-1-schema`，分支`codex/t01-2-1-version-loader`；经无冲突检查后，同步10个本轮交付文件到`F:\two-worlds-agent-game`供学习，原有Schema注释、IDE设置、空根pyproject及旧分支保留。包产物、环境、demo和JUnit均在被忽略的work下，未发布PyPI。交付通过[PR #4](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/4)审查，代理不合并。
 
 收尾文档检查：20份Markdown、117个可检查本地链接、JSON示例/代码块通过；2个原始聊天链接按既有“仅保留本机”约定排除，不把原始记录上传。准备同步的10个本轮交付路径与原目录无冲突，原有Schema注释、IDE和空模板不在覆盖集合。
 
