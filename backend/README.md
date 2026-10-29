@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-当前已有可安装Python包、T01.1内容Schema与74个通过的内容校验测试；T00.3的38个契约仍因缺业务实现而失败。游戏规则、内容加载器、API路由、数据库和AI调用尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
+当前已有可安装Python包、T01.1内容Schema和T01.2.1只读版本加载器；110个内容测试通过，38个契约仍因缺业务实现而失败。正式灯塔内容、游戏规则、API路由、数据库和AI调用尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
 
 ## 1. 先看这几个文件
 
@@ -18,13 +18,13 @@
 | src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 仅模块边界 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 仅模块边界 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 仅模块边界 |
-| src/twoworlds/content | 版本化剧本、媒体声明的结构与引用校验 | Schema已实现，加载器待T01.2 |
+| src/twoworlds/content | 剧本结构/引用校验与按版本读取 | Schema与加载器已实现，正式内容/发布/目录待后续 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | 仅模块边界 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 仅模块边界 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
-| tests/content | 内容字段、引用、角色媒体边界 | 本轮74个测试通过；不是完整游戏验收 |
+| tests/content | 字段/引用/媒体声明与加载边界 | 74个Schema+36个加载测试通过；不是完整游戏验收 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -56,6 +56,8 @@ uv build --project backend --python 3.12 --no-python-downloads --no-sources --ou
 T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；执行这些用例目前会报告缺少T04/T08实现。收集成功不表示行为通过，T01～T14将按阶段实现并补齐更低层测试。
 
 T01.1新增74个内容校验用例，因此当前全量收集为112个（74个已通过、38个仍缺实现）。可从项目根目录运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q`；源码阅读顺序、测试专用JSON与边界见[Schema报告](../docs/reports/content-schema.md)。模型返回冻结定义，游戏状态另建；不要把包含私有线索的ScriptVersion整体发给客户端。
+
+T01.2.1又新增36个加载测试：当前全量148项（110通过、38仍缺实现）。在检出当前分支的项目根运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content/test_loader.py -q --basetemp=work/pytest-loader-local`可观察本轮；当前实际工作树为`F:\two-worlds-agent-game\work\pr-t01-1-schema`。小样加载方法、严格路径权限与只读边界见[加载器报告](../docs/reports/content-loader.md)。尚无正式scripts/lighthouse文件或游戏服务入口。
 
 ## 5. 依赖策略
 

@@ -2,7 +2,7 @@
 
 > 版本：v0.2 设计提案 · 2026-10-26  
 > 项目目录：`F:\two-worlds-agent-game`  
-> 当前状态：2026-10-27，T01.1内容结构与静态校验已完成，等待用户观察；74个Schema测试通过，原38个契约因缺业务实现仍失败。详见[内容Schema报告](docs/reports/content-schema.md)。GitHub仅同步此前基线，新变更在本地；正式内容加载、游戏规则、服务启动与部署尚未实现。
+> 当前状态：2026-10-29，T01.2.1只读版本加载器已完成，等待PR审查和用户观察；110个内容测试通过，原38个契约因缺业务实现仍失败。详见[加载器报告](docs/reports/content-loader.md)。正式灯塔内容、发布冻结、游戏规则、服务启动与部署尚未实现。
 
 TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本平台。两个人进入同一剧本，拥有不同的观察信息与操作能力，通过探索、试验和交流改变彼此的世界。平台提供多个剧本，每个剧本保存各自的进度和记忆，手机与电脑可以继续同一段旅程。
 
@@ -37,6 +37,8 @@ TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本
 T00.3的[测试阅读入口](backend/tests/README.md)解释新请求、回执、身份和两剧本轨迹；[基线修订报告](docs/reports/baseline-changes.md)记录旧稿迁移关系与尚未实现范围。
 
 T01.1从[测试专用JSON](backend/tests/content/fixtures/minimal.json)和[Schema模型](backend/src/twoworlds/content/schema.py)开始，理解程序如何拒绝坏内容；阅读/运行步骤见[本轮报告](docs/reports/content-schema.md)。该小样不是正式剧本，也不提供实际图片/音频。
+
+T01.2.1增加[版本加载器](backend/src/twoworlds/content/loader.py)与[加载测试](backend/tests/content/test_loader.py)：只读指定id+version，不猜测替代版本；路径、JSON、Schema或标识错误会明确拒绝。步骤与实际工作树位置见[加载器报告](docs/reports/content-loader.md)。
 
 ## 二、需求依据与本次变更
 
@@ -129,13 +131,14 @@ flowchart TD
 | 本地参考仓库核心代码阅读 | 已完成部分 | 已看说明、API、身份、AI 图与对话、前端会话等核心路径 |
 | 本地参考仓库提交核实 | 已核实 | HEAD为`211033c6785c29cbe79e053ebc5f3219e5f0051f`；另有未跟踪test/目录 |
 | v0.2 项目文档 | 本次交付 | 设计提案，尚未代表业务功能落地 |
-| 后端/前端运行 | 后端包与内容校验可运行 | [backend](backend/README.md)可安装和校验内容；尚无加载器、业务API、游戏规则或前端 |
-| 测试、Mongo 真库、真机、部署 | 未通过完整产品验收 | 74个Schema测试通过；38个契约仍缺业务实现；Mongo真库、真机、部署未验证 |
+| 后端/前端运行 | 后端包、内容校验与加载器可运行 | [backend](backend/README.md)可读取明确版本；尚无正式灯塔内容、业务API、游戏规则或前端 |
+| 测试、Mongo 真库、真机、部署 | 未通过完整产品验收 | 110个内容测试通过；38个契约仍缺业务实现；Mongo真库、真机、部署未验证 |
 | T00.1工作区与环境检查 | 已完成 | [环境报告](docs/reports/environment.md)；Python/Node和Edge探针可用；20:55复核Docker引擎可连接，Mongo仍未验证 |
 | 本地Git与GitHub仓库 | 已创建并推送 | [仓库设置报告](docs/reports/repository-setup.md)；[私有远端](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game)，默认分支codex/bootstrap |
 | T00.2.2工程包布局 | 完成待观察 | [工程报告](docs/reports/backend-layout.md)；项目独立环境、uv.lock、9个包文件与wheel验证 |
 | T00.3旧测试契约修订 | 完成待观察 | [基线修订报告](docs/reports/baseline-changes.md)；38个可收集契约条目因缺实现失败，不能计作产品测试通过 |
 | T01.1内容结构与静态校验 | 完成待观察 | [Schema报告](docs/reports/content-schema.md)；字段、引用、有限原语与角色媒体声明，加载/规则尚未开始 |
+| T01.2.1版本加载器 | 完成待观察 | [加载器报告](docs/reports/content-loader.md)；按版本只读加载、路径/JSON/Schema/标识失败测试，正式内容待后续 |
 
 ## 七、开发交接规则
 

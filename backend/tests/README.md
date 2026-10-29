@@ -1,6 +1,6 @@
 # 测试目录
 
-2026-10-27补充：T01.1的`content/test_schema.py`有74个内容字段/引用/媒体声明测试已通过，示例在`content/fixtures/minimal.json`。下面的38个数字专指contracts，不是当前全部测试；全量为112个，实际结果74通过、38失败。Schema阅读与命令见[本轮报告](../../docs/reports/content-schema.md)。
+2026-10-29：`content/test_schema.py`有74个测试通过，T01.2.1的`content/test_loader.py`新增36个加载测试通过。全量148项，实际110通过、38因缺后续实现失败。下面38专指contracts，不是全部测试。Schema与加载器阅读入口分别见[Schema报告](../../docs/reports/content-schema.md)、[加载器报告](../../docs/reports/content-loader.md)。
 
 T00.3已将历史平台测试的意图修订为`contracts/`下的可执行要求。它们不是已通过的产品测试：目前应用工厂和SQLite仓储尚未实现，执行会明确失败；没有skip、xfail或假服务把它们变绿。
 
@@ -19,7 +19,7 @@ T00.3已将历史平台测试的意图修订为`contracts/`下的可执行要求
 在项目根目录执行：
 
 ```powershell
-.\backend\.venv\Scripts\python.exe -m pytest backend/tests --collect-only -q
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/contracts --collect-only -q
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/contracts/test_commands.py -k old_version_retry -q --tb=short --basetemp=work/pytest-local
 ```
 
