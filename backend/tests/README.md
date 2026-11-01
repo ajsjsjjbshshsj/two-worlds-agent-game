@@ -1,6 +1,6 @@
 # 测试目录
 
-2026-10-29：`content/test_schema.py`有74个测试通过，T01.2.1的`content/test_loader.py`新增36个加载测试通过。全量148项，实际110通过、38因缺后续实现失败。下面38专指contracts，不是全部测试。Schema与加载器阅读入口分别见[Schema报告](../../docs/reports/content-schema.md)、[加载器报告](../../docs/reports/content-loader.md)。
+2026-11-01：`content/test_schema.py`有74个测试、`content/test_loader.py`有36个加载测试、`content/test_lighthouse_content.py`有36个正式内容测试通过。全量184项，实际146通过、38因缺后续实现失败，0 errors/0 skipped。下面38专指contracts，不是全部测试。入口分别见[Schema报告](../../docs/reports/content-schema.md)、[加载器报告](../../docs/reports/content-loader.md)、[正式内容报告](../../docs/reports/lighthouse-content.md)。正式内容测试只验证声明与加载，未执行通关、权限投影或实际媒体播放。
 
 T00.3已将历史平台测试的意图修订为`contracts/`下的可执行要求。它们不是已通过的产品测试：目前应用工厂和SQLite仓储尚未实现，执行会明确失败；没有skip、xfail或假服务把它们变绿。
 
