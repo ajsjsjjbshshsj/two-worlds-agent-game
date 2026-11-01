@@ -1,6 +1,8 @@
 # 测试目录
 
-2026-11-01：74个Schema、36个加载、36个正式灯塔内容、45个发布/资源测试通过，共191通过；全量229项中另有38个既有缺API/SQLite实现失败，0 errors/0 skipped。下面38专指contracts。入口分别见[Schema报告](../../docs/reports/content-schema.md)、[加载器报告](../../docs/reports/content-loader.md)、[正式内容报告](../../docs/reports/lighthouse-content.md)、[发布报告](../../docs/reports/content-publication.md)。内容测试未执行游戏通关、HTTP投影或实际播放。
+2026-11-01：内容测试仍为191通过；T02新增123个纯领域检查通过。全量352项为314通过、38个既有缺API/SQLite实现失败，0 errors/0 skipped。下面38专指contracts。入口见[Schema](../../docs/reports/content-schema.md)、[加载器](../../docs/reports/content-loader.md)、[正式内容](../../docs/reports/lighthouse-content.md)、[发布报告](../../docs/reports/content-publication.md)、[规则报告](../../docs/reports/lighthouse-engine.md)。领域通关不是HTTP玩家投影或实际媒体播放验收。
+
+T02从`domain/test_lighthouse.py`的`at/accept/reject`看实际轨迹与整份状态不变断言，再看光路组合/反向供电/两种结局，最后看所有可达未完成状态都可到达两结局的遍历。遍历只排除单调计数version，不排除任何业务字段；一角色遍历均无法完成。错误配置、参数/身份字段伪造、后段拒绝与独立子进程禁止Web/存储/AI依赖导入也有测试。
 
 发布检查从`content/test_publication.py`读首次快照、哈希篡改、失败清理/重试、目录隔离、真实目录联接和zip资源。`packaging/verify_distribution.py`另行实际构建/检查/安装两个发行格式，不属于pytest条目计数；它只在新的work目录生成临时测试资源，详细命令、文件清单和结果见发布报告。测试素材不进入正式灯塔资源目录。
 

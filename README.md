@@ -2,7 +2,7 @@
 
 > 版本：v0.2 设计提案 · 2026-10-26  
 > 项目目录：`F:\two-worlds-agent-game`  
-> 当前状态：2026-11-01，T01.2.3的不可覆盖发布、哈希校验、纯Python公开目录与包内资源访问已实现；191个内容测试通过，原38个契约因缺业务实现仍失败。详见[发布报告](docs/reports/content-publication.md)。灯塔1.0.0仍为待发布内容，28项媒体缺失/未授权，公开目录为空；游戏规则、实际媒体、服务启动与部署尚未实现。
+> 当前状态：2026-11-01，T02灯塔纯规则已实现，123个领域测试与191个内容测试通过；全量314通过、38个既有缺API/SQLite实现失败。详见[规则报告](docs/reports/lighthouse-engine.md)。灯塔28项媒体缺失/未授权，仍未发布、公开目录为空；角色投影、存储、业务服务、前端和AI尚未实现。
 
 TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本平台。两个人进入同一剧本，拥有不同的观察信息与操作能力，通过探索、试验和交流改变彼此的世界。平台提供多个剧本，每个剧本保存各自的进度和记忆，手机与电脑可以继续同一段旅程。
 
@@ -43,6 +43,8 @@ T01.2.1增加[版本加载器](backend/src/twoworlds/content/loader.py)与[加�
 T01.2.2增加[正式灯塔1.0.0](backend/src/twoworlds/content/scripts/lighthouse/1.0.0.json)与[内容完整性测试](backend/tests/content/test_lighthouse_content.py)，包含四场景、双角色动作/线索、两个共同结局和视听声明；媒体仍待制作，规则仍待实现。阅读顺序与源码加载命令见[本轮报告](docs/reports/lighthouse-content.md)。
 
 T01.2.3从[发布库](backend/src/twoworlds/content/publication.py)、[包内访问](backend/src/twoworlds/content/packaged.py)与[构建钩子](backend/hatch_build.py)开始：草稿不能自动成为已发布版本，目录仅返回已审核、哈希完整版本的Metadata。wheel/sdist、独立安装与临时媒体集成结果见[发布报告](docs/reports/content-publication.md)；没有新增HTTP接口。
+
+T02从[规则入口](backend/src/twoworlds/domain/engine.py)与[实际通关测试](backend/tests/domain/test_lighthouse.py)开始：两角色按不同权限操作、共同决定结局，所有成功变化返回新状态，拒绝/重复无变化不增加版本。54个可达世界状态的恢复与两结局可达已检查；阅读顺序、纯Python演示与边界见[规则报告](docs/reports/lighthouse-engine.md)。完整状态仍只供服务端，玩家投影留给T03。
 
 ## 二、需求依据与本次变更
 
@@ -135,8 +137,8 @@ flowchart TD
 | 本地参考仓库核心代码阅读 | 已完成部分 | 已看说明、API、身份、AI 图与对话、前端会话等核心路径 |
 | 本地参考仓库提交核实 | 已核实 | HEAD为`211033c6785c29cbe79e053ebc5f3219e5f0051f`；另有未跟踪test/目录 |
 | v0.2 项目文档 | 本次交付 | 设计提案，尚未代表业务功能落地 |
-| 后端/前端运行 | 包内草稿、发布库与纯Python目录可运行 | [backend](backend/README.md)能读灯塔草稿，因缺媒体未发布；尚无业务API、游戏规则或前端 |
-| 测试、Mongo 真库、真机、部署 | 未通过完整产品验收 | 191个内容测试通过；38个契约仍缺业务实现；Mongo真库、真机、部署未验证 |
+| 后端/前端运行 | 内容能力与灯塔纯规则可运行 | [backend](backend/README.md)可执行两结局合作轨迹；尚无玩家投影、业务API或前端，灯塔未发布 |
+| 测试、Mongo 真库、真机、部署 | 未通过完整产品验收 | 123领域+191内容通过；38个契约仍缺业务实现；Mongo真库、真机、部署未验证 |
 | T00.1工作区与环境检查 | 已完成 | [环境报告](docs/reports/environment.md)；Python/Node和Edge探针可用；20:55复核Docker引擎可连接，Mongo仍未验证 |
 | 本地Git与GitHub仓库 | 已创建并推送 | [仓库设置报告](docs/reports/repository-setup.md)；[私有远端](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game)，默认分支codex/bootstrap |
 | T00.2.2工程包布局 | 完成待观察 | [工程报告](docs/reports/backend-layout.md)；项目独立环境、uv.lock、9个包文件与wheel验证 |
@@ -144,7 +146,8 @@ flowchart TD
 | T01.1内容结构与静态校验 | 已完成 | [Schema报告](docs/reports/content-schema.md)；字段、引用、有限原语与角色媒体声明，实际规则尚未开始 |
 | T01.2.1版本加载器 | 已完成 | [加载器报告](docs/reports/content-loader.md)；按版本只读加载与明确失败，PR #4已合并 |
 | T01.2.2正式灯塔四场景 | 已完成 | [正式内容报告](docs/reports/lighthouse-content.md)；36个新增检查，PR #5已合并；实际规则尚未实现 |
-| T01.2.3发布/目录/资源打包 | 完成待审查 | [发布报告](docs/reports/content-publication.md)；45个新增检查、两个发行格式和独立安装；灯塔尚未发布 |
+| T01.2.3发布/目录/资源打包 | 已完成 | [发布报告](docs/reports/content-publication.md)；PR #6已合并；灯塔尚未发布 |
+| T02灯塔纯规则引擎 | 完成待审查 | [规则报告](docs/reports/lighthouse-engine.md)；双向因果、两结局、错误不变、有限状态恢复验证 |
 
 ## 七、开发交接规则
 
