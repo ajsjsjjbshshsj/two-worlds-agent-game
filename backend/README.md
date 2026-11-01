@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-当前已有可安装Python包、内容Schema、只读版本加载器和T01.2.2正式灯塔1.0.0 JSON；146个内容测试通过，38个契约仍因缺业务实现而失败。游戏规则、API路由、数据库和AI调用尚未实现，媒体仅有待制作声明。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
+当前已有可安装Python包、Schema/草稿加载器、正式灯塔JSON、不可覆盖发布库、纯Python公开目录与包内资源读取。191个内容测试通过，38个契约仍因缺业务实现失败。灯塔缺28项媒体和授权，保持未发布、目录为空；游戏规则、API路由、数据库和AI尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
 
 ## 1. 先看这几个文件
 
@@ -18,13 +18,13 @@
 | src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 仅模块边界 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 仅模块边界 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 仅模块边界 |
-| src/twoworlds/content | 剧本结构/引用校验与按版本读取 | Schema、加载器、正式灯塔JSON已实现；发布冻结/目录待后续 |
+| src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | 仅模块边界 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 仅模块边界 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
-| tests/content | 字段/引用/媒体声明与加载边界 | 74个Schema+36个加载+36个正式内容测试通过；不是完整游戏验收 |
+| tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -51,7 +51,7 @@ uv run --project backend --locked ruff check backend/src
 uv build --project backend --python 3.12 --no-python-downloads --no-sources --out-dir backend/dist
 ```
 
-构建产物应包含wheel与源码归档。wheel范围限于`twoworlds`包内文件及包元信息，不包含项目原始聊天、密钥、环境目录或根目录的历史资料。工程布局阶段的实际命令与结果见[工程布局报告](../docs/reports/backend-layout.md)；正式内容资源的集成打包验证另在T01.2.3执行。
+构建产物包含wheel与源码归档；两者均排除tests/work/outputs/IDE/缓存/私人资料。`hatch_build.py`先复用现有Schema与发布库核验，再逐一收录草稿JSON、发布登记和已发布实际媒体；不收录未审核的草稿媒体和未登记杂项。sdist带构建钩子及必要配置，wheel不带钩子或测试。T01.2.3已实际检查清单、从sdist重建wheel、独立安装与临时测试媒体集成，详见[发布报告](../docs/reports/content-publication.md)。
 
 T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；执行这些用例目前会报告缺少T04/T08实现。收集成功不表示行为通过，T01～T14将按阶段实现并补齐更低层测试。
 
@@ -59,10 +59,25 @@ T01.1新增74个内容校验用例，当时全量收集为112个（74个已通�
 
 T01.2.1又新增36个加载测试，当时全量148项（110通过、38仍缺实现）。在检出当前分支的项目根运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content/test_loader.py -q --basetemp=work/pytest-loader-local`可观察加载器；实际PR工作树为`F:\two-worlds-agent-game\work\pr-t01-1-schema`。严格路径权限与只读边界见[加载器报告](../docs/reports/content-loader.md)。
 
-T01.2.2的正式内容位于`src/twoworlds/content/scripts/lighthouse/1.0.0.json`，以`content/scripts`为root即可按ID/版本加载。新增36个检查后，全量184项（146通过、38仍缺实现）。可运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content/test_lighthouse_content.py -q --basetemp=work/pytest-lighthouse-local`；具体加载命令与字段阅读顺序见[正式内容报告](../docs/reports/lighthouse-content.md)。本轮验证源码目录中的内容；发布不可覆盖、公开目录和资源集成打包仍待T01.2.3，实际媒体、游戏执行与服务入口尚无。
+T01.2.2的正式内容位于`src/twoworlds/content/scripts/lighthouse/1.0.0.json`，以`content/scripts`为root即可按ID/版本加载。当时新增36个检查后，全量184项（146通过、38仍缺实现）。可运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content/test_lighthouse_content.py -q --basetemp=work/pytest-lighthouse-local`；具体加载命令与字段阅读顺序见[正式内容报告](../docs/reports/lighthouse-content.md)。该环节只验证源码内容；后续发布验证见下段，实际媒体、游戏执行与服务入口尚无。
+
+T01.2.3的入口依次为`content/publication.py`（审核、快照发布与目录）、`content/packaged.py`（包内with上下文）、`hatch_build.py`（构建时校验与文件收录）、`tests/content/test_publication.py`、`tests/packaging/verify_distribution.py`。新增45个检查，全量229项（191通过、38仍缺实现）。既有Schema、加载器和正式灯塔JSON未改；发布工具完成不表示灯塔已发布。
+
+```powershell
+@'
+from twoworlds.content.packaged import packaged_content
+with packaged_content() as content:
+    print(content.load_draft('lighthouse', '1.0.0').metadata.title)
+    print(content.catalog())
+    print(len(content.audit_draft('lighthouse', '1.0.0')))
+'@ | .\backend\.venv\Scripts\python.exe -I -X utf8 -
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content/test_publication.py -q --basetemp=work/pytest-publication-local
+```
+
+预期加载草稿、目录为`()`、媒体检查28项；测试45 passed。开发安装中的文件存在不等于打包完成；资源报告的`included_in_package`还需匹配已安装分发包RECORD的SHA256。安装验证与适合阅读的多行with示例见发布报告。
 
 ## 5. 依赖策略
 
 本阶段运行依赖为Pydantic2.14.1，用于内容Schema；开发依赖锁定pytest9.0.2、ruff0.15.4、FastAPI0.132.0和httpx0.28.1。后两项供TestClient测试装配使用；实际API实现时再将FastAPI提升为运行依赖。uvicorn、LangGraph和pymongo等在对应实现环节加入，不依赖全局环境恰好存在这些包。
 
-Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。当前包和构建只在本地验证，没有发布到PyPI。
+Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。构建系统额外显式要求同版本Pydantic2.14.1，以便隔离构建复用发布/Schema校验；运行依赖没有增加，uv.lock保持不变。当前包只在本地构建/安装验证，没有发布到PyPI。
