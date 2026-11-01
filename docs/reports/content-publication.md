@@ -24,7 +24,7 @@ PR #5已核实在2026-11-01合并；从最新远端`codex/bootstrap`的`3828658b
 - [x] 实现发布库、审核/哈希与资源检查、包内访问；保留已有安全边界。
 - [x] 修改构建白名单，实际构建wheel/sdist、检查内部清单、独立安装与临时媒体集成验证。
 - [x] 跑新增/全部内容/全量后端、Ruff和离线依赖；21份Markdown、152个本地链接/代码块/JSON与TOML检查通过，2个原始聊天本机链接按约定排除。
-- [ ] 更新进度和学习入口，提交、推送并创建PR供用户手动合并，停止等待审查。
+- [x] 更新进度和学习入口，17个必要文件已提交、推送并创建[PR #6](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/6)供用户手动合并，停止等待审查。
 
 技术依据：[Python3.12资源访问](https://docs.python.org/3.12/library/importlib.resources.html)明确支持目录`as_file`上下文；[Hatch构建文件选择](https://hatch.pypa.io/1.13/config/build/)用于限定包内文件。这些只支持实现选择，不代表产物已经通过检查。
 
