@@ -1,0 +1,2154 @@
+{
+  "metadata": {
+    "id": "lighthouse",
+    "content_version": "1.0.0",
+    "title": "跨时灯塔",
+    "summary": "风暴将同一座灯塔分在两个年代。你们各守一端，通过观察、试验与交流重建信标，再共同决定如何迎接远方的船。",
+    "roles": [
+      {
+        "id": "a",
+        "name": "旧时守灯人",
+        "description": "留在旧灯塔，操作发射装置并照料机械。你的改变也许会抵达另一段时光。"
+      },
+      {
+        "id": "b",
+        "name": "未来观星者",
+        "description": "守在风暴后的观测站，观察远处的回应并管理能源。你需要搭档，也能为搭档打开新的可能。"
+      }
+    ],
+    "difficulty": "medium",
+    "estimated_minutes": 15
+  },
+  "initial_state": {
+    "scene_id": "calibration",
+    "discovered_clues": [],
+    "shared_clues": [],
+    "votes": [],
+    "completed": false
+  },
+  "scenes": [
+    {
+      "id": "calibration",
+      "title": "看不见的光路",
+      "observations": [
+        {
+          "role": "a",
+          "text": "海风拍打旧灯塔的窗。发射器还亮着，维护日志压在底座旁；时钟箱没有电。先检查自己手边的记录，再请另一端描述变化。"
+        },
+        {
+          "role": "b",
+          "text": "观测站的玻璃留着风暴的裂痕。海面有一束模糊的光，桌上放着航道图与滤镜控制。先检查图纸，再和另一端交流你实际看到的结果。"
+        }
+      ],
+      "entry_conditions": [],
+      "completion_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_locked",
+          "equals": true
+        }
+      ],
+      "next_scene_ids": [
+        "repair"
+      ],
+      "terminal": false
+    },
+    {
+      "id": "repair",
+      "title": "让两个年代重新走动",
+      "observations": [
+        {
+          "role": "a",
+          "text": "跨时联络已经建立。时钟箱是否能检修，取决于另一端送来的供电；检查当前反馈，有电时再打开齿轮盖。修好后还要请搭档验证航路。"
+        },
+        {
+          "role": "b",
+          "text": "信号已锁定，供电台开放。你可以改变能源去向，观察另一端能否开始检修；等对方修好时钟，再保持合适供电检查航道扫描。"
+        }
+      ],
+      "entry_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_locked",
+          "equals": true
+        }
+      ],
+      "completion_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "route_confirmed",
+          "equals": true
+        }
+      ],
+      "next_scene_ids": [
+        "decision"
+      ],
+      "terminal": false
+    },
+    {
+      "id": "decision",
+      "title": "把灯留给哪一次潮汐",
+      "observations": [
+        {
+          "role": "a",
+          "text": "时钟与信标已通过共同验证。立即引航能让船尽早靠岸；等待下一次潮汐能让船在更从容的海况中前行。选择会向搭档公开，达成一致前可以改选。"
+        },
+        {
+          "role": "b",
+          "text": "航路已经确认。你们可以立即引航，也可以让船等待下一次潮汐。两种选择都被允许；选择会向搭档公开，请讨论后各自投票，分歧时仍可改选。"
+        }
+      ],
+      "entry_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "route_confirmed",
+          "equals": true
+        }
+      ],
+      "completion_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        }
+      ],
+      "next_scene_ids": [
+        "completed"
+      ],
+      "terminal": false
+    },
+    {
+      "id": "completed",
+      "title": "两端共同点亮的回声",
+      "observations": [
+        {
+          "role": "a",
+          "text": "属于你们的航程已有共同决定。可以回看公开的合作记录与确定结局；时钟仍在走，新的选择不会覆盖这次结果。"
+        },
+        {
+          "role": "b",
+          "text": "两个年代留下同一段航程。可以回看自己一侧的场景与公开回顾；已经确定的共同结局保持不变。"
+        }
+      ],
+      "entry_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        }
+      ],
+      "completion_conditions": [],
+      "next_scene_ids": [],
+      "terminal": true
+    }
+  ],
+  "facts": [
+    {
+      "id": "signal_locked",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "repair_tools_ready",
+      "audience": "a",
+      "initial_value": false
+    },
+    {
+      "id": "clock_repaired",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "route_confirmed",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "completed",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "ending_id",
+      "audience": "public",
+      "initial_value": "none"
+    }
+  ],
+  "clues": [
+    {
+      "id": "a_maintenance_log",
+      "role": "a",
+      "shareable": true,
+      "text": "维护日志：发射器有0°、90°、180°、270°四档角度，光型可选连续或脉冲。脉冲需经琥珀滤镜才容易稳定识别；日志没有记录各角度通向何处，请让观测端实际反馈。",
+      "discovery_conditions": []
+    },
+    {
+      "id": "b_sea_chart",
+      "role": "b",
+      "shareable": true,
+      "text": "航道图：这次要寻找的是内湾航道，暗礁、观测山和外海港都不是本次目标。滤镜有透明、蓝色、琥珀三档；图纸没有标出旧灯塔的角度，请把当前观测结果反馈给守灯人。",
+      "discovery_conditions": []
+    },
+    {
+      "id": "a_clock_gears",
+      "role": "a",
+      "shareable": true,
+      "text": "齿轮盖内侧：检修工具收在盖板槽中，已取出备用。维修应使用稳定模式（steady）逐齿复位；快速模式（fast）会二次错齿，本轮不要启动。修复时灯塔必须持续有电。",
+      "discovery_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_locked",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "id": "emitter",
+      "role": "a",
+      "fields": [
+        {
+          "id": "angle",
+          "value_type": "integer",
+          "choices": [
+            0,
+            90,
+            180,
+            270
+          ],
+          "initial_value": 0
+        },
+        {
+          "id": "pattern",
+          "value_type": "string",
+          "choices": [
+            "steady",
+            "pulse"
+          ],
+          "initial_value": "steady"
+        }
+      ]
+    },
+    {
+      "id": "filter",
+      "role": "b",
+      "fields": [
+        {
+          "id": "filter",
+          "value_type": "string",
+          "choices": [
+            "clear",
+            "blue",
+            "amber"
+          ],
+          "initial_value": "clear"
+        }
+      ]
+    },
+    {
+      "id": "power_router",
+      "role": "b",
+      "fields": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "tower",
+            "shore",
+            "observatory"
+          ],
+          "initial_value": "observatory"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "inspect_log",
+      "kind": "inspect",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "calibration"
+      ],
+      "parameters": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "maintenance_log"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_maintenance_log",
+          "discovered": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "discover_clue",
+          "clue_id": "a_maintenance_log"
+        }
+      ],
+      "error_codes": [
+        "ALREADY_DISCOVERED"
+      ]
+    },
+    {
+      "id": "inspect_chart",
+      "kind": "inspect",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "calibration"
+      ],
+      "parameters": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "sea_chart"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "discover_clue",
+          "clue_id": "b_sea_chart"
+        }
+      ],
+      "error_codes": [
+        "ALREADY_DISCOVERED"
+      ]
+    },
+    {
+      "id": "set_emitter",
+      "kind": "set_emitter",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "calibration"
+      ],
+      "parameters": [
+        {
+          "id": "angle",
+          "value_type": "integer",
+          "choices": [
+            0,
+            90,
+            180,
+            270
+          ]
+        },
+        {
+          "id": "pattern",
+          "value_type": "string",
+          "choices": [
+            "steady",
+            "pulse"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_maintenance_log",
+          "discovered": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_device",
+          "device_id": "emitter",
+          "field": "angle",
+          "parameter": "angle"
+        },
+        {
+          "op": "set_device",
+          "device_id": "emitter",
+          "field": "pattern",
+          "parameter": "pattern"
+        },
+        {
+          "op": "observe",
+          "audience": "a",
+          "text": "发射器配置已更新，请询问另一端看到的变化。"
+        },
+        {
+          "op": "observe",
+          "audience": "b",
+          "text": "海面光束发生变化，请查看当前观测结果并反馈。"
+        }
+      ],
+      "error_codes": [
+        "CLUE_NOT_DISCOVERED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "set_filter",
+      "kind": "set_filter",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "calibration"
+      ],
+      "parameters": [
+        {
+          "id": "filter",
+          "value_type": "string",
+          "choices": [
+            "clear",
+            "blue",
+            "amber"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_device",
+          "device_id": "filter",
+          "field": "filter",
+          "parameter": "filter"
+        },
+        {
+          "op": "observe",
+          "audience": "b",
+          "text": "滤镜已切换，请重新观察光束的清晰度与落点。"
+        }
+      ],
+      "error_codes": [
+        "CLUE_NOT_DISCOVERED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "lock_signal",
+      "kind": "lock_signal",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "calibration"
+      ],
+      "parameters": [],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_maintenance_log",
+          "discovered": true
+        },
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "angle",
+          "equals": 90
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "pattern",
+          "equals": "pulse"
+        },
+        {
+          "kind": "device",
+          "device_id": "filter",
+          "field": "filter",
+          "equals": "amber"
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "signal_locked",
+          "value": true
+        },
+        {
+          "op": "enter_scene",
+          "scene_id": "repair"
+        },
+        {
+          "op": "observe",
+          "audience": "public",
+          "text": "两端确认了稳定信号，跨时联络建立，可以开始检修。"
+        }
+      ],
+      "error_codes": [
+        "SIGNAL_UNSTABLE"
+      ]
+    },
+    {
+      "id": "route_power",
+      "kind": "route_power",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "repair"
+      ],
+      "parameters": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "tower",
+            "shore",
+            "observatory"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_locked",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_device",
+          "device_id": "power_router",
+          "field": "target",
+          "parameter": "target"
+        },
+        {
+          "op": "observe",
+          "audience": "b",
+          "text": "能源去向已更新，请核对面板并询问搭档的设备反馈。"
+        },
+        {
+          "op": "observe",
+          "audience": "a",
+          "text": "时钟箱供电反馈已更新，请查看当前检修条件。"
+        }
+      ],
+      "error_codes": [
+        "SIGNAL_NOT_LOCKED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "inspect_gears",
+      "kind": "inspect",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "repair"
+      ],
+      "parameters": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "clock_gears"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_locked",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        },
+        {
+          "kind": "clue",
+          "clue_id": "a_clock_gears",
+          "discovered": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "discover_clue",
+          "clue_id": "a_clock_gears"
+        },
+        {
+          "op": "set_fact",
+          "fact_id": "repair_tools_ready",
+          "value": true
+        }
+      ],
+      "error_codes": [
+        "CLOCK_UNPOWERED",
+        "ALREADY_DISCOVERED"
+      ]
+    },
+    {
+      "id": "repair_clock",
+      "kind": "repair_clock",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "repair"
+      ],
+      "parameters": [
+        {
+          "id": "mode",
+          "value_type": "string",
+          "choices": [
+            "steady"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_clock_gears",
+          "discovered": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "repair_tools_ready",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        },
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "clock_repaired",
+          "value": true
+        },
+        {
+          "op": "observe",
+          "audience": "a",
+          "text": "齿轮已稳定复位，时钟恢复运转。请让搭档验证航路。"
+        },
+        {
+          "op": "observe",
+          "audience": "b",
+          "text": "另一端已完成时钟维修；保持所需供电后可以检查扫描。"
+        }
+      ],
+      "error_codes": [
+        "TOOLS_NOT_READY",
+        "CLOCK_UNPOWERED",
+        "REPAIR_MODE_UNSAFE",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "confirm_route",
+      "kind": "confirm_route",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "repair"
+      ],
+      "parameters": [],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "route_confirmed",
+          "value": true
+        },
+        {
+          "op": "enter_scene",
+          "scene_id": "decision"
+        },
+        {
+          "op": "observe",
+          "audience": "public",
+          "text": "修复后的航路已由另一端验证。双方可以共同决定启航时机。"
+        }
+      ],
+      "error_codes": [
+        "CLOCK_NOT_REPAIRED",
+        "CLOCK_UNPOWERED"
+      ]
+    },
+    {
+      "id": "vote_ending",
+      "kind": "vote_ending",
+      "roles": [
+        "a",
+        "b"
+      ],
+      "scene_ids": [
+        "decision"
+      ],
+      "parameters": [
+        {
+          "id": "choice",
+          "value_type": "string",
+          "choices": [
+            "guide_now",
+            "wait_tide"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "route_confirmed",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "record_vote",
+          "parameter": "choice"
+        }
+      ],
+      "error_codes": [
+        "ENDING_UNAVAILABLE",
+        "NO_STATE_CHANGE",
+        "SAVE_COMPLETED"
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "guide_now",
+      "scene_id": "completed",
+      "summary_template": "你们校准信号，从未来为旧灯塔送来能源，完成时钟维修并共同验证航路。双方选择立即引航：两端的灯同时划过海雾，船循着信标缓缓靠岸。"
+    },
+    {
+      "id": "wait_tide",
+      "scene_id": "completed",
+      "summary_template": "你们校准信号，从未来为旧灯塔送来能源，完成时钟维修并共同验证航路。双方选择等待下一次潮汐：信标为船守候，海面渐平，你们让这段跨时的守望多留了一会儿。"
+    }
+  ],
+  "npc": {
+    "name": "潮汐记录员",
+    "public_persona": "跨越年代传递问候的记录员。只依据当前角色获准的观察提供引导，不代替玩家操作，也不透露另一端未公开的记录。",
+    "allowed_topics": [
+      "当前获准观察",
+      "本人已发现线索",
+      "如何向搭档描述变化",
+      "已公开合作里程碑",
+      "共同选择的取舍"
+    ],
+    "hints": [
+      {
+        "scene_id": "calibration",
+        "level": 1,
+        "text": "先检查自己手边的记录，看看现在能操作什么。"
+      },
+      {
+        "scene_id": "calibration",
+        "level": 2,
+        "text": "一次只改变一种设置，请搭档描述实际变化。"
+      },
+      {
+        "scene_id": "calibration",
+        "level": 3,
+        "text": "把本人已经读到的要求与搭档愿意交流的观察逐项核对，再由观测端尝试确认；无需先在公共栏分享。"
+      },
+      {
+        "scene_id": "repair",
+        "level": 1,
+        "text": "先看看自己的设备是否已经具备工作条件。"
+      },
+      {
+        "scene_id": "repair",
+        "level": 2,
+        "text": "一端改变能源去向，另一端观察检修入口；完成维修后再交换反馈。"
+      },
+      {
+        "scene_id": "repair",
+        "level": 3,
+        "text": "请按本人已获得的检修说明操作；修好不等于验证结束，保持所需供电，让观测端再次确认。"
+      },
+      {
+        "scene_id": "decision",
+        "level": 1,
+        "text": "两种选择都可以完成故事，没有隐藏的唯一正确答案。"
+      },
+      {
+        "scene_id": "decision",
+        "level": 2,
+        "text": "向搭档说明你更在意尽早抵达，还是更从容的海况。"
+      },
+      {
+        "scene_id": "decision",
+        "level": 3,
+        "text": "选择会向搭档公开；两票不同可以改选，一致后固定本次结果。"
+      },
+      {
+        "scene_id": "completed",
+        "level": 1,
+        "text": "共同结局已经确定，可以回看公开合作记录。"
+      },
+      {
+        "scene_id": "completed",
+        "level": 2,
+        "text": "想了解搭档的经历，可以请对方自行分享，不读取对方私人记录。"
+      },
+      {
+        "scene_id": "completed",
+        "level": 3,
+        "text": "本次完成档不会因改选被覆盖；看完回顾后可以返回书架。"
+      }
+    ]
+  },
+  "media": [
+    {
+      "id": "old_tower",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "calibration",
+        "repair",
+        "decision",
+        "completed"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/old_tower.webp",
+      "alt_text": "旧灯塔发射器与时钟箱的基础场景；具体状态以当前授权反馈为准。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "future_station",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration",
+        "repair",
+        "decision",
+        "completed"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/future_station.webp",
+      "alt_text": "未来观测站的基础场景；海面落点和设备状态由当前授权反馈显示。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "sea_wind",
+      "kind": "ambience",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "calibration",
+        "repair",
+        "decision",
+        "completed"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/sea_wind.ogg",
+      "alt_text": "海浪与风声；静音时不影响信息获取。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "opening_voice",
+      "kind": "narration",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/opening_voice.ogg",
+      "alt_text": "开场旁白与完整字幕。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。",
+      "transcript": "同一座灯塔，在两个年代守着同一片海。请向另一端打个招呼，从自己能看到的地方开始。"
+    },
+    {
+      "id": "emitter_click",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_maintenance_log",
+          "discovered": true
+        }
+      ],
+      "path": "lighthouse/1.0.0/emitter_click.ogg",
+      "alt_text": "发射器档位机械声；画面与数值同时标记当前设置。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "receiver_tone",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        }
+      ],
+      "path": "lighthouse/1.0.0/receiver_tone.ogg",
+      "alt_text": "观测端信号短音；清晰度与落点另有本人可见文字。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "signal_lock",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_locked",
+          "equals": true
+        }
+      ],
+      "path": "lighthouse/1.0.0/signal_lock.ogg",
+      "alt_text": "稳定信号锁定音；同时显示两端联络已建立。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "beam_blurred",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        }
+      ],
+      "path": "lighthouse/1.0.0/beam_blurred.webp",
+      "alt_text": "光束模糊、无法稳定辨认航道；请调整配置并交流。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "tower_powered",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ],
+      "path": "lighthouse/1.0.0/tower_powered.webp",
+      "alt_text": "时钟箱被点亮，齿轮检修入口可用。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "tower_unpowered",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/tower_unpowered.webp",
+      "alt_text": "时钟箱没有供电，已取得的工具与修复记录不会丢失。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "power_start",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ],
+      "path": "lighthouse/1.0.0/power_start.ogg",
+      "alt_text": "时钟箱电路启动声；同时显示供电状态。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "power_panel",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/power_panel.ogg",
+      "alt_text": "路由器开关短音；能源去向在本人面板可读。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "clock_running",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        }
+      ],
+      "path": "lighthouse/1.0.0/clock_running.webp",
+      "alt_text": "齿轮已修复，修复里程碑保留；当前有无电仍以供电反馈为准。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "clock_tick",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ],
+      "path": "lighthouse/1.0.0/clock_tick.ogg",
+      "alt_text": "有电且修复完成时的时钟声；修复状态也以文字显示。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "route_scan",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ],
+      "path": "lighthouse/1.0.0/route_scan.webp",
+      "alt_text": "航道扫描可用：内湾信号稳定，可以执行航道确认。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "scan_ready",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "clock_repaired",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_router",
+          "field": "target",
+          "equals": "tower"
+        }
+      ],
+      "path": "lighthouse/1.0.0/scan_ready.ogg",
+      "alt_text": "扫描就绪短音；同时提供本人可读扫描结果。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "scan_unavailable",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "repair"
+      ],
+      "conditions": [],
+      "path": "lighthouse/1.0.0/scan_unavailable.webp",
+      "alt_text": "当前无法扫描：先确认另一端维修已完成，并检查能源去向。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "departure_horn",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        }
+      ],
+      "path": "lighthouse/1.0.0/departure_horn.ogg",
+      "alt_text": "共同结局的船笛短音；字幕与静态结局同时可见。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "beam_0",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "angle",
+          "equals": 0
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "pattern",
+          "equals": "pulse"
+        },
+        {
+          "kind": "device",
+          "device_id": "filter",
+          "field": "filter",
+          "equals": "amber"
+        }
+      ],
+      "path": "lighthouse/1.0.0/beam_0.webp",
+      "alt_text": "当前光束稳定落向暗礁；请将本人观察反馈给搭档。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "beam_90",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "angle",
+          "equals": 90
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "pattern",
+          "equals": "pulse"
+        },
+        {
+          "kind": "device",
+          "device_id": "filter",
+          "field": "filter",
+          "equals": "amber"
+        }
+      ],
+      "path": "lighthouse/1.0.0/beam_90.webp",
+      "alt_text": "当前光束稳定落向内湾航道；请将本人观察反馈给搭档。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "beam_180",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "angle",
+          "equals": 180
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "pattern",
+          "equals": "pulse"
+        },
+        {
+          "kind": "device",
+          "device_id": "filter",
+          "field": "filter",
+          "equals": "amber"
+        }
+      ],
+      "path": "lighthouse/1.0.0/beam_180.webp",
+      "alt_text": "当前光束稳定落向观测山；请将本人观察反馈给搭档。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "beam_270",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "calibration"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_sea_chart",
+          "discovered": true
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "angle",
+          "equals": 270
+        },
+        {
+          "kind": "device",
+          "device_id": "emitter",
+          "field": "pattern",
+          "equals": "pulse"
+        },
+        {
+          "kind": "device",
+          "device_id": "filter",
+          "field": "filter",
+          "equals": "amber"
+        }
+      ],
+      "path": "lighthouse/1.0.0/beam_270.webp",
+      "alt_text": "当前光束稳定落向外海港；请将本人观察反馈给搭档。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "guide_now_a",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "guide_now"
+        }
+      ],
+      "path": "lighthouse/1.0.0/guide_now_a.webp",
+      "alt_text": "旧灯塔的引航光穿过海雾，船正在依照共同决定靠岸。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "guide_now_b",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "guide_now"
+        }
+      ],
+      "path": "lighthouse/1.0.0/guide_now_b.webp",
+      "alt_text": "未来海面上出现同一束引航光，远处的船缓缓靠岸。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "guide_now_voice",
+      "kind": "narration",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "guide_now"
+        }
+      ],
+      "path": "lighthouse/1.0.0/guide_now_voice.ogg",
+      "alt_text": "共同结局旁白与完整字幕。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。",
+      "transcript": "你们共同决定立即引航。两端点亮的信标穿过海雾，把船带回岸边。"
+    },
+    {
+      "id": "wait_tide_a",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "wait_tide"
+        }
+      ],
+      "path": "lighthouse/1.0.0/wait_tide_a.webp",
+      "alt_text": "旧灯塔为等待的船保留信标，海风逐渐转轻。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "wait_tide_b",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "wait_tide"
+        }
+      ],
+      "path": "lighthouse/1.0.0/wait_tide_b.webp",
+      "alt_text": "未来观测站记录着渐平的海面，船等候下一次潮汐。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。"
+    },
+    {
+      "id": "wait_tide_voice",
+      "kind": "narration",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "wait_tide"
+        }
+      ],
+      "path": "lighthouse/1.0.0/wait_tide_voice.ogg",
+      "alt_text": "共同结局旁白与完整字幕。",
+      "source": "TwoWorlds《跨时灯塔》1.0.0资源制作规格；实际文件尚未制作。",
+      "license": "未取得资源许可；仅为制作声明，禁止作为已授权素材发布。",
+      "transcript": "你们共同决定等待下一次潮汐。灯没有熄灭，跨越年代的守望仍在继续。"
+    }
+  ],
+  "presentation": [
+    {
+      "scene_id": "calibration",
+      "role": "a",
+      "background_asset_id": "old_tower",
+      "cues": [
+        {
+          "id": "a_calibration_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        },
+        {
+          "id": "a_opening",
+          "asset_ids": [
+            "opening_voice"
+          ],
+          "conditions": [],
+          "alt_text": "开场短旁白；完整文字可替代音频。"
+        },
+        {
+          "id": "a_emitter_setting",
+          "asset_ids": [
+            "emitter_click"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "a_maintenance_log",
+              "discovered": true
+            }
+          ],
+          "alt_text": "发射器角度与光型按已确认配置变化。"
+        }
+      ]
+    },
+    {
+      "scene_id": "calibration",
+      "role": "b",
+      "background_asset_id": "future_station",
+      "cues": [
+        {
+          "id": "b_calibration_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        },
+        {
+          "id": "b_opening",
+          "asset_ids": [
+            "opening_voice"
+          ],
+          "conditions": [],
+          "alt_text": "开场短旁白；完整文字可替代音频。"
+        },
+        {
+          "id": "b_receiver_setting",
+          "asset_ids": [
+            "receiver_tone"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            }
+          ],
+          "alt_text": "滤镜和信号按本人当前观察变化。"
+        },
+        {
+          "id": "b_blur_steady",
+          "asset_ids": [
+            "beam_blurred"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "steady"
+            }
+          ],
+          "alt_text": "连续光难以稳定辨认，落点仍模糊。"
+        },
+        {
+          "id": "b_blur_clear",
+          "asset_ids": [
+            "beam_blurred"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "pulse"
+            },
+            {
+              "kind": "device",
+              "device_id": "filter",
+              "field": "filter",
+              "equals": "clear"
+            }
+          ],
+          "alt_text": "透明滤镜下的脉冲太散，无法锁定。"
+        },
+        {
+          "id": "b_blur_blue",
+          "asset_ids": [
+            "beam_blurred"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "pulse"
+            },
+            {
+              "kind": "device",
+              "device_id": "filter",
+              "field": "filter",
+              "equals": "blue"
+            }
+          ],
+          "alt_text": "蓝色滤镜下的脉冲仍模糊，无法锁定。"
+        },
+        {
+          "id": "b_direction_0",
+          "asset_ids": [
+            "beam_0"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "angle",
+              "equals": 0
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "pulse"
+            },
+            {
+              "kind": "device",
+              "device_id": "filter",
+              "field": "filter",
+              "equals": "amber"
+            }
+          ],
+          "alt_text": "本人当前观察：暗礁。"
+        },
+        {
+          "id": "b_direction_90",
+          "asset_ids": [
+            "beam_90"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "angle",
+              "equals": 90
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "pulse"
+            },
+            {
+              "kind": "device",
+              "device_id": "filter",
+              "field": "filter",
+              "equals": "amber"
+            }
+          ],
+          "alt_text": "本人当前观察：内湾航道。"
+        },
+        {
+          "id": "b_direction_180",
+          "asset_ids": [
+            "beam_180"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "angle",
+              "equals": 180
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "pulse"
+            },
+            {
+              "kind": "device",
+              "device_id": "filter",
+              "field": "filter",
+              "equals": "amber"
+            }
+          ],
+          "alt_text": "本人当前观察：观测山。"
+        },
+        {
+          "id": "b_direction_270",
+          "asset_ids": [
+            "beam_270"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_sea_chart",
+              "discovered": true
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "angle",
+              "equals": 270
+            },
+            {
+              "kind": "device",
+              "device_id": "emitter",
+              "field": "pattern",
+              "equals": "pulse"
+            },
+            {
+              "kind": "device",
+              "device_id": "filter",
+              "field": "filter",
+              "equals": "amber"
+            }
+          ],
+          "alt_text": "本人当前观察：外海港。"
+        }
+      ]
+    },
+    {
+      "scene_id": "repair",
+      "role": "a",
+      "background_asset_id": "old_tower",
+      "cues": [
+        {
+          "id": "a_repair_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        },
+        {
+          "id": "a_signal_locked",
+          "asset_ids": [
+            "signal_lock"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "signal_locked",
+              "equals": true
+            }
+          ],
+          "alt_text": "稳定信号已锁定，进入检修阶段。"
+        },
+        {
+          "id": "a_power_arrives",
+          "asset_ids": [
+            "tower_powered",
+            "power_start"
+          ],
+          "conditions": [
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "tower"
+            }
+          ],
+          "alt_text": "来自另一端的能源点亮时钟箱，检修入口开放。"
+        },
+        {
+          "id": "a_power_to_shore",
+          "asset_ids": [
+            "tower_unpowered"
+          ],
+          "conditions": [
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "shore"
+            }
+          ],
+          "alt_text": "时钟箱没有电；请向搭档反馈。"
+        },
+        {
+          "id": "a_power_to_station",
+          "asset_ids": [
+            "tower_unpowered"
+          ],
+          "conditions": [
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "observatory"
+            }
+          ],
+          "alt_text": "时钟箱没有电；请向搭档反馈。"
+        },
+        {
+          "id": "a_clock_repaired",
+          "asset_ids": [
+            "clock_running"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "clock_repaired",
+              "equals": true
+            }
+          ],
+          "alt_text": "齿轮修复完成；该成果不会因改变供电而消失。"
+        },
+        {
+          "id": "a_clock_ticking",
+          "asset_ids": [
+            "clock_tick"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "clock_repaired",
+              "equals": true
+            },
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "tower"
+            }
+          ],
+          "alt_text": "时钟有电并恢复运转。"
+        }
+      ]
+    },
+    {
+      "scene_id": "repair",
+      "role": "b",
+      "background_asset_id": "future_station",
+      "cues": [
+        {
+          "id": "b_repair_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        },
+        {
+          "id": "b_signal_locked",
+          "asset_ids": [
+            "signal_lock"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "signal_locked",
+              "equals": true
+            }
+          ],
+          "alt_text": "稳定信号已锁定，进入检修阶段。"
+        },
+        {
+          "id": "b_router_setting",
+          "asset_ids": [
+            "power_panel"
+          ],
+          "conditions": [],
+          "alt_text": "能源流向按当前确认配置显示，可逆调整。"
+        },
+        {
+          "id": "b_scan_ready",
+          "asset_ids": [
+            "route_scan",
+            "scan_ready"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "clock_repaired",
+              "equals": true
+            },
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "tower"
+            }
+          ],
+          "alt_text": "另一端修复完成，当前供电支持扫描：内湾信号稳定。"
+        },
+        {
+          "id": "b_scan_before_repair",
+          "asset_ids": [
+            "scan_unavailable"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "clock_repaired",
+              "equals": false
+            }
+          ],
+          "alt_text": "时钟还未修好，请等待另一端检修。"
+        },
+        {
+          "id": "b_scan_without_tower_shore",
+          "asset_ids": [
+            "scan_unavailable"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "clock_repaired",
+              "equals": true
+            },
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "shore"
+            }
+          ],
+          "alt_text": "维修记录保留，但能源未送至灯塔，扫描不可用。"
+        },
+        {
+          "id": "b_scan_without_tower_station",
+          "asset_ids": [
+            "scan_unavailable"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "clock_repaired",
+              "equals": true
+            },
+            {
+              "kind": "device",
+              "device_id": "power_router",
+              "field": "target",
+              "equals": "observatory"
+            }
+          ],
+          "alt_text": "维修记录保留，但能源未送至灯塔，扫描不可用。"
+        }
+      ]
+    },
+    {
+      "scene_id": "decision",
+      "role": "a",
+      "background_asset_id": "old_tower",
+      "cues": [
+        {
+          "id": "a_decision_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        }
+      ]
+    },
+    {
+      "scene_id": "decision",
+      "role": "b",
+      "background_asset_id": "future_station",
+      "cues": [
+        {
+          "id": "b_decision_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        }
+      ]
+    },
+    {
+      "scene_id": "completed",
+      "role": "a",
+      "background_asset_id": "old_tower",
+      "cues": [
+        {
+          "id": "a_completed_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        },
+        {
+          "id": "a_guide_now",
+          "asset_ids": [
+            "guide_now_a",
+            "guide_now_voice",
+            "departure_horn"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "guide_now"
+            }
+          ],
+          "alt_text": "按已确定的共同结局展示本人画面、公开旁白与字幕；可跳过并查看静态结果。"
+        },
+        {
+          "id": "a_wait_tide",
+          "asset_ids": [
+            "wait_tide_a",
+            "wait_tide_voice",
+            "departure_horn"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "wait_tide"
+            }
+          ],
+          "alt_text": "按已确定的共同结局展示本人画面、公开旁白与字幕；可跳过并查看静态结果。"
+        }
+      ]
+    },
+    {
+      "scene_id": "completed",
+      "role": "b",
+      "background_asset_id": "future_station",
+      "cues": [
+        {
+          "id": "b_completed_ambience",
+          "asset_ids": [
+            "sea_wind"
+          ],
+          "conditions": [],
+          "alt_text": "可选海风与浪声，不包含解谜信息。"
+        },
+        {
+          "id": "b_guide_now",
+          "asset_ids": [
+            "guide_now_b",
+            "guide_now_voice",
+            "departure_horn"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "guide_now"
+            }
+          ],
+          "alt_text": "按已确定的共同结局展示本人画面、公开旁白与字幕；可跳过并查看静态结果。"
+        },
+        {
+          "id": "b_wait_tide",
+          "asset_ids": [
+            "wait_tide_b",
+            "wait_tide_voice",
+            "departure_horn"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "wait_tide"
+            }
+          ],
+          "alt_text": "按已确定的共同结局展示本人画面、公开旁白与字幕；可跳过并查看静态结果。"
+        }
+      ]
+    }
+  ]
+}
