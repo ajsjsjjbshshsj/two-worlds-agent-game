@@ -23,7 +23,7 @@ PR #6已重新核实合并，最新远端基线`90cba7c0513109a8fcda360467b5bddd
 - [x] 实现models/errors/engine、mechanics/common与lighthouse，只处理T02动作。
 - [x] 证明两个结局、角色独有贡献、双向反馈、严格参数、失败不变、配置恢复与版本规则。
 - [x] 新增、内容、全量后端及Ruff检查完成，更新文档/交接。
-- [ ] 提交并创建本轮PR，停下等待用户手动审查/合并和学习。
+- [x] 已提交并创建[PR #7](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/7)，停下等待用户手动审查/合并和学习。
 
 ## 实测记录
 
