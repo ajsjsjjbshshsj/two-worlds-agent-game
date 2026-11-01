@@ -12,7 +12,7 @@
 - [x] 先写正式文件加载/完整性测试并确认缺少正式内容时失败。
 - [x] 新建`backend/src/twoworlds/content/scripts/lighthouse/1.0.0.json`，通过既有`ScriptLoader(root).load("lighthouse", "1.0.0")`加载。
 - [x] 运行新增内容测试、全部内容测试、全量后端测试与格式/依赖检查；分别报告结果。
-- [ ] 更新任务、验收、学习入口与交接，检查文件范围；提交、推送并创建PR供用户手动合并，然后停止。
+- [x] 更新任务、验收、学习入口与交接，检查11个文件范围；提交、推送并创建[PR #5](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/5)供用户手动合并，停在本环节。
 
 ### 内容如何对应既定玩法
 
