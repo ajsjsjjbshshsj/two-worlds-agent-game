@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-当前已有内容基础设施与T02灯塔纯规则；123个领域、191个内容测试通过，另38个契约因缺API/SQLite实现失败。灯塔缺28项媒体和授权，仍未发布、目录为空；玩家投影、业务路由、数据库和AI尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
+当前已有内容基础设施、T02灯塔纯规则及T03.1个人投影；213个领域、191个内容测试通过，另38个契约因缺API/SQLite实现失败。灯塔缺28项媒体和授权，仍未发布、目录为空；T03.2分享/回顾、业务路由、数据库和AI尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
 
 ## 1. 先看这几个文件
 
@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 仅模块边界 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 仅模块边界 |
-| src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔纯规则已实现；玩家投影/分享/回顾留给T03 |
+| src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔纯规则与个人投影已实现；分享/回顾留给T03.2 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | 仅模块边界 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 仅模块边界 |
@@ -25,7 +25,7 @@
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
-| tests/domain | 真实内容驱动的纯规则 | T02新增123项，含两个结局、54个可达世界、拒绝不变与依赖隔离 |
+| tests/domain | 真实内容驱动的纯规则与投影 | T02规则123项+T03.1投影90项通过，含不可变、因果、权限与依赖隔离 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -79,7 +79,9 @@ with packaged_content() as content:
 
 T02使用`domain.engine.create_initial_state(script)`初始化，再由`apply_command(state, script, actor_role, {kind,args})`返回可解包的`CommandResult(state,events)`。输入与嵌套值不可变，实际变化才version+1，所有事件绑定该新版本；错误抛`DomainError.code`。完整状态/事件只是服务端领域结果，不能直接作为玩家响应；actor_role须由后续身份/成员服务提供。
 
-从项目根运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain -q --basetemp=work/pytest-t02-local`应123通过。阅读顺序：`domain/models.py` → `engine.py` → `mechanics/common.py` → `mechanics/lighthouse.py` → `tests/domain/test_lighthouse.py`。完整12步/不同探索顺序16步演示及拒绝/版本说明见[规则报告](../docs/reports/lighthouse-engine.md)。本轮没有重建发行包，旧打包产物不作为本轮代码已安装的证据。
+单独运行T02测试：`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_lighthouse.py -q --basetemp=work/pytest-t02-local`为123通过。阅读顺序：`domain/models.py` → `engine.py` → `mechanics/common.py` → `mechanics/lighthouse.py` → `tests/domain/test_lighthouse.py`。完整12步/不同探索顺序16步演示及拒绝/版本说明见[规则报告](../docs/reports/lighthouse-engine.md)。
+
+T03.1的`domain.projection.project_save(state,script,role)`先调用与命令共用的`engine.validate_state`，再构造独立冻结PlayerSnapshot，输出本人/合法共享线索、本人装置/观察、当前可用动作和获准媒体引用。装置内部是冻结行，JSON为对象；对话严格为空，不虚构历史。运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_projection.py -q --basetemp=work/pytest-projection-local`为90通过；全部domain为213通过。关键结构、可复制A/B比较演示与完整404通过/38历史失败见[投影报告](../docs/reports/player-projection.md)。没有分享命令、公共回顾、媒体读取/播放、身份/HTTP/WS/AI集成；本轮未重建wheel/sdist，旧产物不作为新代码的安装证据。
 
 ## 5. 依赖策略
 

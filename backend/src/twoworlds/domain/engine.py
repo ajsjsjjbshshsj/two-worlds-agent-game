@@ -12,6 +12,11 @@ from .models import CommandResult, DeviceState, DomainEvent, GameState, StateVal
 def _require_script(script: ScriptVersion) -> None:
     if not isinstance(script, ScriptVersion):
         raise DomainError("INVALID_SCRIPT")
+    try:
+        # model_copy/construct可绕过Schema；命令与投影都不能信任未校验的引用。
+        ScriptVersion.model_validate(script.model_dump(mode="python", warnings=False))
+    except (ValidationError, TypeError, KeyError, AttributeError):
+        raise DomainError("INVALID_SCRIPT") from None
     if script.metadata.id != "lighthouse":
         raise DomainError("SCRIPT_UNSUPPORTED")
 
@@ -117,15 +122,16 @@ def _validate_state(state: GameState, script: ScriptVersion) -> None:
         raise DomainError("INVALID_STATE")
 
 
-def apply_command(
-    state: GameState, script: ScriptVersion, actor_role: str, action: dict
-) -> CommandResult:
+def validate_state(state: GameState, script: ScriptVersion) -> GameState:
+    """命令/投影共用的完整状态边界；返回重新校验的冻结值，不修改输入。"""
     _require_script(script)
     if not isinstance(state, GameState):
         raise DomainError("INVALID_STATE")
     try:
         # 即使调用方用了model_copy/construct绕过字段校验，这里也不接受坏快照。
-        state = GameState.model_validate(state.model_dump(mode="python"))
+        state = GameState.model_validate(
+            state.model_dump(mode="python", warnings=False)
+        )
         if (state.script_id, state.script_version) != (
             script.metadata.id,
             script.metadata.content_version,
@@ -134,6 +140,13 @@ def apply_command(
         _validate_state(state, script)
     except (ValidationError, StopIteration, KeyError, TypeError):
         raise DomainError("INVALID_STATE") from None
+    return state
+
+
+def apply_command(
+    state: GameState, script: ScriptVersion, actor_role: str, action: dict
+) -> CommandResult:
+    state = validate_state(state, script)
     if type(actor_role) is not str or actor_role not in {"a", "b"}:
         raise DomainError("ROLE_FORBIDDEN")
     if (

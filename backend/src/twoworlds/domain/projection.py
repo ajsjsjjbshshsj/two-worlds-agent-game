@@ -1,0 +1,267 @@
+"""从完整世界逐字段构造个人展示值；不输出内部规则、文件路径或伙伴秘密。"""
+
+from typing import Annotated, Literal
+
+from pydantic import Field, StrictBool, StrictInt, field_serializer, field_validator
+
+from twoworlds.content.schema import (
+    ContentModel,
+    Identifier,
+    PositiveInt,
+    Role,
+    Scalar,
+    ScriptVersion,
+    Text,
+    Version,
+)
+
+from .engine import validate_state
+from .errors import DomainError
+from .mechanics.common import conditions_met
+from .models import GameState
+
+
+class ClueView(ContentModel):
+    id: Identifier
+    text: Text
+
+
+class DeviceFieldView(ContentModel):
+    id: Identifier
+    value: Scalar
+
+
+class DeviceView(ContentModel):
+    id: Identifier
+    fields: tuple[DeviceFieldView, ...]
+
+
+class ObservationView(ContentModel):
+    topic: Identifier
+    text: Text
+
+
+class PublicView(ContentModel):
+    clues: tuple[ClueView, ...]
+    ending: Identifier | None
+
+
+class PersonalView(ContentModel):
+    clues: tuple[ClueView, ...]
+    # T03.1没有对话存储；仅允许空值，不借展示模型引入虚构历史。
+    dialogue: tuple[()] = ()
+    devices: tuple[DeviceView, ...]
+    observations: tuple[ObservationView, ...]
+
+    @field_serializer("devices")
+    def device_object(
+        self, devices: tuple[DeviceView, ...]
+    ) -> dict[str, dict[str, Scalar]]:
+        # 内部保持嵌套冻结；每次序列化才新建既定JSON装置对象，不共享字典。
+        return {
+            item.id: {field.id: field.value for field in item.fields}
+            for item in devices
+        }
+
+    @field_validator("devices", mode="before")
+    @classmethod
+    def read_device_object(cls, value):
+        if type(value) is dict:
+            if any(
+                type(identifier) is not str
+                or type(fields) is not dict
+                or any(type(field) is not str for field in fields)
+                for identifier, fields in value.items()
+            ):
+                raise ValueError("devices must map string IDs to field objects")
+            return tuple(
+                {
+                    "id": identifier,
+                    "fields": tuple(
+                        {"id": field, "value": current}
+                        for field, current in sorted(fields.items())
+                    ),
+                }
+                for identifier, fields in sorted(value.items())
+            )
+        return value
+
+
+class ParameterView(ContentModel):
+    id: Identifier
+    value_type: Literal["boolean", "integer", "string"]
+    choices: tuple[Scalar, ...]
+    max_length: PositiveInt | None
+
+
+class ActionView(ContentModel):
+    id: Identifier
+    kind: Identifier
+    parameters: tuple[ParameterView, ...]
+
+
+class MediaReference(ContentModel):
+    asset_id: Identifier
+    kind: Literal["image", "ambience", "sfx", "narration"]
+    alt_text: Text
+    transcript: Text | None
+
+
+class CueView(ContentModel):
+    id: Identifier
+    alt_text: Text
+    assets: tuple[MediaReference, ...]
+
+
+class PresentationView(ContentModel):
+    background: MediaReference | None
+    cues: tuple[CueView, ...]
+
+
+class PlayerSnapshot(ContentModel):
+    """独立的个人快照，不继承或嵌入GameState/ScriptVersion。"""
+
+    script_id: Identifier
+    script_version: Version
+    version: Annotated[StrictInt, Field(ge=0)]
+    role: Role
+    scene_id: Identifier
+    completed: StrictBool
+    public: PublicView
+    personal: PersonalView
+    available_actions: tuple[ActionView, ...]
+    presentation: PresentationView
+
+
+def _actions(
+    state: GameState, script: ScriptVersion, role: Role
+) -> tuple[ActionView, ...]:
+    if state.completed:
+        return ()
+    return tuple(
+        ActionView(
+            id=action.id,
+            kind=action.kind,
+            parameters=tuple(
+                ParameterView(
+                    id=parameter.id,
+                    value_type=parameter.value_type,
+                    choices=tuple(choice for choice in parameter.choices),
+                    max_length=parameter.max_length,
+                )
+                for parameter in sorted(action.parameters, key=lambda item: item.id)
+            ),
+        )
+        for action in sorted(script.actions, key=lambda item: item.id)
+        if role in action.roles
+        and state.scene_id in action.scene_ids
+        and conditions_met(state, action.preconditions)
+    )
+
+
+def _presentation(
+    state: GameState, script: ScriptVersion, role: Role
+) -> PresentationView:
+    view = next(
+        item
+        for item in script.presentation
+        if item.scene_id == state.scene_id and item.role == role
+    )
+    assets = {item.id: item for item in script.media}
+
+    def reference(identifier: str) -> MediaReference | None:
+        asset = assets[identifier]
+        if (
+            asset.audience not in {"public", role}
+            or state.scene_id not in asset.scene_ids
+            or not conditions_met(state, asset.conditions)
+        ):
+            return None
+        return MediaReference(
+            asset_id=asset.id,
+            kind=asset.kind,
+            alt_text=asset.alt_text,
+            transcript=asset.transcript,
+        )
+
+    cues = []
+    for cue in sorted(view.cues, key=lambda item: item.id):
+        if not conditions_met(state, cue.conditions):
+            continue
+        allowed = tuple(
+            media
+            for identifier in cue.asset_ids
+            if (media := reference(identifier)) is not None
+        )
+        # 不返回空演出的ID/文字；它也可能透露尚未开放的内容。
+        if allowed:
+            cues.append(CueView(id=cue.id, alt_text=cue.alt_text, assets=allowed))
+    return PresentationView(
+        background=reference(view.background_asset_id), cues=tuple(cues)
+    )
+
+
+def project_save(state: GameState, script: ScriptVersion, role: str) -> PlayerSnapshot:
+    """role须由可信调用方提供；本函数只做内容权限投影，不执行身份认证。"""
+    state = validate_state(state, script)
+    if type(role) is not str or role not in {"a", "b"}:
+        raise DomainError("ROLE_FORBIDDEN")
+    scene = next(item for item in script.scenes if item.id == state.scene_id)
+    clues = sorted(script.clues, key=lambda item: item.id)
+    devices = {item.id: item for item in state.devices}
+    return PlayerSnapshot(
+        script_id=state.script_id,
+        script_version=state.script_version,
+        version=state.version,
+        role=role,
+        scene_id=state.scene_id,
+        completed=state.completed,
+        public=PublicView(
+            clues=tuple(
+                ClueView(id=clue.id, text=clue.text)
+                for clue in clues
+                if clue.id in state.shared_clues
+            ),
+            ending=state.ending_id if state.completed else None,
+        ),
+        personal=PersonalView(
+            clues=tuple(
+                ClueView(id=clue.id, text=clue.text)
+                for clue in clues
+                if clue.role == role and clue.id in state.discovered_clues
+            ),
+            devices=tuple(
+                DeviceView(
+                    id=definition.id,
+                    fields=tuple(
+                        DeviceFieldView(
+                            id=field.id,
+                            value=next(
+                                item.value
+                                for item in devices[definition.id].fields
+                                if item.id == field.id
+                            ),
+                        )
+                        for field in sorted(definition.fields, key=lambda item: item.id)
+                    ),
+                )
+                for definition in sorted(script.devices, key=lambda item: item.id)
+                if definition.role == role
+            ),
+            observations=(
+                ObservationView(
+                    topic="scene",
+                    text=next(
+                        item.text for item in scene.observations if item.role == role
+                    ),
+                ),
+            )
+            + tuple(
+                ObservationView(topic=item.topic, text=item.text)
+                for item in sorted(state.observations, key=lambda item: item.topic)
+                if item.audience == role
+            ),
+        ),
+        available_actions=_actions(state, script, role),
+        presentation=_presentation(state, script, role),
+    )
