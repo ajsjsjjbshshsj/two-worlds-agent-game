@@ -4,32 +4,54 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, StrictInt, StrictStr, StringConstraints, field_validator, model_validator
+from pydantic import (
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
-from twoworlds.content.schema import ContentModel, Identifier, Role, Version
+from twoworlds.content.schema import ContentModel, Identifier, Role, Text, Version
 from twoworlds.domain.models import GameState
 from twoworlds.domain.recap import PublicHistory
 
 Digest = Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-DisplayName = Annotated[StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
-Question = Annotated[StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+DisplayName = Annotated[
+    StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)
+]
+Question = Annotated[
+    StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
+]
 
 
-def _utc(value: datetime) -> datetime:
+def _utc(value: object) -> datetime:
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if not isinstance(value, datetime):
+        raise ValueError("timestamp must be an ISO datetime or datetime object")
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp must include a timezone")
-    return value.astimezone(timezone.utc)
+    try:
+        return value.astimezone(timezone.utc)
+    except OverflowError:
+        raise ValueError("timestamp is outside the UTC range") from None
 
 
-class SessionRecord(ContentModel):
+UTCDateTime = Annotated[datetime, BeforeValidator(_utc)]
+
+
+class _Record(ContentModel):
+    model_config = ConfigDict(revalidate_instances="always")
+
+
+class SessionRecord(_Record):
     token_digest: Digest
-    created_at: datetime
-    expires_at: datetime
-
-    @field_validator("created_at", "expires_at")
-    @classmethod
-    def normalize_time(cls, value: datetime) -> datetime:
-        return _utc(value)
+    created_at: UTCDateTime
+    expires_at: UTCDateTime
 
     @model_validator(mode="after")
     def check_expiry(self):
@@ -38,19 +60,14 @@ class SessionRecord(ContentModel):
         return self
 
 
-class AccountRecord(ContentModel):
+class AccountRecord(_Record):
     id: Identifier
     display_name: DisplayName
     recovery_digest: Digest
     sessions: Annotated[tuple[SessionRecord, ...], Field(max_length=5)] = ()
     version: Annotated[StrictInt, Field(ge=0)] = 0
-    created_at: datetime
-    updated_at: datetime
-
-    @field_validator("created_at", "updated_at")
-    @classmethod
-    def normalize_time(cls, value: datetime) -> datetime:
-        return _utc(value)
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
     @model_validator(mode="after")
     def check_account(self):
@@ -62,20 +79,15 @@ class AccountRecord(ContentModel):
         return self
 
 
-class PairRecord(ContentModel):
+class PairRecord(_Record):
     id: Identifier
     member_a: Identifier
     member_b: Identifier | None = None
     invite_digest: Digest
-    invite_expires_at: datetime
+    invite_expires_at: UTCDateTime
     version: Annotated[StrictInt, Field(ge=0)] = 0
-    created_at: datetime
-    updated_at: datetime
-
-    @field_validator("invite_expires_at", "created_at", "updated_at")
-    @classmethod
-    def normalize_time(cls, value: datetime) -> datetime:
-        return _utc(value)
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
     @model_validator(mode="after")
     def check_pair(self):
@@ -83,36 +95,28 @@ class PairRecord(ContentModel):
             raise ValueError("a member cannot join their own pair")
         if self.updated_at < self.created_at:
             raise ValueError("pair updated_at precedes created_at")
+        if self.invite_expires_at <= self.created_at:
+            raise ValueError("invite expiry must be after pair creation")
         return self
 
 
-class DialogueTurn(ContentModel):
+class DialogueTurn(_Record):
     role: Role
     question: Question
-    answer: StrictStr
-    mode: Literal["demo", "provider"]
-    created_at: datetime
-
-    @field_validator("created_at")
-    @classmethod
-    def normalize_time(cls, value: datetime) -> datetime:
-        return _utc(value)
+    answer: Text
+    mode: Literal["demo", "provider", "fallback"]
+    created_at: UTCDateTime
 
 
-class CommandReceipt(ContentModel):
+class CommandReceipt(_Record):
     actor_id: Identifier
     request_id: UUID
     fingerprint: Digest
     accepted_version: Annotated[StrictInt, Field(gt=0)]
-    created_at: datetime
-
-    @field_validator("created_at")
-    @classmethod
-    def normalize_time(cls, value: datetime) -> datetime:
-        return _utc(value)
+    created_at: UTCDateTime
 
 
-class SaveRecord(ContentModel):
+class SaveRecord(_Record):
     """One room/story aggregate; state, public history and receipts move together."""
 
     id: Identifier
@@ -124,20 +128,25 @@ class SaveRecord(ContentModel):
     public_history: PublicHistory
     dialogues: Annotated[tuple[DialogueTurn, ...], Field(max_length=40)] = ()
     receipts: Annotated[tuple[CommandReceipt, ...], Field(max_length=512)] = ()
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
-    @field_validator("created_at", "updated_at")
+    @field_validator("state", "public_history", mode="before")
     @classmethod
-    def normalize_time(cls, value: datetime) -> datetime:
-        return _utc(value)
+    def revalidate_domain_values(cls, value: object) -> object:
+        # These domain models do not revalidate instances built with model_copy/construct.
+        if isinstance(value, (GameState, PublicHistory)):
+            return value.model_dump(mode="python", warnings=False)
+        return value
 
     @model_validator(mode="after")
     def check_aggregate(self):
         if self.updated_at < self.created_at:
             raise ValueError("save updated_at precedes created_at")
         if (self.state.script_id, self.state.script_version, self.state.version) != (
-            self.script_id, self.script_version, self.version
+            self.script_id,
+            self.script_version,
+            self.version,
         ):
             raise ValueError("save and game state identity/version differ")
         if (

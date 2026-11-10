@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容基础设施、灯塔规则、个人投影、T03.2 公共分享与回顾，以及 T04.1 持久化模型/序列化协议。T04.1 的测试已编写但尚未执行；原有 38 项契约仍因缺 API/SQLite 实现失败。领域源码位于 `src/twoworlds`。[T03.2 报告](../docs/reports/sharing-recap.md)
+后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾，以及 T04.1 持久化模型和序列化协议。专项 45 项、领域 297 项、内容 191 项通过。全量后端的 38 项失败来自原有的 API/SQLite 契约缺实现。[T04.1 报告](../docs/reports/persistence-models.md)
 
 ## 1. 先看这几个文件
 
@@ -90,4 +90,4 @@ T03.1 的 `project_save(state, script, role)` 使用与命令共用的 `engine.v
 Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。构建系统额外显式要求同版本Pydantic2.14.1，以便隔离构建复用发布/Schema校验；运行依赖没有增加，uv.lock保持不变。当前包只在本地构建/安装验证，没有发布到PyPI。
 
 
-T04.1 持久化模型阅读入口：`src/twoworlds/domain/persistence.py` 定义 AccountRecord、PairRecord、SaveRecord 与 CommandReceipt；`src/twoworlds/ports/repository.py` 定义 SQLite/Mongo 共用契约；`src/twoworlds/storage/serialization.py` 负责严格 JSON。测试位于 `tests/domain/test_persistence.py`。本轮测试尚未执行，不能把模型已写入 PR 描述成 SQLite 已持久化。
+先从 `src/twoworlds/domain/persistence.py` 阅读 SaveRecord 的版本绑定，再看 `src/twoworlds/storage/serialization.py` 的读写校验和 `src/twoworlds/ports/repository.py` 的原子写入契约。测试位于 `tests/domain/test_persistence.py`，其中包含真实灯塔进度、公共历史、两角色回执和中文对话的 JSON 往返。[复现命令](../docs/reports/persistence-models.md)

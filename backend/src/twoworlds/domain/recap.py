@@ -4,7 +4,7 @@ from collections import deque
 from collections.abc import Sequence
 from typing import Annotated, Literal
 
-from pydantic import Field, StrictInt, ValidationError
+from pydantic import Field, StrictInt, ValidationError, model_validator
 
 from twoworlds.content.schema import (
     ContentModel,
@@ -70,6 +70,32 @@ class PublicHistory(ContentModel):
     milestones: Annotated[
         tuple[PublicMilestone, ...], Field(max_length=MILESTONE_LIMIT)
     ] = ()
+
+    @model_validator(mode="after")
+    def check_structure(self):
+        """Check the persisted window independently of the pinned script."""
+        first = max(1, self.event_count - EVENT_LIMIT + 1)
+        if tuple(event.ordinal for event in self.events) != tuple(
+            range(first, self.event_count + 1)
+        ):
+            raise ValueError("public event window is incomplete")
+        for items in (self.events, self.milestones):
+            previous_version, previous_ordinal = 0, 0
+            for item in items:
+                if not (
+                    previous_version <= item.version <= self.through_version
+                    and previous_ordinal < item.ordinal <= self.event_count
+                ):
+                    raise ValueError("public history versions or ordinals are invalid")
+                previous_version, previous_ordinal = item.version, item.ordinal
+        versions = {event.ordinal: event.version for event in self.events}
+        for step in self.milestones:
+            if self.events and step.ordinal < first:
+                if step.version > self.events[0].version:
+                    raise ValueError("older milestone follows the event window")
+            elif versions.get(step.ordinal) != step.version:
+                raise ValueError("milestone and retained event versions differ")
+        return self
 
 
 class RecapStep(PublicMilestone):
@@ -161,27 +187,7 @@ def _validate_history(history: PublicHistory, script: ScriptVersion):
         script.metadata.content_version,
     ):
         raise DomainError("INVALID_PUBLIC_HISTORY")
-    first = max(1, history.event_count - EVENT_LIMIT + 1)
-    if tuple(event.ordinal for event in history.events) != tuple(
-        range(first, history.event_count + 1)
-    ):
-        raise DomainError("INVALID_PUBLIC_HISTORY")
-    for items in (history.events, history.milestones):
-        previous_version, previous_ordinal = 0, 0
-        for item in items:
-            if not (
-                previous_version <= item.version <= history.through_version
-                and previous_ordinal < item.ordinal <= history.event_count
-            ):
-                raise DomainError("INVALID_PUBLIC_HISTORY")
-            previous_version, previous_ordinal = item.version, item.ordinal
-
     steps = _timeline(history, script)
-    if history.events and any(
-        step.ordinal < first and step.version > history.events[0].version
-        for step in steps
-    ):
-        raise DomainError("INVALID_PUBLIC_HISTORY")
     by_ordinal = {item.ordinal: item for item in steps}
     observations = _public_observations(script)
     for event in history.events:

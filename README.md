@@ -2,7 +2,7 @@
 
 > 版本：v0.2 设计提案 · 2026-10-26  
 > 项目目录：`F:\two-worlds-agent-game`  
-> 2026-11-10 · T03.2 已合并。T04.1 已定义持久化聚合模型、Repository Protocol 与严格 JSON 序列化；T04.1 测试尚未执行，SQLite 事务待 T04.2。[T04.1 报告](docs/reports/persistence-models.md)
+> 2026-11-10 · T04.1 持久化模型与 JSON 边界已在 PR #10 复核。专项 45 项、领域 297 项、内容 191 项通过。SQLite 事务和并发验收属于 T04.2。[T04.1 报告](docs/reports/persistence-models.md)
 
 TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本平台。两个人进入同一剧本，拥有不同的观察信息与操作能力，通过探索、试验和交流改变彼此的世界。平台提供多个剧本，每个剧本保存各自的进度和记忆，手机与电脑可以继续同一段旅程。
 
