@@ -360,8 +360,9 @@ def test_invalid_actor_roles_are_rejected(role):
     "kind",
     ["share_clue", "request_hint", "talk", "set_fact", "complete_game", "eval_python"],
 )
-def test_commands_outside_t02_have_no_authority(kind):
-    reject(fresh(), "a", kind, code="UNKNOWN_ACTION")
+def test_commands_without_valid_arguments_or_definition_have_no_authority(kind):
+    code = "INVALID_ARGUMENTS" if kind == "share_clue" else "UNKNOWN_ACTION"
+    reject(fresh(), "a", kind, code=code)
 
 
 def test_disagreement_revote_and_repeat_vote_behave_as_state_changes():

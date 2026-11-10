@@ -1,12 +1,14 @@
 """纯函数命令边界；不访问文件、网络、数据库、时钟或AI。"""
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from twoworlds.content.schema import ScriptVersion
+from twoworlds.content.schema import Identifier, ScriptVersion
 
 from .errors import DomainError
 from .mechanics import common, lighthouse
 from .models import CommandResult, DeviceState, DomainEvent, GameState, StateValue
+
+_CLUE_ID = TypeAdapter(Identifier)
 
 
 def _require_script(script: ScriptVersion) -> ScriptVersion:
@@ -21,6 +23,11 @@ def _require_script(script: ScriptVersion) -> ScriptVersion:
         raise DomainError("INVALID_SCRIPT") from None
     if validated.metadata.id != "lighthouse":
         raise DomainError("SCRIPT_UNSUPPORTED")
+    if any(
+        action.kind == "share_clue" or action.id == "share_clue"
+        for action in validated.actions
+    ):
+        raise DomainError("INVALID_SCRIPT")
     return validated
 
 
@@ -169,11 +176,70 @@ def apply_command(
         raise DomainError("INVALID_COMMAND")
     if state.completed:
         raise DomainError("SAVE_COMPLETED")
+    if action["kind"] == "share_clue":
+        return _share_clue(state, script, actor_role, action["args"])
     try:
         return _apply_supported_command(state, script, actor_role, action)
     except (StopIteration, KeyError, ValidationError, TypeError):
         # Schema合法不代表新机关值已经有处理器；仍按领域错误拒绝，原状态未改。
         raise DomainError("INVALID_SCRIPT") from None
+
+
+def shareable_clue_ids(
+    state: GameState, script: ScriptVersion, role: str
+) -> tuple[str, ...]:
+    if state.completed:
+        return ()
+    return tuple(
+        sorted(
+            clue.id
+            for clue in script.clues
+            if clue.role == role
+            and clue.shareable
+            and clue.id in state.discovered_clues
+            and clue.id not in state.shared_clues
+        )
+    )
+
+
+def _share_clue(
+    state: GameState, script: ScriptVersion, role: str, args: dict
+) -> CommandResult:
+    if set(args) != {"clue_id"} or type(args["clue_id"]) is not str:
+        raise DomainError("INVALID_ARGUMENTS")
+    try:
+        clue_id = _CLUE_ID.validate_python(args["clue_id"])
+    except ValidationError:
+        raise DomainError("INVALID_ARGUMENTS") from None
+    clue = next(
+        (clue for clue in script.clues if clue.id == clue_id and clue.role == role),
+        None,
+    )
+    if clue is None or clue.id not in state.discovered_clues:
+        raise DomainError("CLUE_NOT_DISCOVERED")
+    if not clue.shareable:
+        raise DomainError("CLUE_NOT_SHAREABLE")
+    if clue_id in state.shared_clues:
+        raise DomainError("NO_STATE_CHANGE")
+    version = state.version + 1
+    candidate = state.model_copy(
+        update={
+            "shared_clues": tuple(sorted((*state.shared_clues, clue_id))),
+            "version": version,
+        }
+    )
+    return CommandResult(
+        candidate,
+        (
+            DomainEvent(
+                kind="clue_shared",
+                audience="public",
+                subject_id=clue_id,
+                text=clue.text,
+                version=version,
+            ),
+        ),
+    )
 
 
 def _apply_supported_command(

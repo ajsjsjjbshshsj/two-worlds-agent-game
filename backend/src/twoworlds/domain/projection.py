@@ -15,10 +15,17 @@ from twoworlds.content.schema import (
     Version,
 )
 
-from .engine import validate_state_and_script
+from .engine import shareable_clue_ids, validate_state_and_script
 from .errors import DomainError
 from .mechanics.common import conditions_met
 from .models import GameState
+from .recap import (
+    PUBLIC_PROGRESS_FACTS,
+    PublicEvent,
+    PublicHistory,
+    PublicRecap,
+    read_public_history,
+)
 
 
 class ClueView(ContentModel):
@@ -44,6 +51,8 @@ class ObservationView(ContentModel):
 class PublicView(ContentModel):
     clues: tuple[ClueView, ...]
     ending: Identifier | None
+    events: tuple[PublicEvent, ...] = ()
+    recap: PublicRecap = PublicRecap()
 
 
 class PersonalView(ContentModel):
@@ -138,7 +147,7 @@ def _actions(
 ) -> tuple[ActionView, ...]:
     if state.completed:
         return ()
-    return tuple(
+    actions = [
         ActionView(
             id=action.id,
             kind=action.kind,
@@ -156,7 +165,24 @@ def _actions(
         if role in action.roles
         and state.scene_id in action.scene_ids
         and conditions_met(state, action.preconditions)
-    )
+    ]
+    choices = shareable_clue_ids(state, script, role)
+    if choices:
+        actions.append(
+            ActionView(
+                id="share_clue",
+                kind="share_clue",
+                parameters=(
+                    ParameterView(
+                        id="clue_id",
+                        value_type="string",
+                        choices=choices,
+                        max_length=64,
+                    ),
+                ),
+            )
+        )
+    return tuple(sorted(actions, key=lambda action: action.id))
 
 
 def _presentation(
@@ -201,11 +227,45 @@ def _presentation(
     )
 
 
-def project_save(state: GameState, script: ScriptVersion, role: str) -> PlayerSnapshot:
+def project_save(
+    state: GameState,
+    script: ScriptVersion,
+    role: str,
+    public_history: PublicHistory | None = None,
+) -> PlayerSnapshot:
     """role须由可信调用方提供；本函数只做内容权限投影，不执行身份认证。"""
     state, script = validate_state_and_script(state, script)
     if type(role) is not str or role not in {"a", "b"}:
         raise DomainError("ROLE_FORBIDDEN")
+    events, recap = (), PublicRecap()
+    if public_history is not None:
+        history, recap = read_public_history(public_history, script, state.ending_id)
+        scenes = [
+            step.subject_id for step in recap.milestones if step.kind == "scene_entered"
+        ]
+        shared = {
+            step.subject_id for step in recap.milestones if step.kind == "clue_shared"
+        }
+        facts = {
+            step.kind for step in recap.milestones if step.kind in PUBLIC_PROGRESS_FACTS
+        }
+        expected_facts = {
+            fact.id
+            for fact in script.facts
+            if fact.audience == "public"
+            and fact.id in PUBLIC_PROGRESS_FACTS
+            and state.fact(fact.id) is True
+            and fact.initial_value is not True
+        }
+        if (
+            history.through_version != state.version
+            or (scenes[-1] if scenes else script.initial_state.scene_id)
+            != state.scene_id
+            or shared != set(state.shared_clues)
+            or facts != expected_facts
+        ):
+            raise DomainError("INVALID_PUBLIC_HISTORY")
+        events = history.events
     scene = next(item for item in script.scenes if item.id == state.scene_id)
     clues = sorted(script.clues, key=lambda item: item.id)
     devices = {item.id: item for item in state.devices}
@@ -223,6 +283,8 @@ def project_save(state: GameState, script: ScriptVersion, role: str) -> PlayerSn
                 if clue.id in state.shared_clues
             ),
             ending=state.ending_id if state.completed else None,
+            events=events,
+            recap=recap,
         ),
         personal=PersonalView(
             clues=tuple(
