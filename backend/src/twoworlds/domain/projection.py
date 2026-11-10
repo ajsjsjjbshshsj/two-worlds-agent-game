@@ -15,7 +15,7 @@ from twoworlds.content.schema import (
     Version,
 )
 
-from .engine import validate_state
+from .engine import validate_state_and_script
 from .errors import DomainError
 from .mechanics.common import conditions_met
 from .models import GameState
@@ -203,7 +203,7 @@ def _presentation(
 
 def project_save(state: GameState, script: ScriptVersion, role: str) -> PlayerSnapshot:
     """role须由可信调用方提供；本函数只做内容权限投影，不执行身份认证。"""
-    state = validate_state(state, script)
+    state, script = validate_state_and_script(state, script)
     if type(role) is not str or role not in {"a", "b"}:
         raise DomainError("ROLE_FORBIDDEN")
     scene = next(item for item in script.scenes if item.id == state.scene_id)

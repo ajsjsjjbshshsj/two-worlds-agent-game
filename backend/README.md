@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-当前已有内容基础设施、T02灯塔纯规则及T03.1个人投影；213个领域、191个内容测试通过，另38个契约因缺API/SQLite实现失败。灯塔缺28项媒体和授权，仍未发布、目录为空；T03.2分享/回顾、业务路由、数据库和AI尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
+当前已有内容基础设施、T02灯塔纯规则及T03.1个人投影。223 个领域测试和 191 个内容测试通过。另有 38 个契约因缺 API/SQLite 实现失败。灯塔缺28项媒体和授权，仍未发布、目录为空；T03.2分享/回顾、业务路由、数据库和AI尚未实现。后端项目根目录为本目录，正式源码只有`src/twoworlds`这一处。
 
 ## 1. 先看这几个文件
 
@@ -25,7 +25,7 @@
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
-| tests/domain | 真实内容驱动的纯规则与投影 | T02规则123项+T03.1投影90项通过，含不可变、因果、权限与依赖隔离 |
+| tests/domain | 真实内容驱动的纯规则与投影 | 规则 123 项、投影 90 项和剧本重建回归 10 项通过 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -81,7 +81,7 @@ T02使用`domain.engine.create_initial_state(script)`初始化，再由`apply_co
 
 单独运行T02测试：`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_lighthouse.py -q --basetemp=work/pytest-t02-local`为123通过。阅读顺序：`domain/models.py` → `engine.py` → `mechanics/common.py` → `mechanics/lighthouse.py` → `tests/domain/test_lighthouse.py`。完整12步/不同探索顺序16步演示及拒绝/版本说明见[规则报告](../docs/reports/lighthouse-engine.md)。
 
-T03.1的`domain.projection.project_save(state,script,role)`先调用与命令共用的`engine.validate_state`，再构造独立冻结PlayerSnapshot，输出本人/合法共享线索、本人装置/观察、当前可用动作和获准媒体引用。装置内部是冻结行，JSON为对象；对话严格为空，不虚构历史。运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_projection.py -q --basetemp=work/pytest-projection-local`为90通过；全部domain为213通过。关键结构、可复制A/B比较演示与完整404通过/38历史失败见[投影报告](../docs/reports/player-projection.md)。没有分享命令、公共回顾、媒体读取/播放、身份/HTTP/WS/AI集成；本轮未重建wheel/sdist，旧产物不作为新代码的安装证据。
+T03.1 的 `project_save(state, script, role)` 使用与命令共用的 `engine.validate_state_and_script` 取得重建的冻结状态和剧本。投影从这对模型构造 `PlayerSnapshot`，包含本人和已共享线索、本人装置与观察、可用动作及获准媒体引用。运行 `.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_projection.py -q --basetemp=work/pytest-projection-local` 可复跑 90 项投影测试。字段说明、A/B 比较示例、剧本重建回归和全量结果见报告。[投影报告](../docs/reports/player-projection.md)
 
 ## 5. 依赖策略
 

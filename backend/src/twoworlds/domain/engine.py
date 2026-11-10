@@ -9,20 +9,23 @@ from .mechanics import common, lighthouse
 from .models import CommandResult, DeviceState, DomainEvent, GameState, StateValue
 
 
-def _require_script(script: ScriptVersion) -> None:
+def _require_script(script: ScriptVersion) -> ScriptVersion:
     if not isinstance(script, ScriptVersion):
         raise DomainError("INVALID_SCRIPT")
     try:
-        # model_copy/construct可绕过Schema；命令与投影都不能信任未校验的引用。
-        ScriptVersion.model_validate(script.model_dump(mode="python", warnings=False))
+        # 从普通数据重建嵌套模型，防止继续使用绕过校验的字段或可变容器。
+        validated = ScriptVersion.model_validate(
+            script.model_dump(mode="python", warnings=False)
+        )
     except (ValidationError, TypeError, KeyError, AttributeError):
         raise DomainError("INVALID_SCRIPT") from None
-    if script.metadata.id != "lighthouse":
+    if validated.metadata.id != "lighthouse":
         raise DomainError("SCRIPT_UNSUPPORTED")
+    return validated
 
 
 def create_initial_state(script: ScriptVersion) -> GameState:
-    _require_script(script)
+    script = _require_script(script)
     state = GameState(
         script_id=script.metadata.id,
         script_version=script.metadata.content_version,
@@ -123,8 +126,16 @@ def _validate_state(state: GameState, script: ScriptVersion) -> None:
 
 
 def validate_state(state: GameState, script: ScriptVersion) -> GameState:
-    """命令/投影共用的完整状态边界；返回重新校验的冻结值，不修改输入。"""
-    _require_script(script)
+    """校验剧本及其对应状态，返回重新构造的冻结状态。"""
+    state, _ = validate_state_and_script(state, script)
+    return state
+
+
+def validate_state_and_script(
+    state: GameState, script: ScriptVersion
+) -> tuple[GameState, ScriptVersion]:
+    """一次校验并返回命令和投影实际使用的状态、剧本。"""
+    script = _require_script(script)
     if not isinstance(state, GameState):
         raise DomainError("INVALID_STATE")
     try:
@@ -140,13 +151,13 @@ def validate_state(state: GameState, script: ScriptVersion) -> GameState:
         _validate_state(state, script)
     except (ValidationError, StopIteration, KeyError, TypeError):
         raise DomainError("INVALID_STATE") from None
-    return state
+    return state, script
 
 
 def apply_command(
     state: GameState, script: ScriptVersion, actor_role: str, action: dict
 ) -> CommandResult:
-    state = validate_state(state, script)
+    state, script = validate_state_and_script(state, script)
     if type(actor_role) is not str or actor_role not in {"a", "b"}:
         raise DomainError("ROLE_FORBIDDEN")
     if (

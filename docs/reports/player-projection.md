@@ -18,7 +18,7 @@
 
 入口为`project_save(state: GameState, script: ScriptVersion, role: str) -> PlayerSnapshot`。没有持久化Save对象、save_id、内部回执或成员信息，也不为本轮创建这些模型。
 
-1. 调用公开`engine.validate_state`。它从T02原有入口提取，仍校验事实/设备/线索引用、版本绑定、共享子集/去重/shareable、阶段与结局不变量、当前动态观察；额外防止ScriptVersion通过model_copy/construct绕过Schema引用约束。所有错误均用不含原始秘密的DomainError拒绝。
+1. 调用 `engine.validate_state_and_script`，得到重新构造的冻结状态和剧本。校验覆盖剧本 Schema、跨表引用、版本绑定、事实与设备、共享线索、阶段、结局和当前动态观察。领域校验失败会返回不含私密输入的 DomainError。
 2. 验证role严格为字符串a或b。只选本人SceneDefinition.observations、本人Observation.audience、本人DeviceDefinition.role与已声明字段。
 3. 本人线索必须属于该角色且在discovered_clues中；公共线索仅从已校验shared_clues中复制{id,text}。测试使用内存共享状态验证投影，**没有执行或实现share_clue**。
 4. 动作按roles/scene_ids/preconditions筛选；输出新ActionView及ParameterView，不附加条件、效果或错误码。参数选项是可试调白名单，并非承诺每个选项都将改变状态；执行仍须apply_command复核，重复值保持NO_STATE_CHANGE。
@@ -32,7 +32,7 @@
 ## 文件与学习阅读顺序
 
 1. [projection.py](../../backend/src/twoworlds/domain/projection.py)：先看PlayerSnapshot、PublicView/PersonalView，再看project_save逐项构造与_actions/_presentation筛选。
-2. [engine.py](../../backend/src/twoworlds/domain/engine.py)：validate_state、_require_script，以及apply_command如何共用入口；原状态不变量仍只有一份。
+2. 阅读 `_require_script` 和 `validate_state_and_script`，看 `apply_command` 如何消费重建的模型。[engine.py](../../backend/src/twoworlds/domain/engine.py)
 3. [test_projection.py](../../backend/tests/domain/test_projection.py)：at用正式内容和真实命令推进；完整JSON的PRIVATE_MARKER检查、双向反馈、共享状态与媒体条件用例。
 4. [架构8.1](../03-技术架构与数据接口.md#81-t031已实现的纯领域投影契约)、[任务拆分](../04-开发阶段与任务清单.md)：T03.1与T03.2的接口和学习边界。
 
@@ -70,6 +70,31 @@ uv pip check --python backend/.venv/Scripts/python.exe
 ```
 
 最终JUnit和完整日志保留在该工作树忽略的work目录，不进入提交；本轮未重建wheel/sdist，不把旧发行包当作T03.1安装证据。
+
+## PR #8 审查修复与复验（2026-11-10）
+
+`_require_script` 先把输入转成普通数据，经完整 Schema 与引用校验后返回新的冻结 `ScriptVersion`。初始化直接使用它。状态校验、命令和投影通过 `validate_state_and_script` 共用一次重建，并用同一个新剧本完成状态校验与后续处理。独立调用 `validate_state` 仍返回 `GameState`。
+
+新增 10 个用例，分别用 `model_construct` 和 `model_copy` 注入可被 Schema 接受的列表、原始条件与动作效果字典，以及带首尾空白的观察文字。用例覆盖四个入口，验证重建后的元组、冻结子模型与文本规范化，也验证修改原始列表和字典不会影响重建结果。修复前 10 个用例均失败，修复后全部通过。[回归测试](../../backend/tests/domain/test_script_boundary.py)
+
+| 本轮检查 | 结果 |
+| --- | --- |
+| 剧本校验回归 | 10 通过 |
+| 原有投影测试 | 90 通过 |
+| 全部领域测试 | 223 通过，含上述两组 |
+| 全部内容测试 | 191 通过 |
+| 完整后端 | 414 通过，38 失败，0 errors，0 skipped，1 条既有弃用警告 |
+| Ruff 检查与格式检查 | 通过，38 个 Python 文件 |
+
+已逐项比较两轮 JUnit。38 个失败的用例标识和消息均一致，涉及尚未实现的 `twoworlds.api.app` 和 `twoworlds.storage.sqlite`。
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_script_boundary.py -q --tb=short -o cache_dir=work/.pytest-cache-review --basetemp=work/pytest-script-review-green
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_projection.py -q --tb=short -o cache_dir=work/.pytest-cache-review-projection --basetemp=work/pytest-script-review-projection --junitxml=work/script-review-projection.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain -q --tb=short -o cache_dir=work/.pytest-cache-review-domain --basetemp=work/pytest-script-review-domain --junitxml=work/script-review-domain.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q --tb=short -o cache_dir=work/.pytest-cache-review-content --basetemp=work/pytest-script-review-content --junitxml=work/script-review-content.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q --tb=short -o cache_dir=work/.pytest-cache-review-all --basetemp=work/pytest-script-review-all --junitxml=work/script-review-all.xml
+```
 
 ## 自己比较A/B快照
 
