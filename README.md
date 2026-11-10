@@ -2,7 +2,7 @@
 
 > 版本：v0.2 设计提案 · 2026-10-26  
 > 项目目录：`F:\two-worlds-agent-game`  
-> 当前状态：2026-11-01，T02灯塔纯规则已实现，123个领域测试与191个内容测试通过；全量314通过、38个既有缺API/SQLite实现失败。详见[规则报告](docs/reports/lighthouse-engine.md)。灯塔28项媒体缺失/未授权，仍未发布、公开目录为空；角色投影、存储、业务服务、前端和AI尚未实现。
+> 当前状态：2026-11-03，T02灯塔纯规则及T03.1角色投影已实现，213个领域测试与191个内容测试通过；全量404通过、38个既有缺API/SQLite实现失败。详见[投影报告](docs/reports/player-projection.md)。灯塔28项媒体缺失/未授权，仍未发布、公开目录为空；T03.2分享/公共回顾、存储、业务服务、前端和AI尚未实现。
 
 TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本平台。两个人进入同一剧本，拥有不同的观察信息与操作能力，通过探索、试验和交流改变彼此的世界。平台提供多个剧本，每个剧本保存各自的进度和记忆，手机与电脑可以继续同一段旅程。
 
@@ -44,7 +44,9 @@ T01.2.2增加[正式灯塔1.0.0](backend/src/twoworlds/content/scripts/lighthous
 
 T01.2.3从[发布库](backend/src/twoworlds/content/publication.py)、[包内访问](backend/src/twoworlds/content/packaged.py)与[构建钩子](backend/hatch_build.py)开始：草稿不能自动成为已发布版本，目录仅返回已审核、哈希完整版本的Metadata。wheel/sdist、独立安装与临时媒体集成结果见[发布报告](docs/reports/content-publication.md)；没有新增HTTP接口。
 
-T02从[规则入口](backend/src/twoworlds/domain/engine.py)与[实际通关测试](backend/tests/domain/test_lighthouse.py)开始：两角色按不同权限操作、共同决定结局，所有成功变化返回新状态，拒绝/重复无变化不增加版本。54个可达世界状态的恢复与两结局可达已检查；阅读顺序、纯Python演示与边界见[规则报告](docs/reports/lighthouse-engine.md)。完整状态仍只供服务端，玩家投影留给T03。
+T02从[规则入口](backend/src/twoworlds/domain/engine.py)与[实际通关测试](backend/tests/domain/test_lighthouse.py)开始：两角色按不同权限操作、共同决定结局，所有成功变化返回新状态，拒绝/重复无变化不增加版本。54个可达世界状态的恢复与两结局可达已检查；阅读顺序、纯Python演示与边界见[规则报告](docs/reports/lighthouse-engine.md)。完整状态仍只供服务端。
+
+T03.1从[个人投影](backend/src/twoworlds/domain/projection.py)与[投影测试](backend/tests/domain/test_projection.py)开始：同一世界分别构造A/B冻结快照，线索/装置/观察/动作/媒体只返回本人或已合法公开的内容；命令与投影共用状态验证。90个新增测试通过，复现步骤见[本轮报告](docs/reports/player-projection.md)。没有线索分享命令、公共回顾、对话历史或HTTP/WS/AI集成，本轮完成后停止。
 
 ## 二、需求依据与本次变更
 
