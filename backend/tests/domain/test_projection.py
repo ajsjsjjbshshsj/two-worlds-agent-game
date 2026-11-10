@@ -113,7 +113,12 @@ def test_initial_snapshot_is_a_separate_explicit_contract():
         }
         assert view["role"] == role and view["version"] == 0
         assert view["script_id"] == "lighthouse" and view["script_version"] == "1.0.0"
-        assert view["public"] == {"clues": [], "ending": None}
+        assert view["public"] == {
+            "clues": [],
+            "ending": None,
+            "events": [],
+            "recap": {"milestones": [], "ending_id": None, "summary": None},
+        }
         assert set(view["personal"]) == {"clues", "dialogue", "devices", "observations"}
         assert view["personal"]["dialogue"] == view["personal"]["clues"] == []
     assert a["personal"]["devices"] == {"emitter": {"angle": 0, "pattern": "steady"}}
@@ -266,17 +271,17 @@ def test_bidirectional_current_feedback_and_actions_are_derived_from_real_comman
     [
         ("fresh", "a", {"inspect_log"}),
         ("fresh", "b", {"inspect_chart"}),
-        ("log", "a", {"set_emitter"}),
-        ("read", "b", {"set_filter"}),
-        ("aligned", "b", {"set_filter", "lock_signal"}),
-        ("repair", "a", set()),
-        ("repair", "b", {"route_power"}),
-        ("powered", "a", {"inspect_gears"}),
-        ("tools", "a", {"repair_clock"}),
-        ("repaired", "a", set()),
-        ("repaired", "b", {"route_power", "confirm_route"}),
-        ("decision", "a", {"vote_ending"}),
-        ("decision", "b", {"vote_ending"}),
+        ("log", "a", {"set_emitter", "share_clue"}),
+        ("read", "b", {"set_filter", "share_clue"}),
+        ("aligned", "b", {"set_filter", "lock_signal", "share_clue"}),
+        ("repair", "a", {"share_clue"}),
+        ("repair", "b", {"route_power", "share_clue"}),
+        ("powered", "a", {"inspect_gears", "share_clue"}),
+        ("tools", "a", {"repair_clock", "share_clue"}),
+        ("repaired", "a", {"share_clue"}),
+        ("repaired", "b", {"route_power", "confirm_route", "share_clue"}),
+        ("decision", "a", {"vote_ending", "share_clue"}),
+        ("decision", "b", {"vote_ending", "share_clue"}),
         ("completed", "a", set()),
         ("completed", "b", set()),
     ],
@@ -289,7 +294,9 @@ def test_available_actions_follow_role_scene_and_real_preconditions(
 
 def test_action_fields_and_parameter_choices_are_explicitly_whitelisted():
     view = dumped(at("read"), "a")
-    (action,) = view["available_actions"]
+    action = next(
+        item for item in view["available_actions"] if item["id"] == "set_emitter"
+    )
     assert set(action) == {"id", "kind", "parameters"}
     assert action["kind"] == "set_emitter"
     assert action["parameters"] == [
