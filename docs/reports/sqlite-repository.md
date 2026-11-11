@@ -29,7 +29,9 @@
 
 账户 CAS 同时写 JSON/version 并替换会话摘要索引，唯一摘要冲突或索引插入失败会回滚全部内容。有效会话要求 `created_at <= now < expires_at`，不会仅凭索引存在就放行。
 
-加入房间在写事务内检查邀请、期限、A/B；SQL 同时要求旧 version 与 `member_b IS NULL`。同一 B 携带匹配邀请重试返回已占据房间，包括首次加入已成功后邀请才过期的情况；其他身份不能覆盖 B。已有父账户由外键强制校验。满员后不能通过 Pair CAS 替换成员/邀请。
+创建房间必须保证 B 为空，非空候选在数据库写入前抛 `InvalidRepositoryTransition`。普通 Pair CAS 始终保持 `member_b` 不变，SQL 也不更新该列；空房可以刷新邀请，不能同时填入 B。满员后不能替换成员/邀请。
+
+只有 `join_pair` 能占用 B 位：在写事务内检查邀请、期限、A/B；SQL 同时要求旧 version 与 `member_b IS NULL`。同一 B 携带匹配邀请重试返回已占据房间，包括首次加入已成功后邀请才过期的情况；其他身份不能覆盖 B。已有父账户由外键强制校验。
 
 重复创建同房间同剧本返回原存档，包括原先固定的内容版本，不替换为请求的新 ID/版本。父房间缺失抛 `MissingRecord`。
 
@@ -56,10 +58,10 @@
 | 检查 | 实际结果 |
 | --- | --- |
 | SQLite 专项 | 11 通过 |
-| 共享仓储契约 | 25 通过 |
+| 共享仓储契约 | 30 通过（含本轮入口修复） |
 | 全部 Domain | 308 通过 |
 | 全部 Content | 191 通过 |
-| 全量 Backend | 573 项：535 通过、38 失败、0 errors、0 skipped，1 条既有 anyio 弃用警告 |
+| 全量 Backend | 578 项：540 通过、38 失败、0 errors、0 skipped，1 条既有 anyio 弃用警告 |
 | Ruff check | 通过 |
 | Ruff format --check | 48 个 Python 文件均通过 |
 | 离线依赖锁检查 | 22 包一致，无依赖变更 |
@@ -90,6 +92,30 @@ T04.2 没有发现待修复的新失败。38 个 HTTP/应用契约仍未通过�
 学习顺序：`ports/repository.py` → `storage/sqlite.py` 的表结构、`_transaction`、`compare_and_swap_save` → 共享契约中的并发/文件重开用例 → SQLite 触发器回滚测试。运行仓储专项即可观察；当前没有游戏服务地址。
 
 下一阶段建议 T05：替换仓储 fixture，在真实 Mongo 上运行共享契约，并补 Mongo 特有索引、独立客户端竞争及数据库断开行为。当前未执行 T05。交付后停在 T04.2，等待用户审查和学习。
+
+## PR #12 审查修复：B 位唯一占用入口
+
+用户指出 `create_pair` 和空房 `compare_and_swap_pair` 都允许绕过邀请填入 B。先新增真实数据库测试：修复前 3 项失败（预填 B 创建、CAS 填 B、换邀请同时填 B），另外 2 项已有满房保护通过；失败均为应抛异常但未抛出，证实测试命中原问题。
+
+最小修复只改变 SQLite 的房间写入入口：`create_pair` 在执行 INSERT 前拒绝 B 非空；普通 CAS 将 B 纳入不变字段，并移除 UPDATE 的 member_b 赋值。`join_pair` 的邀请/过期/自身身份/已有账户/同 B 重试/第三人拒绝和数据库并发逻辑保持原实现。
+
+新增 5 项共享契约，验证拒绝预填创建（无记录/邀请索引残留，之后能正常创建）、两种空房 CAS 占位尝试（原文档/版本/旧新邀请索引均不变）、满房删除/替换 B。已有正常刷新邀请再加入的测试继续通过。原先“CAS 为不存在 B 触发外键”的用例迁移为“join_pair 为不存在 B 触发外键”：业务拒绝发生在唯一合法加入入口，仍验证真实外键失败及回滚，没有删除或跳过失败测试。
+
+最终 SQLite 11、共享契约 30、领域 308、内容 191 通过；全量 540 通过、38 失败，0 errors/0 skipped。对比修复前 `work/t042-all.xml` 和修复后 `work/pair-entry-all.xml`，38 项失败 ID 与消息逐一相同，均缺 API 入口，无新增失败。Ruff check 与 format --check 均通过，48 文件格式正确。未执行 T05，也未合并 PR。
+
+本轮修改：`storage/sqlite.py`、`tests/storage/test_repository_contract.py`、本报告、后端 README、任务清单和交接。使用原分支更新现有 PR #12；保护主工作区用户改动。
+
+本轮最终复验命令：
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_repository_contract.py -q --tb=short -p no:cacheprovider --basetemp=work/pytest-pair-entry-green --junitxml=work/pair-entry-contract.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_sqlite.py -q --tb=short -p no:cacheprovider --basetemp=work/pytest-pair-entry-sqlite --junitxml=work/pair-entry-sqlite.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain -q --tb=short -p no:cacheprovider --basetemp=work/pytest-pair-entry-domain --junitxml=work/pair-entry-domain.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q --tb=short -p no:cacheprovider --basetemp=work/pytest-pair-entry-content --junitxml=work/pair-entry-content.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q --tb=short -p no:cacheprovider --basetemp=work/pytest-pair-entry-all --junitxml=work/pair-entry-all.xml
+.\backend\.venv\Scripts\python.exe -m ruff check backend/src backend/tests backend/hatch_build.py
+.\backend\.venv\Scripts\python.exe -m ruff format --check backend/src backend/tests backend/hatch_build.py
+```
 
 ## 38 项历史失败逐项比较
 

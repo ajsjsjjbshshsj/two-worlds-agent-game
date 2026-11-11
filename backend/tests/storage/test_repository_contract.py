@@ -90,6 +90,63 @@ def test_pair_creation_invite_and_parent_requirements(
         repo.create_pair(pair_record.model_copy(update={"id": "pair_other"}))
 
 
+def test_pair_creation_rejects_prefilled_b_without_writing(
+    repository_factory, account_factory, pair_record
+):
+    repo = repository_factory()
+    for role in ("a", "b"):
+        repo.create_account(account_factory(role))
+    candidate = pair_record.model_copy(update={"member_b": "account_b"})
+    with pytest.raises(InvalidRepositoryTransition):
+        repo.create_pair(candidate)
+    assert repo.get_pair(pair_record.id) is None
+    assert repo.get_pair_by_invite_digest(pair_record.invite_digest) is None
+    assert repo.create_pair(pair_record) == pair_record
+
+
+@pytest.mark.parametrize("rotate_invite", [False, True])
+def test_pair_cas_cannot_claim_b_even_with_a_new_invite(
+    repository_factory, account_factory, pair_record, rotate_invite
+):
+    repo = repository_factory()
+    for role in ("a", "b"):
+        repo.create_account(account_factory(role))
+    repo.create_pair(pair_record)
+    candidate = pair_record.model_copy(
+        update={
+            "version": 1,
+            "member_b": "account_b",
+            "invite_digest": "f" * 64 if rotate_invite else pair_record.invite_digest,
+        }
+    )
+    with pytest.raises(InvalidRepositoryTransition):
+        repo.compare_and_swap_pair(pair_record.id, 0, candidate)
+    assert repo.get_pair(pair_record.id) == pair_record
+    assert repo.get_pair_by_invite_digest(pair_record.invite_digest) == pair_record
+    assert repo.get_pair_by_invite_digest("f" * 64) is None
+
+
+@pytest.mark.parametrize("replacement", [None, "account_c"])
+def test_full_pair_cas_cannot_replace_or_remove_b(
+    repository_factory, account_factory, pair_record, now, replacement
+):
+    repo = repository_factory()
+    for role in ("a", "b", "c"):
+        repo.create_account(account_factory(role))
+    repo.create_pair(pair_record)
+    joined = repo.join_pair(pair_record.id, "account_b", pair_record.invite_digest, now)
+    assert joined.member_b == "account_b"
+    with pytest.raises(InvalidRepositoryTransition):
+        repo.compare_and_swap_pair(
+            joined.id,
+            joined.version,
+            joined.model_copy(
+                update={"version": joined.version + 1, "member_b": replacement}
+            ),
+        )
+    assert repo.get_pair(joined.id) == joined
+
+
 def test_pair_join_expiry_self_wrong_invite_and_retry(
     repository_factory, account_factory, pair_record, now
 ):
@@ -219,19 +276,18 @@ def test_independent_repositories_create_one_save(
     )
 
 
-def test_pair_cas_foreign_key_failure_preserves_old_pair(
-    repository_factory, account_factory, pair_record
+def test_pair_join_foreign_key_failure_preserves_old_pair(
+    repository_factory, account_factory, pair_record, now
 ):
     repo = repository_factory()
     repo.create_account(account_factory())
     repo.create_pair(pair_record)
     with pytest.raises(MissingRecord):
-        repo.compare_and_swap_pair(
+        repo.join_pair(
             pair_record.id,
-            0,
-            pair_record.model_copy(
-                update={"version": 1, "member_b": "missing_account"},
-            ),
+            "missing_account",
+            pair_record.invite_digest,
+            now,
         )
     assert repo.get_pair(pair_record.id) == pair_record
 

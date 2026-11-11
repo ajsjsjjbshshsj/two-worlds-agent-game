@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾、持久化模型和严格 JSON，以及 T04.2 SQLite 演示仓储。SQLite 专项 11、共享仓储契约 25、领域 308、内容 191 项通过。全量 535 通过、38 项历史 API 契约失败；Mongo 和游戏服务入口尚未实现。[SQLite 报告](../docs/reports/sqlite-repository.md)
+后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾、持久化模型和严格 JSON，以及 T04.2 SQLite 演示仓储。SQLite 专项 11、共享仓储契约 30、领域 308、内容 191 项通过。全量 540 通过、38 项历史 API 契约失败；Mongo 和游戏服务入口尚未实现。[SQLite 报告](../docs/reports/sqlite-repository.md)
 
 ## 1. 先看这几个文件
 
@@ -26,7 +26,7 @@
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
-| tests/storage | 可复用仓储契约与 SQLite 故障/约束验证 | 25 项共享契约、11 项 SQLite 专项通过 |
+| tests/storage | 可复用仓储契约与 SQLite 故障/约束验证 | 30 项共享契约、11 项 SQLite 专项通过 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -103,4 +103,4 @@ Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage -q --basetemp=work/pytest-storage-local
 ```
 
-预期 36 项通过。建议依次阅读 `ports/repository.py` → `storage/sqlite.py` 的 `_transaction`、`compare_and_swap_save` → `tests/storage/test_repository_contract.py` → `tests/storage/test_sqlite.py`。并发测试使用两个独立实例、同一临时数据库文件；SQL 触发器注入故障验证真实回滚。详细结构、复验和未完成边界见 [SQLite 报告](../docs/reports/sqlite-repository.md)。
+预期 41 项通过。建议依次阅读 `ports/repository.py` → `storage/sqlite.py` 的 `_transaction`、`compare_and_swap_save` → `tests/storage/test_repository_contract.py` → `tests/storage/test_sqlite.py`。并发测试使用两个独立实例、同一临时数据库文件；SQL 触发器注入故障验证真实回滚。详细结构、复验和未完成边界见 [SQLite 报告](../docs/reports/sqlite-repository.md)。

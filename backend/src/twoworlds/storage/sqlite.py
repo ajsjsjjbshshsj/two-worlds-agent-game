@@ -302,6 +302,8 @@ class SQLiteRepository:
 
     def create_pair(self, pair: PairRecord) -> PairRecord:
         pair = _candidate(pair, PairRecord)
+        if pair.member_b is not None:
+            raise InvalidRepositoryTransition("A new pair must have an empty B slot")
         with self._transaction(write=True) as connection:
             connection.execute(
                 "INSERT INTO pairs(pair_id,invite_digest,member_a,member_b,version,document) VALUES (?,?,?,?,?,?)",
@@ -393,10 +395,12 @@ class SQLiteRepository:
             if current is None or current.version != expected_version:
                 return False
             candidate = _candidate(candidate, PairRecord)
-            _transition(current, candidate, ("id", "member_a", "created_at"))
+            # Only join_pair may claim B after validating an invitation.
+            _transition(
+                current, candidate, ("id", "member_a", "member_b", "created_at")
+            )
             if current.member_b is not None and (
-                candidate.member_b != current.member_b
-                or candidate.invite_digest != current.invite_digest
+                candidate.invite_digest != current.invite_digest
                 or candidate.invite_expires_at != current.invite_expires_at
             ):
                 raise InvalidRepositoryTransition(
@@ -404,10 +408,9 @@ class SQLiteRepository:
                 )
             return bool(
                 connection.execute(
-                    "UPDATE pairs SET invite_digest=?,member_b=?,version=?,document=? WHERE pair_id=? AND version=?",
+                    "UPDATE pairs SET invite_digest=?,version=?,document=? WHERE pair_id=? AND version=?",
                     (
                         candidate.invite_digest,
-                        candidate.member_b,
                         candidate.version,
                         dumps(candidate),
                         pair_id,
