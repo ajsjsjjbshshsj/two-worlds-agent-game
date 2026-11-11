@@ -41,6 +41,8 @@ uv pip check --python backend/.venv/Scripts/python.exe
 
 ### 2026-11-11 · 回执连续性修复
 
+本轮提交到独立审查分支，目标为 `codex/bootstrap`，当前等待用户审查。[PR #11](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/11)
+
 从已合并 PR #10 的最新基线 `b3a3357` 建立 `codex/t04-1-receipt-continuity`。原模型遗漏了回执完整性，允许版本 513 只带 1～512 条回执。本轮在模型中限制存档版本上限，并精确比较回执接受版本与 `range(1, version + 1)`。原容量测试改为合法的版本 512，继续使用真实构造的回执验证满额读取与序列化。新增 11 个用例，覆盖空存档、首条、完整 512 条、缺首/中/末条、乱序和越限，既有 actor/request 唯一性测试继续保留。
 
 满额存档保留全部旧回执，查询与重试确认继续可用。新命令必须返回 `SAVE_COMMAND_LIMIT`。应用层先查询旧回执，再检查新命令额度。模型负责拒绝损坏聚合，此返回码的服务处理属于后续仓储/应用集成。
