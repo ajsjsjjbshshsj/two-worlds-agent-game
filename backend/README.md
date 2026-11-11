@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾，以及 T04.1 持久化模型和序列化协议。专项 45 项、领域 297 项、内容 191 项通过。全量后端的 38 项失败来自原有的 API/SQLite 契约缺实现。[T04.1 报告](../docs/reports/persistence-models.md)
+后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾、持久化模型和严格 JSON，以及 T04.2 SQLite 演示仓储。SQLite 专项 11、共享仓储契约 25、领域 308、内容 191 项通过。全量 535 通过、38 项历史 API 契约失败；Mongo 和游戏服务入口尚未实现。[SQLite 报告](../docs/reports/sqlite-repository.md)
 
 ## 1. 先看这几个文件
 
@@ -20,12 +20,13 @@
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
-| src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON 序列化已定义；SQLite/Mongo 适配待实现 |
+| src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务/CAS 已实现；Mongo 待 T05 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
+| tests/storage | 可复用仓储契约与 SQLite 故障/约束验证 | 25 项共享契约、11 项 SQLite 专项通过 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -44,7 +45,7 @@ uv run --project backend --locked ruff check backend/src
 
 第二条命令应打印本项目`backend/src/twoworlds/__init__.py`的绝对路径。`-I`排除当前目录和用户Python路径的干扰；能导入说明本项目确实已安装到所选环境。
 
-当前没有游戏服务启动入口，不要运行并不存在的`uvicorn twoworlds.api:app`。新契约的`twoworlds.api.app.create_app`和`twoworlds.storage.sqlite.SQLiteRepository`尚未实现，测试调用工厂时会明确失败。
+当前没有游戏服务启动入口，不要运行并不存在的`uvicorn twoworlds.api:app`。`twoworlds.storage.sqlite.SQLiteRepository` 已可显式使用，但 `twoworlds.api.app.create_app` 尚未实现，原 API 契约调用工厂仍会明确失败。
 
 ## 4. 构建与验证
 
@@ -54,7 +55,7 @@ uv build --project backend --python 3.12 --no-python-downloads --no-sources --ou
 
 构建产物包含wheel与源码归档；两者均排除tests/work/outputs/IDE/缓存/私人资料。`hatch_build.py`先复用现有Schema与发布库核验，再逐一收录草稿JSON、发布登记和已发布实际媒体；不收录未审核的草稿媒体和未登记杂项。sdist带构建钩子及必要配置，wheel不带钩子或测试。T01.2.3已实际检查清单、从sdist重建wheel、独立安装与临时测试媒体集成，详见[发布报告](../docs/reports/content-publication.md)。
 
-T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；执行这些用例目前会报告缺少T04/T08实现。收集成功不表示行为通过，T01～T14将按阶段实现并补齐更低层测试。
+T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；执行这些用例目前会报告缺少 API 入口。收集成功不表示行为通过，后续任务将补齐应用服务和通道测试。
 
 T01.1新增74个内容校验用例，当时全量收集为112个（74个已通过、38个仍缺实现）。可从项目根目录运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q`；源码阅读顺序、测试专用JSON与边界见[Schema报告](../docs/reports/content-schema.md)。模型返回冻结定义，游戏状态另建；不要把包含私有线索的ScriptVersion整体发给客户端。
 
@@ -91,3 +92,15 @@ Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执
 
 
 先从 `src/twoworlds/domain/persistence.py` 阅读 SaveRecord 的版本绑定，再看 `src/twoworlds/storage/serialization.py` 的读写校验和 `src/twoworlds/ports/repository.py` 的原子写入契约。测试位于 `tests/domain/test_persistence.py`，其中包含真实灯塔进度、公共历史、两角色回执和中文对话的 JSON 往返。[复现命令](../docs/reports/persistence-models.md)
+
+## 6. SQLite 演示仓储（T04.2）
+
+`SQLiteRepository(path)` 显式打开文件并建表，每次操作使用独立连接；调用完成提交，异常回滚。账户 JSON 与会话摘要索引同一事务更新，存档的状态/历史/对话/回执放在同一 JSON 聚合中，以版本条件原子替换。关闭后重新打开同一文件可恢复。SQLite 不替代生产 Mongo，也不提供 HTTP 身份认证。
+
+从当前检出分支的项目根运行：
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage -q --basetemp=work/pytest-storage-local
+```
+
+预期 36 项通过。建议依次阅读 `ports/repository.py` → `storage/sqlite.py` 的 `_transaction`、`compare_and_swap_save` → `tests/storage/test_repository_contract.py` → `tests/storage/test_sqlite.py`。并发测试使用两个独立实例、同一临时数据库文件；SQL 触发器注入故障验证真实回滚。详细结构、复验和未完成边界见 [SQLite 报告](../docs/reports/sqlite-repository.md)。
