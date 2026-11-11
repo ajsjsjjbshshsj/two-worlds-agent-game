@@ -1,11 +1,11 @@
 # T04.1 · 持久化聚合模型与严格序列化
 
-2026-11-10 · 从 PR #10 的 `3440088` 复核，目标分支基线为 `c7fe2f0`。提交仍在 `codex/t04-sqlite-persistence` 分支。[PR #10](https://github.com/ajsjsjjbshsj/two-worlds-agent-game/pull/10)
+2026-11-10 · 从 PR #10 的 `3440088` 复核，目标分支基线为 `c7fe2f0`。该轮提交位于 `codex/t04-sqlite-persistence` 分支。[PR #10](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/10)
 
 ## 复核结果
 
 - 六种记录使用冻结模型。已有实例也要重新验证，GameState 和 PublicHistory 通过普通字段重建。时间仅接受带时区的 datetime 或 ISO 字符串，统一为 UTC，拒绝数字时间戳及转换溢出。邀请到期时间必须晚于建房时间。对话答案使用现有 Text 的 2000 字符存储上限，并允许架构约定的 fallback 标记。[persistence.py](../../backend/src/twoworlds/domain/persistence.py)
-- Save 将状态和公共历史绑定到同一剧本 ID、内容版本和接受版本。回执在单个存档内按 `(actor_id, request_id)` 唯一，两个玩家可以使用同一 UUID。接受版本唯一、严格递增，且不超过当前版本。每档最多 512 条回执，每角色最多 20 轮对话，每账户最多 5 个会话摘要。
+- Save 将状态和公共历史绑定到同一剧本 ID、内容版本和接受版本。回执在单个存档内按 `(actor_id, request_id)` 唯一，两个玩家可以使用同一 UUID。存档版本 N 限定为 0～512，接受版本必须完整等于 `[1, ..., N]`，版本 0 为空回执。每角色最多 20 轮对话，每账户最多 5 个会话摘要。
 - 公共历史模型在读档时验证保留窗口、序号、版本顺序及事件与里程碑的版本对应关系。剧本引用、公开文字来源和世界规则由持有固定剧本版本的领域入口校验。[recap.py](../../backend/src/twoworlds/domain/recap.py)
 - JSON 拒绝任意层级的重复键、NaN、正负 Infinity、指数溢出和无效 Unicode。两端都按 UTF-8 字节计量，上限为 1,000,000 字节。写入先重验模型，再确定性编码。读取从普通 JSON 数据重建整个模型。[serialization.py](../../backend/src/twoworlds/storage/serialization.py)
 - 仓储端口补清唯一建档、邀请占位、按存档与玩家查找回执以及整档 CAS 的契约。[repository.py](../../backend/src/twoworlds/ports/repository.py)
@@ -38,5 +38,32 @@ uv pip check --python backend/.venv/Scripts/python.exe
 ```
 
 ## 学习检查点
+
+### 2026-11-11 · 回执连续性修复
+
+本轮提交到独立审查分支，目标为 `codex/bootstrap`，当前等待用户审查。[PR #11](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/11)
+
+从已合并 PR #10 的最新基线 `b3a3357` 建立 `codex/t04-1-receipt-continuity`。原模型遗漏了回执完整性，允许版本 513 只带 1～512 条回执。本轮在模型中限制存档版本上限，并精确比较回执接受版本与 `range(1, version + 1)`。原容量测试改为合法的版本 512，继续使用真实构造的回执验证满额读取与序列化。新增 11 个用例，覆盖空存档、首条、完整 512 条、缺首/中/末条、乱序和越限，既有 actor/request 唯一性测试继续保留。
+
+满额存档保留全部旧回执，查询与重试确认继续可用。新命令必须返回 `SAVE_COMMAND_LIMIT`。应用层先查询旧回执，再检查新命令额度。模型负责拒绝损坏聚合，此返回码的服务处理属于后续仓储/应用集成。
+
+| 本轮验证 | 结果 |
+| --- | --- |
+| 持久化专项 | 56 通过 |
+| 全部领域 | 308 通过 |
+| 全部内容 | 191 通过 |
+| 全量后端 | 499 通过，38 项既有失败，0 errors，0 skipped，1 条既有弃用警告 |
+| Ruff check / format --check | 通过，44 个 Python 文件 |
+
+首先用新增测试复现 5 个失败，再实施模型修复。早期受限运行的内容加载路径权限错误通过原有授权执行方式解决。最终 JUnit 的失败标识和消息与上轮逐项一致。
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain/test_persistence.py -q --tb=short -p no:cacheprovider --basetemp=work/pytest-receipt-persistence --junitxml=work/receipt-persistence.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain -q --tb=short -p no:cacheprovider --basetemp=work/pytest-receipt-domain --junitxml=work/receipt-domain.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q --tb=short -p no:cacheprovider --basetemp=work/pytest-receipt-content --junitxml=work/receipt-content.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q --tb=short -p no:cacheprovider --basetemp=work/pytest-receipt-all --junitxml=work/receipt-all.xml
+.\backend\.venv\Scripts\python.exe -m ruff check backend/src backend/tests backend/hatch_build.py
+.\backend\.venv\Scripts\python.exe -m ruff format --check backend/src backend/tests backend/hatch_build.py
+```
 
 先看 SaveRecord 的版本绑定与回执约束，再对照 JSON 编解码及真实命令往返测试。T04.2 建议使用两个独立 SQLite 连接验证同版本只有一次 CAS 成功，随后验证聚合与回执同时落盘、失败回滚及文件重开恢复。真实 SQLite、Mongo、身份 API 和 WebSocket 验收仍待后续。当前停在 T04.1，等待审查。

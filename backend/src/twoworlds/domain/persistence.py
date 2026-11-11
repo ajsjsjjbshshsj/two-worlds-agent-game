@@ -123,7 +123,7 @@ class SaveRecord(_Record):
     pair_id: Identifier
     script_id: Identifier
     script_version: Version
-    version: Annotated[StrictInt, Field(ge=0)]
+    version: Annotated[StrictInt, Field(ge=0, le=512)]
     state: GameState
     public_history: PublicHistory
     dialogues: Annotated[tuple[DialogueTurn, ...], Field(max_length=40)] = ()
@@ -164,10 +164,9 @@ class SaveRecord(_Record):
         receipt_versions = [item.accepted_version for item in self.receipts]
         if len(receipt_keys) != len(set(receipt_keys)):
             raise ValueError("duplicate actor/request receipt")
-        if (
-            len(receipt_versions) != len(set(receipt_versions))
-            or receipt_versions != sorted(receipt_versions)
-            or any(version > self.version for version in receipt_versions)
-        ):
-            raise ValueError("receipt versions must be unique and ordered")
+        # Every accepted command retains its receipt for the lifetime of this save.
+        if receipt_versions != list(range(1, self.version + 1)):
+            raise ValueError(
+                "receipt versions must cover every version from 1 to save.version"
+            )
         return self
