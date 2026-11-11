@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾、持久化模型和严格 JSON，以及 T04.2 SQLite 演示仓储。SQLite 专项 11、共享仓储契约 30、领域 308、内容 191 项通过。全量 540 通过、38 项历史 API 契约失败；Mongo 和游戏服务入口尚未实现。[SQLite 报告](../docs/reports/sqlite-repository.md)
+后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾、持久化模型和严格 JSON，以及 T04.2 SQLite 演示仓储。SQLite 专项 11、共享仓储契约 30、领域 308、内容 191 项通过。全量 540 通过、38 项历史 API 契约失败；T05.1 已验证本地 MongoDB 环境，MongoRepository 和游戏服务入口尚未实现。[SQLite 报告](../docs/reports/sqlite-repository.md) · [Mongo 环境报告](../docs/reports/mongo-environment.md)
 
 ## 1. 先看这几个文件
 
@@ -86,9 +86,9 @@ T03.1 的 `project_save(state, script, role)` 使用与命令共用的 `engine.v
 
 ## 5. 依赖策略
 
-本阶段运行依赖为Pydantic2.14.1，用于内容Schema；开发依赖锁定pytest9.0.2、ruff0.15.4、FastAPI0.132.0和httpx0.28.1。后两项供TestClient测试装配使用；实际API实现时再将FastAPI提升为运行依赖。uvicorn、LangGraph和pymongo等在对应实现环节加入，不依赖全局环境恰好存在这些包。
+本阶段运行依赖为 Pydantic 2.14.1（内容 Schema）及 PyMongo 4.19.0（同步 MongoClient，T05.1 加入）。PyMongo 的传递依赖 dnspython 为 2.9.2；uv 锁定包共 24 个，原有 22 包版本没有升级。开发依赖仍为 pytest9.0.2、ruff0.15.4、FastAPI0.132.0 和 httpx0.28.1。后两项供 TestClient 装配使用；实际 API 实现时再将 FastAPI 提升为运行依赖。uvicorn、LangGraph 等按后续任务加入，不依赖全局环境碰巧存在的包。
 
-Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。构建系统额外显式要求同版本Pydantic2.14.1，以便隔离构建复用发布/Schema校验；运行依赖没有增加，uv.lock保持不变。当前包只在本地构建/安装验证，没有发布到PyPI。
+Hatchling 负责 Python 分发包构建，uv 负责解析、项目虚拟环境同步与工具执行；两者都不启动游戏服务。构建系统仍要求 Pydantic2.14.1，以便隔离构建复用发布校验；本轮由 uv 更新驱动和锁文件，没有更改构建依赖。包没有发布到 PyPI。
 
 
 先从 `src/twoworlds/domain/persistence.py` 阅读 SaveRecord 的版本绑定，再看 `src/twoworlds/storage/serialization.py` 的读写校验和 `src/twoworlds/ports/repository.py` 的原子写入契约。测试位于 `tests/domain/test_persistence.py`，其中包含真实灯塔进度、公共历史、两角色回执和中文对话的 JSON 往返。[复现命令](../docs/reports/persistence-models.md)
@@ -104,3 +104,13 @@ Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执
 ```
 
 预期 41 项通过。建议依次阅读 `ports/repository.py` → `storage/sqlite.py` 的 `_transaction`、`compare_and_swap_save` → `tests/storage/test_repository_contract.py` → `tests/storage/test_sqlite.py`。并发测试使用两个独立实例、同一临时数据库文件；SQL 触发器注入故障验证真实回滚。详细结构、复验和未完成边界见 [SQLite 报告](../docs/reports/sqlite-repository.md)。
+
+## 7. MongoDB 环境（T05.1）
+
+本轮只准备 MongoDB 环境和同步 Python 驱动，不提供 MongoRepository、业务索引或 API。环境版本、真实验证命令和生产差异见 [MongoDB 环境报告](../docs/reports/mongo-environment.md)，T05 整体尚未完成。
+
+实际本机服务为 MongoDB 8.0.34，专用容器 `twoworlds-mongo`、数据卷 `twoworlds-mongo-data`，仅发布 `127.0.0.1:27017`，重启策略 unless-stopped。推荐 `mongo:8.0` 下载未完成，本轮采用已缓存官方 `mongodb/mongodb-atlas-local:8.0` 镜像，只运行 mongod，并将健康检查改为 Mongo Ping。真实 Ping、中文文档增查改删、容器重启后的持久化及临时库清理通过；不能据此称 Mongo 仓储已完成。
+
+Mongo URI 通过进程环境变量 `MONGO_URI` 传入，不在 Python 源码或 Git 中保存凭证。连接时使用 `MongoClient(os.environ["MONGO_URI"])`；环境验证操作只写随机命名的临时数据库，完成后清理。不要将驱动安装或 Ping 成功当作仓储 CAS/并发契约通过。
+
+先阅读 `pyproject.toml` 的驱动声明，再看 `uv.lock` 的实际锁定版本、环境报告中的容器/真实验证过程，最后回到 T05.2 的仓储边界。Docker 运行隔离的 MongoDB 服务，MongoDB 保存文档，PyMongo 让 Python 访问数据库，uv 管理本项目的依赖和虚拟环境。
