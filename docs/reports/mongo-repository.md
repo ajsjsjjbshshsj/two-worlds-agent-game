@@ -2,6 +2,8 @@
 
 验证日期：2026-11-11。本轮仅实现 Mongo 仓储、索引和真实测试；没有身份/房间/存档 API、WebSocket、前端、AI 或 T06。
 
+交付：[PR #14](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/14)，分支 `codex/t05-2-mongo-repository`，主要提交 `32afa3b`；目标 `codex/bootstrap`，未合并。
+
 ## 基线与文件
 
 PR #13 已在 UTC 11:32:50 合并，最新远端 `codex/bootstrap` 为 `7fdcfc27a06a5180960624cddeafd7cd5416fc19`。从该提交建立 `codex/t05-2-mongo-repository`。交付位于独立工作树 `F:\two-worlds-agent-game\work\pr-t01-1-schema`；主目录用户修改及旧本地提交未覆盖、未推送。
