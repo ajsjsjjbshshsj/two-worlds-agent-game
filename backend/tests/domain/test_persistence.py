@@ -482,12 +482,98 @@ def test_receipt_capacity_is_readable_and_cannot_be_exceeded(save, now):
         for i in range(1, 514)
     )
     data = save.model_dump() | {
-        "version": 513,
-        "state": save.state.model_dump() | {"version": 513},
-        "public_history": save.public_history.model_dump() | {"through_version": 513},
+        "version": 512,
+        "state": save.state.model_dump() | {"version": 512},
+        "public_history": save.public_history.model_dump() | {"through_version": 512},
         "receipts": receipts[:512],
     }
     full = SaveRecord.model_validate(data)
-    assert len(loads(dumps(full), SaveRecord).receipts) == 512
+    restored = loads(dumps(full), SaveRecord)
+    assert restored.version == 512
+    assert [receipt.accepted_version for receipt in restored.receipts] == list(
+        range(1, 513)
+    )
+    assert restored.receipts[0] == receipts[0]
+    assert restored.receipts[-1] == receipts[511]
     with pytest.raises(ValidationError):
         SaveRecord.model_validate(data | {"receipts": receipts})
+
+
+@pytest.mark.parametrize(
+    "version,versions",
+    [(0, []), (1, [1]), (512, list(range(1, 513)))],
+    ids=["new-save", "first-command", "full-save"],
+)
+def test_save_accepts_complete_continuous_receipts(save, now, version, versions):
+    receipts = tuple(
+        CommandReceipt(
+            actor_id="account_a",
+            request_id=uuid4(),
+            fingerprint=digest("a"),
+            accepted_version=accepted,
+            created_at=now,
+        )
+        for accepted in versions
+    )
+    data = save.model_dump() | {
+        "version": version,
+        "state": save.state.model_dump() | {"version": version},
+        "public_history": save.public_history.model_dump()
+        | {"through_version": version},
+        "receipts": receipts,
+    }
+    restored = loads(dumps(SaveRecord.model_validate(data)), SaveRecord)
+    assert [item.accepted_version for item in restored.receipts] == versions
+
+
+@pytest.mark.parametrize(
+    "version,versions",
+    [
+        (0, [1]),
+        (1, []),
+        (2, [2]),
+        (3, [1, 3]),
+        (3, [2, 1, 3]),
+        (3, [1, 2]),
+        (513, list(range(1, 513))),
+        (513, list(range(1, 514))),
+    ],
+    ids=[
+        "zero-with-receipt",
+        "missing-only",
+        "missing-first",
+        "missing-middle",
+        "unordered",
+        "missing-last",
+        "over-version-with-512",
+        "over-version-with-513",
+    ],
+)
+def test_save_rejects_incomplete_or_over_limit_receipts(save, now, version, versions):
+    receipts = tuple(
+        CommandReceipt(
+            actor_id="account_a",
+            request_id=uuid4(),
+            fingerprint=digest("a"),
+            accepted_version=accepted,
+            created_at=now,
+        )
+        for accepted in versions
+    )
+    data = save.model_dump() | {
+        "version": version,
+        "state": save.state.model_dump() | {"version": version},
+        "public_history": save.public_history.model_dump()
+        | {"through_version": version},
+        "receipts": receipts,
+    }
+    with pytest.raises(ValidationError):
+        SaveRecord.model_validate(data)
+    with pytest.raises(SerializationError):
+        loads(
+            json.dumps(
+                data | {"receipts": [r.model_dump(mode="json") for r in receipts]},
+                default=str,
+            ),
+            SaveRecord,
+        )
