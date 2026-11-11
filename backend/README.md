@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容基础设施、灯塔规则、个人投影与 T03.2 公共分享及回顾。252 项领域测试和 191 项内容测试通过。另有 38 项契约因缺 API/SQLite 实现失败。领域源码位于 `src/twoworlds`。[T03.2 报告](../docs/reports/sharing-recap.md)
+后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾，以及 T04.1 持久化模型和序列化协议。专项 45 项、领域 297 项、内容 191 项通过。全量后端的 38 项失败来自原有的 API/SQLite 契约缺实现。[T04.1 报告](../docs/reports/persistence-models.md)
 
 ## 1. 先看这几个文件
 
@@ -19,8 +19,8 @@
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 仅模块边界 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
-| src/twoworlds/ports | 仓储、文本、语音等适配接口 | 仅模块边界 |
-| src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 仅模块边界 |
+| src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
+| src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON 序列化已定义；SQLite/Mongo 适配待实现 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
@@ -88,3 +88,6 @@ T03.1 的 `project_save(state, script, role)` 使用与命令共用的 `engine.v
 本阶段运行依赖为Pydantic2.14.1，用于内容Schema；开发依赖锁定pytest9.0.2、ruff0.15.4、FastAPI0.132.0和httpx0.28.1。后两项供TestClient测试装配使用；实际API实现时再将FastAPI提升为运行依赖。uvicorn、LangGraph和pymongo等在对应实现环节加入，不依赖全局环境恰好存在这些包。
 
 Hatchling负责Python分发包构建，uv负责解析、环境同步与工具执行；两者都不启动游戏服务。构建系统额外显式要求同版本Pydantic2.14.1，以便隔离构建复用发布/Schema校验；运行依赖没有增加，uv.lock保持不变。当前包只在本地构建/安装验证，没有发布到PyPI。
+
+
+先从 `src/twoworlds/domain/persistence.py` 阅读 SaveRecord 的版本绑定，再看 `src/twoworlds/storage/serialization.py` 的读写校验和 `src/twoworlds/ports/repository.py` 的原子写入契约。测试位于 `tests/domain/test_persistence.py`，其中包含真实灯塔进度、公共历史、两角色回执和中文对话的 JSON 往返。[复现命令](../docs/reports/persistence-models.md)
