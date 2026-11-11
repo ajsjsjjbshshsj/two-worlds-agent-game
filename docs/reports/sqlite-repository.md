@@ -2,6 +2,8 @@
 
 验证日期：2026-11-11。范围仅为演示 SQLite 适配器，不包含 Mongo、身份/房间/存档 API、WebSocket、前端或 AI。
 
+交付：[PR #12](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/12)，分支 `codex/t04-2-sqlite-repository`，实现提交 `926f2b6`。目标 `codex/bootstrap`，等待用户审查，未合并。
+
 ## 基线与修改
 
 开发前核实 PR #11 已合并：`2026-11-11T09:37:06Z`，合并提交 `94b4cb8230db86c3b873b065ab2e7f1e63bf3036`。从该远端 `codex/bootstrap` 基线建立 `codex/t04-2-sqlite-repository`。使用隔离工作树 `F:\two-worlds-agent-game\work\pr-t01-1-schema`；主目录原有未提交学习修改未覆盖，也未将其旧本地提交推送。
