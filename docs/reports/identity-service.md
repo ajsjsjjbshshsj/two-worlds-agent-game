@@ -2,6 +2,8 @@
 
 日期：2026-11-14。范围只含身份核心业务，不含 HTTP、限频、no-store、认证中间件、WS、OAuth、密码登录或前端。
 
+交付：[PR #15](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/15)，分支 `codex/t06-1-identity-service`，主要提交 `828417d`；目标 codex/bootstrap，未合并。
+
 ## 基线和正式契约
 
 PR #14 已合并，最新远端 codex/bootstrap 为 `11b7656239ad3f8be0ace5651bc8f32f727a2670`。从该基线建立 `codex/t06-1-identity-service`，在 `F:\two-worlds-agent-game\work\pr-t01-1-schema` 开发。主目录用户未提交学习修改和旧本地历史未覆盖、未推送。
