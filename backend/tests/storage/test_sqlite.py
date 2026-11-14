@@ -7,6 +7,12 @@ import pytest
 from twoworlds.ports.repository import CorruptRecord, DuplicateRecord, RepositoryError
 
 
+@pytest.fixture
+def repository_factory(sqlite_repository_factory):
+    # SQLite-specific SQL probes stay on SQLite even when shared tests select Mongo.
+    return sqlite_repository_factory
+
+
 def test_sqlite_enforces_unique_and_foreign_keys(tmp_path, world):
     with sqlite3.connect(tmp_path / "repository.sqlite") as db:
         db.execute("PRAGMA foreign_keys=ON")

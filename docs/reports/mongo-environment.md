@@ -2,7 +2,7 @@
 
 日期：2026-11-11。本轮仅准备本地数据库与驱动，T05 整体尚未完成；不实现 MongoRepository、业务索引、API、身份、WS、前端或 T06。
 
-交付：[PR #13](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/13)，分支 `codex/t05-1-mongo-environment`，主要提交 `20fec23`；目标 `codex/bootstrap`，未合并。
+交付：[PR #13](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/13)，分支 `codex/t05-1-mongo-environment`，主要提交 `20fec23`；已在 UTC 2026-11-11 11:32:50 合并至 `codex/bootstrap`，合并提交 `7fdcfc27a06a5180960624cddeafd7cd5416fc19`。以下保留 T05.1 当时的验证范围；后续仓储证据见 [T05.2 报告](mongo-repository.md)。
 
 ## 起点与工作区
 

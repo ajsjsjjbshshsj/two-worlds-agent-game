@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容基础设施、灯塔规则、个人投影、公共分享与回顾、持久化模型和严格 JSON，以及 T04.2 SQLite 演示仓储。SQLite 专项 11、共享仓储契约 30、领域 308、内容 191 项通过。全量 540 通过、38 项历史 API 契约失败；T05.1 已验证本地 MongoDB 环境，MongoRepository 和游戏服务入口尚未实现。[SQLite 报告](../docs/reports/sqlite-repository.md) · [Mongo 环境报告](../docs/reports/mongo-environment.md)
+后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储及 T05.2 MongoRepository。真实 Mongo 专项 17、共享契约 30 通过；SQLite 专项及共享契约 41、领域 308、内容 191 通过。全量 557 通过、38 项既有 API 失败，游戏服务入口尚未实现。[Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
 
 ## 1. 先看这几个文件
 
@@ -20,13 +20,13 @@
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
-| src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务/CAS 已实现；Mongo 待 T05 |
+| src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务及 Mongo 单文档 CAS/索引已实现，真库契约通过 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
-| tests/storage | 可复用仓储契约与 SQLite 故障/约束验证 | 30 项共享契约、11 项 SQLite 专项通过 |
+| tests/storage | 同一共享契约切换适配器，真实约束/故障验证 | SQLite/Mongo 各30项共享契约、SQLite专项11、Mongo专项17通过 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -88,7 +88,7 @@ T03.1 的 `project_save(state, script, role)` 使用与命令共用的 `engine.v
 
 本阶段运行依赖为 Pydantic 2.14.1（内容 Schema）及 PyMongo 4.19.0（同步 MongoClient，T05.1 加入）。PyMongo 的传递依赖 dnspython 为 2.9.2；uv 锁定包共 24 个，原有 22 包版本没有升级。开发依赖仍为 pytest9.0.2、ruff0.15.4、FastAPI0.132.0 和 httpx0.28.1。后两项供 TestClient 装配使用；实际 API 实现时再将 FastAPI 提升为运行依赖。uvicorn、LangGraph 等按后续任务加入，不依赖全局环境碰巧存在的包。
 
-Hatchling 负责 Python 分发包构建，uv 负责解析、项目虚拟环境同步与工具执行；两者都不启动游戏服务。构建系统仍要求 Pydantic2.14.1，以便隔离构建复用发布校验；本轮由 uv 更新驱动和锁文件，没有更改构建依赖。包没有发布到 PyPI。
+Hatchling 负责 Python 分发包构建，uv 负责解析、项目虚拟环境同步与工具执行；两者都不启动游戏服务。构建系统仍要求 Pydantic2.14.1，以便隔离构建复用发布校验；驱动和锁文件在 T05.1 更新，T05.2 没有修改任何依赖。包没有发布到 PyPI。
 
 
 先从 `src/twoworlds/domain/persistence.py` 阅读 SaveRecord 的版本绑定，再看 `src/twoworlds/storage/serialization.py` 的读写校验和 `src/twoworlds/ports/repository.py` 的原子写入契约。测试位于 `tests/domain/test_persistence.py`，其中包含真实灯塔进度、公共历史、两角色回执和中文对话的 JSON 往返。[复现命令](../docs/reports/persistence-models.md)
@@ -100,17 +100,35 @@ Hatchling 负责 Python 分发包构建，uv 负责解析、项目虚拟环境�
 从当前检出分支的项目根运行：
 
 ```powershell
-.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage -q --basetemp=work/pytest-storage-local
+$env:TWOWORLDS_TEST_BACKEND='sqlite'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_sqlite.py backend/tests/storage/test_repository_contract.py -q --basetemp=work/pytest-storage-local
 ```
 
 预期 41 项通过。建议依次阅读 `ports/repository.py` → `storage/sqlite.py` 的 `_transaction`、`compare_and_swap_save` → `tests/storage/test_repository_contract.py` → `tests/storage/test_sqlite.py`。并发测试使用两个独立实例、同一临时数据库文件；SQL 触发器注入故障验证真实回滚。详细结构、复验和未完成边界见 [SQLite 报告](../docs/reports/sqlite-repository.md)。
 
 ## 7. MongoDB 环境（T05.1）
 
-本轮只准备 MongoDB 环境和同步 Python 驱动，不提供 MongoRepository、业务索引或 API。环境版本、真实验证命令和生产差异见 [MongoDB 环境报告](../docs/reports/mongo-environment.md)，T05 整体尚未完成。
+T05.1 已通过 PR #13 合并，只准备环境和同步驱动。环境版本、真实验证命令和生产差异见 [MongoDB 环境报告](../docs/reports/mongo-environment.md)。仓储和索引已在下方 T05.2 单独实现，不把环境验证当作仓储证据。
 
 实际本机服务为 MongoDB 8.0.34，专用容器 `twoworlds-mongo`、数据卷 `twoworlds-mongo-data`，仅发布 `127.0.0.1:27017`，重启策略 unless-stopped。推荐 `mongo:8.0` 下载未完成，本轮采用已缓存官方 `mongodb/mongodb-atlas-local:8.0` 镜像，只运行 mongod，并将健康检查改为 Mongo Ping。真实 Ping、中文文档增查改删、容器重启后的持久化及临时库清理通过；不能据此称 Mongo 仓储已完成。
 
 Mongo URI 通过进程环境变量 `MONGO_URI` 传入，不在 Python 源码或 Git 中保存凭证。连接时使用 `MongoClient(os.environ["MONGO_URI"])`；环境验证操作只写随机命名的临时数据库，完成后清理。不要将驱动安装或 Ping 成功当作仓储 CAS/并发契约通过。
 
 先阅读 `pyproject.toml` 的驱动声明，再看 `uv.lock` 的实际锁定版本、环境报告中的容器/真实验证过程，最后回到 T05.2 的仓储边界。Docker 运行隔离的 MongoDB 服务，MongoDB 保存文档，PyMongo 让 Python 访问数据库，uv 管理本项目的依赖和虚拟环境。
+
+## 8. MongoRepository（T05.2）
+
+使用 `MongoRepository(uri, database_name)` 显式创建仓储，初始化 Ping 和稳定索引，不可用即失败。Account/Pair/Save 分别存一个完整文档；模型 id 映射 _id，时间为 UTC 固定六位微秒字符串，读写完整重验。条件 replace 将 Save 状态、历史、对话和回执同次提交；无需给当前 standalone 增设副本集或多文档事务。
+
+```powershell
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+$env:TWOWORLDS_TEST_BACKEND='mongo'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_repository_contract.py -q
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_mongo_contract.py -q
+$env:TWOWORLDS_TEST_BACKEND='sqlite'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q
+```
+
+前两条分别为30/17通过；最后全量557通过、38项原API失败，退出码1。共享契约默认 sqlite，设置 mongo 后使用真库；两种专项各自固定适配器。完整测试包含真实 Mongo 专项，需 MONGO_URI、Docker 和缓存测试镜像（默认 mongodb/mongodb-atlas-local:8.0，TWOWORLDS_TEST_MONGO_IMAGE 可指定已准备镜像，不自动拉取）。缺数据库会明确失败，不使用 mock/skip。
+
+每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06 尚未开始。

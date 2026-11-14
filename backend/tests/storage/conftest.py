@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,7 +24,56 @@ def now():
 
 
 @pytest.fixture
-def repository_factory(tmp_path):
+def mongo_database():
+    from pymongo import MongoClient
+
+    uri = os.environ.get("MONGO_URI")
+    if not uri:
+        pytest.fail("Real Mongo tests require MONGO_URI; no mock or fallback is used")
+    client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+    name = "twoworlds_test_t052_" + uuid4().hex
+    owned = False
+    try:
+        client.admin.command("ping")
+        assert name not in client.list_database_names()
+        owned = True
+        yield client[name], uri
+    finally:
+        # Only this fixture's random database is eligible for cleanup.
+        try:
+            if owned:
+                client.drop_database(name)
+        finally:
+            client.close()
+
+
+@pytest.fixture
+def mongo_repository_factory(mongo_database):
+    from twoworlds.storage.mongo import MongoRepository
+
+    database, uri = mongo_database
+    opened = []
+
+    def factory():
+        repo = MongoRepository(uri, database.name)
+        opened.append(repo)
+        return repo
+
+    yield factory
+    for repo in opened:
+        repo.close()
+
+
+@pytest.fixture
+def repository_factory(request):
+    backend = os.environ.get("TWOWORLDS_TEST_BACKEND", "sqlite")
+    if backend not in {"sqlite", "mongo"}:
+        pytest.fail("TWOWORLDS_TEST_BACKEND must be sqlite or mongo")
+    return request.getfixturevalue(f"{backend}_repository_factory")
+
+
+@pytest.fixture
+def sqlite_repository_factory(tmp_path):
     from twoworlds.storage.sqlite import SQLiteRepository
 
     opened = []
