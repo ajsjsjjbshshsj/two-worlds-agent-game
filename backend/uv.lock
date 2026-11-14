@@ -409,13 +409,13 @@ name = "twoworlds-api"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "fastapi" },
     { name = "pydantic" },
     { name = "pymongo" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "fastapi" },
     { name = "httpx" },
     { name = "pytest" },
     { name = "ruff" },
@@ -423,13 +423,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = "==0.132.0" },
     { name = "pydantic", specifier = "==2.14.1" },
     { name = "pymongo", specifier = "==4.19.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "fastapi", specifier = "==0.132.0" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "pytest", specifier = "==9.0.2" },
     { name = "ruff", specifier = "==0.15.4" },

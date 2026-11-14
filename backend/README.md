@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储及 T05.2 MongoRepository、T06.1身份服务。真实 Mongo 专项 17、共享契约 30 通过；SQLite 专项及共享契约 41、领域 308、内容 191 通过。全量 601 通过、38 项既有 API 失败，游戏服务入口尚未实现。[Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
+后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储、MongoRepository、IdentityService 和 T06.2 四个 HTTP 身份接口。HTTP/原身份契约 60、身份服务 44、SQLite 仓储 41、Mongo 仓储 47、领域 308、内容 191 项通过。串行全量 661 通过、32 项未实现房间及后续业务接口的契约失败。[身份 HTTP 报告](../docs/reports/identity-http.md) · [Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
 
 ## 1. 先看这几个文件
 
@@ -15,15 +15,15 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 仅模块边界 |
-| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 仅模块边界 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 四个HTTP身份接口及安全装配已实现，WS与其他业务路由待后续 |
+| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 身份核心已实现，其余待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务及 Mongo 单文档 CAS/索引已实现，真库契约通过 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
-| tests/contracts | 已迁移的身份、命令与平台行为要求 | 38个可收集条目；缺少业务实现，尚未通过 |
+| tests/contracts | 已迁移的身份、命令与平台行为要求 | 身份6项通过，其余32项待后续API |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
 | tests/storage | 同一共享契约切换适配器，真实约束/故障验证 | SQLite/Mongo 各30项共享契约、SQLite专项11、Mongo专项17通过 |
@@ -45,7 +45,7 @@ uv run --project backend --locked ruff check backend/src
 
 第二条命令应打印本项目`backend/src/twoworlds/__init__.py`的绝对路径。`-I`排除当前目录和用户Python路径的干扰；能导入说明本项目确实已安装到所选环境。
 
-当前没有游戏服务启动入口，不要运行并不存在的`uvicorn twoworlds.api:app`。`twoworlds.storage.sqlite.SQLiteRepository` 已可显式使用，但 `twoworlds.api.app.create_app` 尚未实现，原 API 契约调用工厂仍会明确失败。
+`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...])` 已实现，只注册四个身份接口。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。没有模块级app、uvicorn依赖或独立TCP启动/部署入口，不要运行`uvicorn twoworlds.api:app`。
 
 ## 4. 构建与验证
 
@@ -55,7 +55,7 @@ uv build --project backend --python 3.12 --no-python-downloads --no-sources --ou
 
 构建产物包含wheel与源码归档；两者均排除tests/work/outputs/IDE/缓存/私人资料。`hatch_build.py`先复用现有Schema与发布库核验，再逐一收录草稿JSON、发布登记和已发布实际媒体；不收录未审核的草稿媒体和未登记杂项。sdist带构建钩子及必要配置，wheel不带钩子或测试。T01.2.3已实际检查清单、从sdist重建wheel、独立安装与临时测试媒体集成，详见[发布报告](../docs/reports/content-publication.md)。
 
-T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；执行这些用例目前会报告缺少 API 入口。收集成功不表示行为通过，后续任务将补齐应用服务和通道测试。
+T00.3后的测试运行方法与阅读顺序见[测试说明](tests/README.md)，来源映射见[基线修订报告](../docs/reports/baseline-changes.md)。执行`python -m pytest backend/tests/contracts --collect-only -q`可查看38个契约要求；目前身份6项已通过，命令13项、平台19项在未实现的`POST /api/pairs`返回404。后续任务将补齐相应应用服务和通道测试。
 
 T01.1新增74个内容校验用例，当时全量收集为112个（74个已通过、38个仍缺实现）。可从项目根目录运行`.\backend\.venv\Scripts\python.exe -m pytest backend/tests/content -q`；源码阅读顺序、测试专用JSON与边界见[Schema报告](../docs/reports/content-schema.md)。模型返回冻结定义，游戏状态另建；不要把包含私有线索的ScriptVersion整体发给客户端。
 
@@ -86,7 +86,7 @@ T03.1 的 `project_save(state, script, role)` 使用与命令共用的 `engine.v
 
 ## 5. 依赖策略
 
-本阶段运行依赖为 Pydantic 2.14.1（内容 Schema）及 PyMongo 4.19.0（同步 MongoClient，T05.1 加入）。PyMongo 的传递依赖 dnspython 为 2.9.2；uv 锁定包共 24 个，原有 22 包版本没有升级。开发依赖仍为 pytest9.0.2、ruff0.15.4、FastAPI0.132.0 和 httpx0.28.1。后两项供 TestClient 装配使用；实际 API 实现时再将 FastAPI 提升为运行依赖。uvicorn、LangGraph 等按后续任务加入，不依赖全局环境碰巧存在的包。
+本阶段运行依赖为 Pydantic 2.14.1（内容 Schema）、PyMongo 4.19.0（同步 MongoClient）及 FastAPI 0.132.0（T06.2从dev移入）。PyMongo 的传递依赖 dnspython 为 2.9.2；uv锁定共24包，本轮逐一比较版本均未升级。pytest9.0.2、ruff0.15.4、httpx0.28.1仍为dev依赖。uvicorn、LangGraph等按后续任务加入，不依赖全局环境碰巧存在的包。
 
 Hatchling 负责 Python 分发包构建，uv 负责解析、项目虚拟环境同步与工具执行；两者都不启动游戏服务。构建系统仍要求 Pydantic2.14.1，以便隔离构建复用发布校验；驱动和锁文件在 T05.1 更新，T05.2 没有修改任何依赖。包没有发布到 PyPI。
 
@@ -131,12 +131,12 @@ $env:TWOWORLDS_TEST_BACKEND='sqlite'
 
 前两条分别为30/17通过；最后全量557通过、38项原API失败，退出码1。共享契约默认 sqlite，设置 mongo 后使用真库；两种专项各自固定适配器。完整测试包含真实 Mongo 专项，需 MONGO_URI、Docker 和缓存测试镜像（默认 mongodb/mongodb-atlas-local:8.0，TWOWORLDS_TEST_MONGO_IMAGE 可指定已准备镜像，不自动拉取）。缺数据库会明确失败，不使用 mock/skip。
 
-每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06.1 已实现，待 PR 审查；T06.2 HTTP 身份接口尚未开始。
+每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06.1 已由PR #15合并；T06.2本轮已实现，待PR审查。
 
 
 ## 9. 身份服务（T06.1）
 
-IdentityService只依赖Repository Protocol，不依赖SQL/PyMongo。接口为create_account(display_name)、recover(recovery_key)、authenticate(token)、revoke(token)。创建响应含一次性恢复密钥和初始会话；恢复只返回新会话。秘密字段默认不出现在repr中，但未来HTTP仍须白名单序列化且不记录响应正文。
+IdentityService只依赖Repository Protocol，不依赖SQL/PyMongo。接口为create_account(display_name)、recover(recovery_key)、authenticate(token)、revoke(token)。创建响应含一次性恢复密钥和初始会话；恢复只返回新会话。秘密字段默认不出现在repr中；HTTP使用专用白名单Schema且不记录请求或响应正文。
 
 生产凭证随机部分为secrets.token_urlsafe(32)，两个用途有不同前缀且独立生成；持久化只存SHA-256摘要。7天会话、最新5个按created_at稳定排序保留。恢复/撤销最多8次CAS尝试，每次冲突都重读并合并；失效token重复撤销返回UNAUTHENTICATED，数据不再变化。时钟和随机源可注入，默认实现安全。
 
@@ -145,4 +145,28 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_identity.py -q
 ```
 
-预期44项通过（SQLite/Mongo各22项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。没有HTTP身份接口或游戏服务入口，T06.2未开始。
+本轮实际44项通过（SQLite/Mongo各22项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。T06.1已合并，HTTP接口见下节；房间和游戏业务API未实现。
+
+## 10. HTTP 身份接口（T06.2，待PR审查）
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | /api/accounts | 仅接收display_name；返回account、一次性recovery_key、初始session |
+| POST | /api/sessions/recover | 接收recovery_key；原account与新session，不再返回恢复密钥 |
+| GET | /api/me | Bearer会话认证；只返回account及当前会话expires_at |
+| DELETE | /api/sessions/current | 撤销当前会话，204空正文；重复请求401 |
+
+所有身份响应（含错误）设置`Cache-Control: no-store`。严格请求模型拒绝额外身份字段；响应不包含摘要、完整AccountRecord或其他设备会话。认证只读取Authorization，不接受查询参数token或账号ID。统一错误结构为`{error:{code,message,retryable}}`，输入422、认证401、CAS冲突409、依赖/时钟503、未知错误安全500；异常原文不返回、不记录。
+
+创建和恢复分别按peer IP每60秒5次，错误请求也计数；429带向上取整的Retry-After。每应用限频表最多10000键并清理到期记录，满容量拒绝新键；这是单进程策略，公开多实例需共享或边缘限频。默认不信任X-Forwarded-For，代理部署需独立配置可信来源。CORS仅允许精确配置的HTTP/HTTPS origin，无通配符和cookie凭证。
+
+HTTP正文最多16384字节。Content-Length超限时不读取正文；无长度、分块或伪造较小长度时，仍逐块检查实际字节，超限立即返回413 `REQUEST_TOO_LARGE`（retryable=false、no-store），不读取尾部、不执行身份业务。合格正文使用有界缓冲后交给FastAPI解析；现有先限频的顺序保留。CORSMiddleware与外层自生成429均向允许的Origin暴露`Retry-After`，未授权Origin没有Access-Control-Allow-Origin。
+
+在当前检出的工作树根目录复验（包含真实Mongo HTTP流程）：
+
+```powershell
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api backend/tests/contracts/test_identity.py -q -p no:cacheprovider --basetemp=work/pytest-http-local
+```
+
+实际60项通过（身份28、限频10、正文限制16、原身份契约6），包含两个独立应用关闭/重开同一SQLite文件后恢复同一账号。工厂可注入identity_clock、rate_clock与限频参数，HTTP客户端不能设置这些选项。阅读顺序：schemas/identity.py → auth.py/routers → errors.py → rate_limit.py → app.py → tests/api。[报告](../docs/reports/identity-http.md)含完整命令、661通过/32历史失败逐项比较、首次Windows文件重试偶发失败及复验记录。尚无独立监听或公开演示地址；WS、前端缓存、T07/T08接口未实现。本轮完成后等待审查，不自动继续。
