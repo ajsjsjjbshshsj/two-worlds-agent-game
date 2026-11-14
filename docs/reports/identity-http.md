@@ -175,4 +175,8 @@ uv lock --check --offline --project backend --cache-dir F:/two-worlds-agent-game
 
 文档03接口形状和工厂契约没有调整，因此本轮不改该设计文档；按本轮授权提前落地应用工厂，不因此实现其中尚属T07/T08的路由。QA-I01～I05取得HTTP证据；WS首帧、持续鉴权和过期关闭留T12，前端缓存排除留T10/T13。T06.1已在PR #15合并。本轮完成后停止，下一步只建议T07，不自动执行。
 
+## GitHub交付
+
+实现提交`6c96ca682bd642b582d9c52713f6d4677a3d1c51`已推送到codex/t06-2-http-identity，创建[PR #16](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/16)，目标codex/bootstrap。收尾记录追加到同一PR，不合并、不启用自动合并。前两次HTTPS推送连接重置，使用HTTP/1.1后成功；没有修改远端地址或目标分支。真实Mongo收尾ping=1.0、共享容器healthy、随机测试库剩余0。
+
 参考：[FastAPI异常处理](https://fastapi.tiangolo.com/tutorial/handling-errors/)。本轮使用固定项目版本，验证以本机测试为准。
