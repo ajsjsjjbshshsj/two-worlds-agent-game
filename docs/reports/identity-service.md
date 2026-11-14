@@ -32,7 +32,7 @@ AccountInfo只含id、display_name。两个签发响应的明文秘密字段repr
 
 创建：校验昵称 → 独立生成恢复/会话 → 创建版本0 AccountRecord和7天SessionRecord → Repository一次创建 → 成功后才返回明文。唯一冲突有限重试，不能未持久化就签发成功。
 
-恢复：校验恢复凭证格式/用途 → 按摘要查询 → 获取时钟 → 丢弃过期会话 → 新建7天会话 → 按created_at稳定排序保留最新5个 → 完整验证candidate、version+1 → CAS。失败重读并重新计算整个候选，不把旧数组覆盖新数组。相同时间按既有接纳顺序排序，新会话排同时间最后；超限只移除最早会话。时钟回退或未来会话会显式CLOCK_ERROR，不返回无法存活的新token。
+恢复：校验恢复凭证格式/用途 → 按摘要查询 → 获取时钟 → 丢弃过期会话 → 新建7天会话 → 按created_at稳定排序保留最新5个 → 完整验证candidate、version+1 → CAS。失败重读并重新计算整个候选，不把旧数组覆盖新数组。相同时间按既有接纳顺序排序，新会话排同时间最后；超限只移除最早会话。now早于持久化updated_at，或恢复发现未来会话时会显式CLOCK_ERROR，不返回无法存活的新token。
 
 验证：校验session格式 → 摘要查询 → 再次明确检查created_at <= now < expires_at。创建瞬间有效、到期瞬间失效。account_id、昵称、恢复密钥不能作为日常token，未知、过期、撤销、淘汰凭证统一拒绝。
 
@@ -46,7 +46,7 @@ AccountInfo只含id、display_name。两个签发响应的明文秘密字段repr
 
 并发测试在首次CAS前放Barrier，让两个服务确实基于同版本竞争；转发器仍调用真实数据库CAS并记录至少一次False，没有伪造成功。恢复/恢复、撤销/撤销、恢复/撤销均检查最终会话和版本。另用只返回False的代理单独测试有限重试耗尽，该代理不作为数据库并发正确性的证据。
 
-## 验证记录
+## 初次交付验证（审查前）
 
 先运行测试复现缺身份模块失败；初次命令还缺MONGO_URI，正式真库验证均显式设置环境变量。初查Docker未运行，启动已有Desktop后沿用健康的MongoDB 8.0.34；PyMongo4.19.0/Python3.12.4。没有安装或升级依赖。
 
@@ -131,3 +131,33 @@ QA-I01～I04仅取得服务层证据。HTTP字段白名单/401映射、no-store�
 | `tests.contracts.test_platform::test_unfilled_room_allows_reading_but_no_game_or_npc_write[game-command]` | 同一失败消息 |
 | `tests.contracts.test_platform::test_unfilled_room_allows_reading_but_no_game_or_npc_write[npc]` | 同一失败消息 |
 | `tests.contracts.test_platform::test_websocket_uses_auth_frame_and_personal_projection_on_reconnect` | 同一失败消息 |
+
+
+## PR #15 审查修复：认证时钟水位检查（2026-11-14）
+
+原先authenticate只校验会话有效窗口，未复用revoke的now < current.updated_at保护。先加真实SQLite/Mongo回归：创建 → 时间前进1小时 → 恢复更新Account.updated_at → 回拨至创建后30分钟（原token仍在有效期）→ authenticate。修复前2项认证失败、2项撤销通过，证实漏洞和原撤销行为。
+
+现在_authenticated先判账号存在及token有效，再判now < current.updated_at，回退抛CLOCK_ERROR。revoke复用该方法，因此删除重复检查。测试另外验证拒绝不改账户/版本、now等于updated_at时仍能认证。两个适配器×认证/撤销共新增4项，没有删除旧断言或跳过测试。
+
+限制：仅检测早于账号最近一次持久化updated_at的时间。认证不会持久化每次所见时间；回拨后若仍不早于updated_at，就不能据此识别系统曾经回退，也不能声称检测全部时钟回退。未知、过期或撤销token仍先返回UNAUTHENTICATED，不泄露账户时间。
+
+结果：身份44通过（SQLite/Mongo各22）；SQLite仓储/共享41，Mongo仓储/共享47，Domain308通过。全量639项=601通过、38失败、0 errors/0 skipped，1条既有警告，退出码1。对比work/t061-all.xml和work/t061-clock-all.xml，38项ID/消息逐一相同，新增/消失失败均0。Ruff check、56文件format --check、24包uv离线锁检查通过。原恢复、撤销、过期边界与并发测试全部保留并通过。
+
+复验命令使用项目Python3.12，进程MONGO_URI为本机Mongo地址：
+
+```powershell
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_identity.py -q --tb=short -p no:cacheprovider --basetemp=work/t061-clock-identity --junitxml=work/t061-clock-identity.xml
+$env:TWOWORLDS_TEST_BACKEND='sqlite'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_sqlite.py backend/tests/storage/test_repository_contract.py -q --basetemp=work/t061-clock-storage --junitxml=work/t061-clock-storage.xml
+$env:TWOWORLDS_TEST_BACKEND='mongo'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/storage/test_mongo_contract.py backend/tests/storage/test_repository_contract.py -q --basetemp=work/t061-clock-mongo --junitxml=work/t061-clock-mongo.xml
+$env:TWOWORLDS_TEST_BACKEND='sqlite'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/domain -q --basetemp=work/t061-clock-domain --junitxml=work/t061-clock-domain.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q --tb=short -p no:cacheprovider --basetemp=work/t061-clock-all --junitxml=work/t061-clock-all.xml
+.\backend\.venv\Scripts\python.exe -m ruff check backend/src backend/tests backend/hatch_build.py
+.\backend\.venv\Scripts\python.exe -m ruff format --check backend/src backend/tests backend/hatch_build.py
+uv lock --project backend --check --offline --cache-dir F:/two-worlds-agent-game/work/uv-cache
+```
+
+README过期的“T06尚未开始”已改为“T06.1已实现，待PR审查；T06.2 HTTP身份接口尚未开始”。仅更新现有PR #15，不合并，不执行T06.2。

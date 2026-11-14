@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储及 T05.2 MongoRepository、T06.1身份服务。真实 Mongo 专项 17、共享契约 30 通过；SQLite 专项及共享契约 41、领域 308、内容 191 通过。全量 597 通过、38 项既有 API 失败，游戏服务入口尚未实现。[Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
+后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储及 T05.2 MongoRepository、T06.1身份服务。真实 Mongo 专项 17、共享契约 30 通过；SQLite 专项及共享契约 41、领域 308、内容 191 通过。全量 601 通过、38 项既有 API 失败，游戏服务入口尚未实现。[Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
 
 ## 1. 先看这几个文件
 
@@ -131,7 +131,7 @@ $env:TWOWORLDS_TEST_BACKEND='sqlite'
 
 前两条分别为30/17通过；最后全量557通过、38项原API失败，退出码1。共享契约默认 sqlite，设置 mongo 后使用真库；两种专项各自固定适配器。完整测试包含真实 Mongo 专项，需 MONGO_URI、Docker 和缓存测试镜像（默认 mongodb/mongodb-atlas-local:8.0，TWOWORLDS_TEST_MONGO_IMAGE 可指定已准备镜像，不自动拉取）。缺数据库会明确失败，不使用 mock/skip。
 
-每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06 尚未开始。
+每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06.1 已实现，待 PR 审查；T06.2 HTTP 身份接口尚未开始。
 
 
 ## 9. 身份服务（T06.1）
@@ -145,4 +145,4 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_identity.py -q
 ```
 
-预期40项通过（SQLite/Mongo各20项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。没有HTTP身份接口或游戏服务入口，T06.2未开始。
+预期44项通过（SQLite/Mongo各22项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。没有HTTP身份接口或游戏服务入口，T06.2未开始。

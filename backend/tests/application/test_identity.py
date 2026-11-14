@@ -290,3 +290,25 @@ def test_clock_rejection_and_revoke_retry_bound(setup):
         other.revoke(created.token)
     assert caught.value.code == "CONCURRENT_UPDATE" and contested.attempts == 2
     assert service.authenticate(created.token).version == 0
+
+
+@pytest.mark.parametrize("operation", ["authenticate", "revoke"])
+def test_authentication_rejects_clock_before_persisted_update(setup, operation):
+    from twoworlds.application.identity import IdentityError
+
+    service, repo, clock = setup
+    created = service.create_account("旅人")
+    start = clock[0]
+    clock[0] = start + timedelta(hours=1)
+    service.recover(created.recovery_key)
+    current = repo.get_account(created.account.id)
+    assert current.updated_at == clock[0]
+    clock[0] = start + timedelta(minutes=30)
+    assert start <= clock[0] < created.expires_at
+    with pytest.raises(IdentityError) as caught:
+        getattr(service, operation)(created.token)
+    assert caught.value.code == "CLOCK_ERROR"
+    assert repo.get_account(created.account.id) == current
+    # The persisted boundary itself is valid; this is not a global clock monitor.
+    clock[0] = current.updated_at
+    assert service.authenticate(created.token) == current

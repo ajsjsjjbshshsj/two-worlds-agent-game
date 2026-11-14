@@ -191,6 +191,8 @@ class IdentityService:
             for s in current.sessions
         ):
             raise IdentityError("UNAUTHENTICATED")
+        if now < current.updated_at:
+            raise IdentityError("CLOCK_ERROR")
         return current
 
     @_storage_errors
@@ -199,8 +201,6 @@ class IdentityService:
         for _ in range(self._attempts):
             now = self._now()
             current = self._authenticated(digest, now)
-            if now < current.updated_at:
-                raise IdentityError("CLOCK_ERROR")
             candidate = AccountRecord.model_validate(
                 current.model_dump()
                 | {
