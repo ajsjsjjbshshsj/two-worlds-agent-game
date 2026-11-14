@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储、MongoRepository、IdentityService 和 T06.2 四个 HTTP 身份接口。HTTP/原身份契约 37、身份服务 44、SQLite 仓储 41、Mongo 仓储 47、领域 308、内容 191 项通过。串行全量 638 通过、32 项未实现房间及后续业务接口的契约失败。[身份 HTTP 报告](../docs/reports/identity-http.md) · [Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
+后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储、MongoRepository、IdentityService 和 T06.2 四个 HTTP 身份接口。HTTP/原身份契约 60、身份服务 44、SQLite 仓储 41、Mongo 仓储 47、领域 308、内容 191 项通过。串行全量 661 通过、32 项未实现房间及后续业务接口的契约失败。[身份 HTTP 报告](../docs/reports/identity-http.md) · [Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
 
 ## 1. 先看这几个文件
 
@@ -160,6 +160,8 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 
 创建和恢复分别按peer IP每60秒5次，错误请求也计数；429带向上取整的Retry-After。每应用限频表最多10000键并清理到期记录，满容量拒绝新键；这是单进程策略，公开多实例需共享或边缘限频。默认不信任X-Forwarded-For，代理部署需独立配置可信来源。CORS仅允许精确配置的HTTP/HTTPS origin，无通配符和cookie凭证。
 
+HTTP正文最多16384字节。Content-Length超限时不读取正文；无长度、分块或伪造较小长度时，仍逐块检查实际字节，超限立即返回413 `REQUEST_TOO_LARGE`（retryable=false、no-store），不读取尾部、不执行身份业务。合格正文使用有界缓冲后交给FastAPI解析；现有先限频的顺序保留。CORSMiddleware与外层自生成429均向允许的Origin暴露`Retry-After`，未授权Origin没有Access-Control-Allow-Origin。
+
 在当前检出的工作树根目录复验（包含真实Mongo HTTP流程）：
 
 ```powershell
@@ -167,4 +169,4 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/api backend/tests/contracts/test_identity.py -q -p no:cacheprovider --basetemp=work/pytest-http-local
 ```
 
-实际37项通过，包含两个独立应用关闭/重开同一SQLite文件后恢复同一账号。工厂可注入identity_clock、rate_clock与限频参数，HTTP客户端不能设置这些选项。阅读顺序：schemas/identity.py → auth.py/routers → errors.py → rate_limit.py → app.py → tests/api。[报告](../docs/reports/identity-http.md)含完整命令、638通过/32历史失败逐项比较、首次Windows文件重试偶发失败及复验记录。尚无独立监听或公开演示地址；WS、前端缓存、T07/T08接口未实现。本轮完成后等待审查，不自动继续。
+实际60项通过（身份28、限频10、正文限制16、原身份契约6），包含两个独立应用关闭/重开同一SQLite文件后恢复同一账号。工厂可注入identity_clock、rate_clock与限频参数，HTTP客户端不能设置这些选项。阅读顺序：schemas/identity.py → auth.py/routers → errors.py → rate_limit.py → app.py → tests/api。[报告](../docs/reports/identity-http.md)含完整命令、661通过/32历史失败逐项比较、首次Windows文件重试偶发失败及复验记录。尚无独立监听或公开演示地址；WS、前端缓存、T07/T08接口未实现。本轮完成后等待审查，不自动继续。
