@@ -272,6 +272,48 @@ def test_duplicate_authorization_malformed_json_and_unknown_routes(clients):
     error(client.post("/api/me"), 405, "METHOD_NOT_ALLOWED")
 
 
+def test_method_not_allowed_preserves_allow_header(clients):
+    client, _, _ = clients()
+    response = client.post("/api/me")
+    error(response, 405, "METHOD_NOT_ALLOWED")
+    assert "GET" in {method.strip() for method in response.headers["allow"].split(",")}
+    assert response.json() == {
+        "error": {
+            "code": "METHOD_NOT_ALLOWED",
+            "message": "请求无法处理。",
+            "retryable": False,
+        }
+    }
+
+
+def test_http_exception_preserves_headers_without_overriding_no_store(clients):
+    from starlette.exceptions import HTTPException
+
+    client, app, _ = clients()
+
+    @app.get("/test-http-headers")
+    def route():
+        raise HTTPException(
+            404,
+            detail="private-error-detail",
+            headers={
+                "X-Error-Policy": "retained",
+                "Cache-Control": "public, max-age=60",
+            },
+        )
+
+    response = client.get("/test-http-headers")
+    error(response, 404, "NOT_FOUND")
+    assert response.headers["x-error-policy"] == "retained"
+    assert response.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "请求无法处理。",
+            "retryable": False,
+        }
+    }
+
+
 def test_current_session_expiry_not_other_devices(clients, clocks):
     clock, _ = clocks
     client, _, _ = clients(identity_clock=lambda: clock[0])

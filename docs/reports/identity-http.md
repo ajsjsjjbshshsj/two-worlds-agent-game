@@ -1,6 +1,6 @@
 # T06.2 · HTTP 身份接口与安全策略
 
-日期：2026-11-14。当前结果见“PR #16审查修复”一节（661通过/32历史失败）；保留初次交付的统计和偶发失败记录。仅后端身份HTTP；没有房间/存档/游戏命令/NPC API、WS、前端、OAuth、密码或生产部署。
+日期：2026-11-14。当前结果见“HTTP异常头保留审查修复”一节（663通过/32历史失败）；保留初次交付的统计和偶发失败记录。仅后端身份HTTP；没有房间/存档/游戏命令/NPC API、WS、前端、OAuth、密码或生产部署。
 
 ## 基线与文件
 
@@ -238,6 +238,47 @@ uv lock --check --offline --project backend --cache-dir F:/two-worlds-agent-game
 ```
 
 修改文件共8个：app.py、test_request_limits.py、test_rate_limit.py、docs03、docs04、本报告、backend/README及交接。学习阅读：_declared_body_too_large → IdentitySafety有界预读/replay → raw_request测试驱动 → CORS限频测试。临时JUnit不进Git；本次提交继续更新PR #16，不另建、不合并，完成后停止等待审查。
+
+## HTTP异常头保留审查修复（2026-11-14）
+
+继续同一PR #16与codex/t06-2-http-identity。实施前复核工作树干净、PR OPEN且未合并，HEAD/远端均为7f22f3154b9b7fba78a1b716665c52eb5e02b68e；主目录用户修改未触碰。
+
+检查当前errors.py确认http_error仍调用failure时未传异常头，先增加两项真实HTTP测试并复现2失败（缺Allow、缺X-Error-Policy），再仅修改一行：
+
+```diff
+-    return failure(error.status_code, code, "请求无法处理。")
++    return failure(error.status_code, code, "请求无法处理。", headers=error.headers)
+```
+
+Starlette生成405时提供的Allow按原值保留，不硬编码GET或重新计算可用方法。404及其他HTTPException同样保留原头；未带headers时仍兼容None。统一error的code/message/retryable以及固定安全文本不变，不返回exception.detail。已有IdentitySafety仍在发送阶段强制Cache-Control: no-store，即使异常头带public策略也不能覆盖。IdentityError、正文413、输入422、限频429和未知500的处理代码均未改。
+
+新增test_method_not_allowed_preserves_allow_header：POST /api/me返回405，Allow包含GET，no-store及完整错误JSON精确匹配。新增test_http_exception_preserves_headers_without_overriding_no_store：真实测试路由抛404及自定义头/可缓存策略，验证头保留、最终no-store和安全错误JSON。没有新增业务路由；该路由仅存在测试内。
+
+| 验证 | 实际结果 | 退出码 |
+| --- | --- | ---: |
+| 新增两测试，修复前 | 2 failed、28未选中 | 1 |
+| 新增两测试，修复后 | 2 passed、28未选中 | 0 |
+| 全部API（含真实Mongo HTTP） | 56 passed | 0 |
+| 完整后端 | 695项：663 passed / 32 failed、0 errors/0 skipped | 1 |
+| Ruff check | 通过 | 0 |
+| Ruff format --check | 69文件通过 | 0 |
+
+API与全量各有1条原anyio弃用警告。全量与上一轮work/t062-review-all.xml逐项比较，32失败的ID及failure.message完全相同，新增/消失均0；均在未实现POST /api/pairs收到404。未删除测试、降低原断言、skip或xfail。全量覆盖原身份/SQLite/Mongo、Domain/Content，不称全量已通过。首次格式检查指出新测试需格式化，执行ruff format后复验通过。
+
+实际命令（当前独立工作树根目录，项目Python3.12.4）：
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api/test_identity.py -k 'method_not_allowed_preserves_allow_header or http_exception_preserves_headers_without_overriding_no_store' -q --tb=short -p no:cacheprovider --basetemp=work/t062-allow-red --junitxml=work/t062-allow-red.xml
+# 一行实现后相同两组改用work/t062-allow-green与同名xml复验
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+$env:TWOWORLDS_TEST_BACKEND='sqlite'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api -q --tb=short -p no:cacheprovider --basetemp=work/t062-allow-api --junitxml=work/t062-allow-api.xml
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q --tb=short -p no:cacheprovider --basetemp=work/t062-allow-all --junitxml=work/t062-allow-all.xml
+.\backend\.venv\Scripts\ruff.exe check backend/src backend/tests backend/hatch_build.py
+.\backend\.venv\Scripts\ruff.exe format --check backend/src backend/tests backend/hatch_build.py
+```
+
+仅4文件：errors.py、test_identity.py、本报告、交接；依赖、认证服务、数据库、正文/CORS实现与其他业务未改。只提交一个独立commit并推送同一PR #16，不合并、不开始T07。阅读http_error的一行参数传递与两个新测试；可按上述过滤命令复验，当前停止等待用户审查。
 
 ## 学习与边界
 

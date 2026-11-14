@@ -42,7 +42,7 @@ async def http_error(request, error):
     code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(
         error.status_code, "HTTP_ERROR"
     )
-    return failure(error.status_code, code, "请求无法处理。")
+    return failure(error.status_code, code, "请求无法处理。", headers=error.headers)
 
 
 def install_handlers(app):
