@@ -58,6 +58,13 @@ def test_corrupt_json_is_reported(tmp_path, world, table, key):
         getter(identifier)
 
 
+def test_save_list_revalidates_every_document(tmp_path, world):
+    with sqlite3.connect(tmp_path / "repository.sqlite") as db:
+        db.execute("UPDATE saves SET document='not JSON' WHERE save_id='save_one'")
+    with pytest.raises(CorruptRecord):
+        world.list_saves_for_pair("pair_one")
+
+
 def test_account_index_conflict_rolls_back_document_and_index(
     world, account_factory, now
 ):

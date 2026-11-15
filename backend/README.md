@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容/灯塔领域、SQLite/Mongo仓储、身份服务及HTTP接口；T07本轮新增双人房间与邀请。PairService 30项、房间HTTP 55项、SQLite/Mongo共享契约各31项通过；完整后端750通过/31项未实现存档API的历史失败，无新增失败ID。[房间报告](../docs/reports/pairs-api.md)记录最新完整回归与未完成项；T08存档/游戏命令API仍未实现。
+后端已有内容/灯塔领域、SQLite/Mongo仓储、身份与房间HTTP；本轮T08.1新增发布剧本目录和存档创建/列表/个人读档。[存档生命周期报告](../docs/reports/saves-lifecycle.md)记录本轮验证；T08.2游戏命令/CAS/回执API与T08.3媒体接口尚未实现。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
 
 ## 1. 先看这几个文件
 
@@ -15,8 +15,8 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份与房间HTTP接口、安全装配已实现，WS与存档业务路由待后续 |
-| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService与PairService已实现，存档/对话待后续 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份、房间、目录与存档生命周期已实现；命令、媒体、WS待后续 |
+| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService、PairService与SaveService已实现；命令与对话待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
@@ -26,7 +26,7 @@
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 身份6项及房间竞争契约通过；后续存档/平台契约待T08等 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
-| tests/storage | 同一共享契约切换适配器，真实约束/故障验证 | SQLite/Mongo 各30项共享契约、SQLite专项11、Mongo专项17通过 |
+| tests/storage | 同一共享契约切换适配器，真实约束/故障验证 | T08.1 SQLite组44、真实Mongo组50通过，均含32项共享契约 |
 
 模块之间的接口将在对应任务中定义，现在不放假API、空服务类或模拟的通关实现。
 
@@ -172,7 +172,7 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 T06.2合并基线的身份HTTP与契约62项通过（身份30、限频10、正文限制16、原身份契约6），包含两个独立应用关闭/重开同一SQLite文件后恢复同一账号。工厂可注入identity_clock、rate_clock与限频参数，HTTP客户端不能设置这些选项。阅读顺序：schemas/identity.py → auth.py/routers → errors.py → rate_limit.py → app.py → tests/api。[报告](../docs/reports/identity-http.md)含完整命令、T06.2历史失败逐项比较、首次Windows文件重试偶发失败及复验记录。尚无独立监听或公开演示地址；WS、前端缓存与T08接口未实现；T07见下节。本轮完成后等待审查，不自动继续。
 
 
-## 11. 双人房间与邀请（T07，待PR审查）
+## 11. 双人房间与邀请（T07，PR #17已合并）
 
 四个端点均要求有效Bearer会话并返回no-store：
 
@@ -198,3 +198,26 @@ PairError按INVITE_INVALID/PAIR_NOT_FOUND→404、PAIR_FULL/CONCURRENT_UPDATE→
 ```
 
 阅读security/credentials.py → ports/repository.py及两个list实现 → application/pairs.py → api/schemas/pairs.py与routers/pairs.py → 两个测试文件。竞争测试用独立真实Repository与应用，Barrier仅对齐真实写入，未用Mock替代数据库。QA-R01～R03取得证据；QA-R04游戏写入/NPC、T08、WS、前端和生产部署未实现，不能宣称完整游戏可玩。本轮完成后停止等待用户审查。
+
+
+## 12. 剧本目录与存档生命周期（T08.1）
+
+`GET /api/scripts`公开返回已发布ScriptMetadata数组；默认包内发布库为空，结果为`[]`。正式灯塔缺媒体/许可，不能自动把草稿当可售内容。
+
+登录后使用`POST /api/saves`，严格输入`{pair_id,script_id,script_version}`，例如选择目录中的`lighthouse`/`1.0.0`。这要求服务器已由内容管理流程发布该精确版本；省略版本422、未发布/缺版404。服务端验证Pair成员并通过纯规则生成初始状态，客户端不能提交state/role。重复同版本返回同一档；不同版本409且不升级。
+
+`GET /api/saves`直接返回本人可见摘要数组，可选`?pair_id=...`；`GET /api/saves/{id}`返回PlayerSnapshot加id/pair_id，按认证身份推导A/B。两人共用Save，但各自设备、观察、已发现线索与合法分享由project_save过滤，完整state不进入响应。外人或缺档404，四接口均no-store。
+
+SaveService仅依赖Repository和PublicationStore。应用工厂可显式注入publication_store，默认在lifespan打开包内发布库并保持资源生命周期；save_clock可注入且默认复用identity_clock/UTC系统时间。Repository只增加list_saves_for_pair；唯一建档复用既有数据库约束，没有新增命令CAS/回执逻辑。
+
+阅读顺序：application/saves.py的_role/create_save/_snapshot → api/schemas/saves.py与routers/saves.py → 两仓储的list_saves_for_pair → tests/api/test_saves.py中的CreationBarrier和关闭重开测试。完整命令、真实Mongo及历史失败见[报告](../docs/reports/saves-lifecycle.md)。
+
+```powershell
+# 在本工作树运行；Mongo用自己的可用本地URI
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_saves.py backend/tests/api/test_saves.py -q
+# 只观察SQLite的新API流程
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api/test_saves.py -k 'sqlite and create_read_list' -q
+```
+
+测试使用正式灯塔JSON的临时发布副本和明确标记的测试PNG/WAV，未提供正式素材、独立TCP地址或完整可玩前端。游戏命令、幂等回执、操作同步、WS、受保护媒体、AI均待后续。本环节结束后停止，等待用户审查。

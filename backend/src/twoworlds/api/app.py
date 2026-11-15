@@ -1,6 +1,7 @@
 """Explicit application assembly; importing this module opens no database."""
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, ExitStack
+from importlib import resources
 import time
 from urllib.parse import urlsplit
 
@@ -10,11 +11,13 @@ from starlette.middleware.cors import CORSMiddleware
 
 from twoworlds.application.identity import IdentityService
 from twoworlds.application.pairs import PairService
+from twoworlds.application.saves import SaveService
+from twoworlds.content.publication import PublicationStore
 from twoworlds.ports.repository import Repository
 
 from .errors import failure, install_handlers
 from .rate_limit import RateLimiter
-from .routers import accounts, pairs, sessions
+from .routers import accounts, pairs, saves, sessions
 
 MAX_BODY_BYTES = 16 * 1024
 
@@ -132,6 +135,8 @@ def create_app(
     allowed_origins=(),
     identity_clock=None,
     pair_clock=None,
+    publication_store: PublicationStore | None = None,
+    save_clock=None,
     rate_clock=time.monotonic,
     rate_limit=5,
     rate_window=60,
@@ -155,7 +160,23 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app):
         try:
-            yield
+            with ExitStack() as stack:
+                store = publication_store
+                if store is None:
+                    # Keep extracted wheel/zip resources alive for the app lifetime.
+                    root = stack.enter_context(
+                        resources.as_file(
+                            resources.files("twoworlds.content").joinpath("published")
+                        )
+                    )
+                    store = PublicationStore(root)
+                clock = save_clock if save_clock is not None else identity_clock
+                app.state.save_service = SaveService(
+                    repository,
+                    store,
+                    **({"clock": clock} if clock is not None else {}),
+                )
+                yield
         finally:
             repository.close()
 
@@ -174,6 +195,7 @@ def create_app(
     app.include_router(accounts.router)
     app.include_router(sessions.router)
     app.include_router(pairs.router)
+    app.include_router(saves.router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,

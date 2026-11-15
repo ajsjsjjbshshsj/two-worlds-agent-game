@@ -1,0 +1,189 @@
+"""Authorized save lifecycle; only published, pinned content enters the engine."""
+
+from datetime import datetime, timezone
+from functools import wraps
+import secrets
+from typing import Callable
+
+from pydantic import TypeAdapter
+
+from twoworlds.content.publication import PublicationError, PublicationStore
+from twoworlds.content.schema import (
+    ContentModel,
+    Identifier,
+    Role,
+    ScriptMetadata,
+    Version,
+)
+from twoworlds.domain.engine import create_initial_state
+from twoworlds.domain.errors import DomainError
+from twoworlds.domain.persistence import SaveRecord, UTCDateTime
+from twoworlds.domain.projection import PlayerSnapshot, project_save
+from twoworlds.domain.recap import PublicHistory
+from twoworlds.ports.repository import DuplicateRecord, Repository, RepositoryError
+
+
+class SaveError(RuntimeError):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(
+            {
+                "SAVE_NOT_FOUND": "存档不存在或无法访问。",
+                "SCRIPT_NOT_FOUND": "指定的已发布剧本版本不存在。",
+                "SCRIPT_VERSION_CONFLICT": "已有存档绑定另一内容版本。",
+                "SCRIPT_UNSUPPORTED": "该剧本暂不支持游戏初始化。",
+                "CONTENT_UNAVAILABLE": "已发布内容暂不可用。",
+                "INVALID_SAVE": "存档暂时无法读取。",
+                "DEPENDENCY_UNAVAILABLE": "存档存储暂不可用。",
+                "GENERATION_FAILED": "无法生成存档标识。",
+                "CLOCK_ERROR": "存档服务时间无效。",
+            }[code]
+        )
+
+
+class SaveSnapshot(PlayerSnapshot):
+    """Only safe PlayerSnapshot fields plus the authorized resource identity."""
+
+    id: Identifier
+    pair_id: Identifier
+
+
+class SaveSummary(ContentModel):
+    id: Identifier
+    pair_id: Identifier
+    script_id: Identifier
+    script_version: Version
+    version: int
+    scene_id: Identifier
+    completed: bool
+    role: Role
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+
+
+def _fail_safely(method):
+    @wraps(method)
+    def wrapped(*args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except RepositoryError:
+            raise SaveError("DEPENDENCY_UNAVAILABLE") from None
+        except PublicationError as error:
+            code = (
+                "SCRIPT_NOT_FOUND"
+                if error.code == "PUBLICATION_NOT_FOUND"
+                else "CONTENT_UNAVAILABLE"
+            )
+            raise SaveError(code) from None
+        except DomainError as error:
+            code = (
+                "SCRIPT_UNSUPPORTED"
+                if error.code == "SCRIPT_UNSUPPORTED"
+                else "INVALID_SAVE"
+            )
+            raise SaveError(code) from None
+
+    return wrapped
+
+
+class SaveService:
+    def __init__(
+        self,
+        repository: Repository,
+        publication_store: PublicationStore,
+        *,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ):
+        self._repository = repository
+        self._publications = publication_store
+        self._clock = clock
+
+    def _role(self, actor_id, pair_id):
+        pair = self._repository.get_pair(pair_id)
+        if pair is None or actor_id not in (pair.member_a, pair.member_b):
+            raise SaveError("SAVE_NOT_FOUND")
+        return pair, "a" if pair.member_a == actor_id else "b"
+
+    def _snapshot(self, save, role):
+        # Never look up 'latest': an old save must use its exact sealed version.
+        script = self._publications.load(save.script_id, save.script_version)
+        snapshot = project_save(save.state, script, role, save.public_history)
+        return SaveSnapshot(id=save.id, pair_id=save.pair_id, **snapshot.model_dump())
+
+    @_fail_safely
+    def catalog(self) -> tuple[ScriptMetadata, ...]:
+        return self._publications.catalog()
+
+    @_fail_safely
+    def create_save(self, actor_id, pair_id, script_id, script_version) -> SaveSnapshot:
+        pair, role = self._role(actor_id, pair_id)
+        script = self._publications.load(script_id, script_version)
+        state = create_initial_state(script)
+        try:
+            now = TypeAdapter(UTCDateTime).validate_python(self._clock())
+        except Exception:
+            raise SaveError("CLOCK_ERROR") from None
+        if now < pair.updated_at:
+            raise SaveError("CLOCK_ERROR")
+        for _ in range(8):
+            candidate = SaveRecord(
+                id="save_" + secrets.token_hex(16),
+                pair_id=pair_id,
+                script_id=script_id,
+                script_version=script_version,
+                version=0,
+                state=state,
+                public_history=PublicHistory(
+                    script_id=script_id,
+                    script_version=script_version,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            try:
+                # The repository, not a check-then-insert in this service, decides
+                # which concurrent creator owns the unique pair/story record.
+                saved = self._repository.create_save(candidate)
+            except DuplicateRecord:
+                continue
+            if saved.script_version != script_version:
+                raise SaveError("SCRIPT_VERSION_CONFLICT")
+            return self._snapshot(saved, role)
+        raise SaveError("GENERATION_FAILED")
+
+    @_fail_safely
+    def read_save(self, actor_id, save_id) -> SaveSnapshot:
+        save = self._repository.get_save(save_id)
+        if save is None:
+            raise SaveError("SAVE_NOT_FOUND")
+        _, role = self._role(actor_id, save.pair_id)
+        return self._snapshot(save, role)
+
+    @_fail_safely
+    def list_saves(self, actor_id, pair_id=None) -> tuple[SaveSummary, ...]:
+        if pair_id is not None:
+            pairs = (self._role(actor_id, pair_id)[0],)
+        else:
+            pairs = self._repository.list_pairs_for_member(actor_id)
+        result = []
+        for pair in pairs:
+            _, role = self._role(actor_id, pair.id)
+            for save in self._repository.list_saves_for_pair(pair.id):
+                # A repository bug must not turn a mismatched row into a disclosure.
+                if save.pair_id != pair.id:
+                    raise SaveError("INVALID_SAVE")
+                result.append(
+                    SaveSummary(
+                        id=save.id,
+                        pair_id=save.pair_id,
+                        script_id=save.script_id,
+                        script_version=save.script_version,
+                        version=save.version,
+                        scene_id=save.state.scene_id,
+                        completed=save.state.completed,
+                        role=role,
+                        created_at=save.created_at,
+                        updated_at=save.updated_at,
+                    )
+                )
+        return tuple(sorted(result, key=lambda save: save.id))

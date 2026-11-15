@@ -1,3 +1,4 @@
+from tests.save_support import published_story  # noqa: F401
 from tests.storage.conftest import (  # noqa: F401
     account_factory,
     advance,

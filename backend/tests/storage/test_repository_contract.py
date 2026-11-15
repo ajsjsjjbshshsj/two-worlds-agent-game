@@ -42,6 +42,44 @@ def test_member_pairs_query_is_isolated_ordered_and_fresh(
     assert repo.list_pairs_for_member("account_c") == (third,)
 
 
+def test_pair_saves_query_is_isolated_ordered_and_validated(
+    world, save_record, pair_record
+):
+    first = world.get_save(save_record.id)
+    other_pair = world.create_pair(
+        pair_record.model_copy(
+            update={
+                "id": "pair_other",
+                "member_a": "account_c",
+                "invite_digest": "f" * 64,
+            }
+        )
+    )
+    world.create_save(
+        save_record.model_copy(
+            update={"id": "save_elsewhere", "pair_id": other_pair.id}
+        )
+    )
+    # Persistence supports independent story IDs; rule dispatch remains a domain concern.
+    second = world.create_save(
+        save_record.model_copy(
+            update={
+                "id": "save_aaa",
+                "script_id": "other_story",
+                "state": save_record.state.model_copy(
+                    update={"script_id": "other_story"}
+                ),
+                "public_history": save_record.public_history.model_copy(
+                    update={"script_id": "other_story"}
+                ),
+            }
+        )
+    )
+    assert world.list_saves_for_pair("missing") == ()
+    assert world.list_saves_for_pair(first.pair_id) == (second, first)
+    assert world.list_saves_for_pair(other_pair.id)[0].id == "save_elsewhere"
+
+
 def test_account_creation_digest_lookup_and_uniqueness(
     repository_factory, account_factory
 ):
