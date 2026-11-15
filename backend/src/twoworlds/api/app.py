@@ -9,11 +9,12 @@ from starlette.datastructures import MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 
 from twoworlds.application.identity import IdentityService
+from twoworlds.application.pairs import PairService
 from twoworlds.ports.repository import Repository
 
 from .errors import failure, install_handlers
 from .rate_limit import RateLimiter
-from .routers import accounts, sessions
+from .routers import accounts, pairs, sessions
 
 MAX_BODY_BYTES = 16 * 1024
 
@@ -130,6 +131,7 @@ def create_app(
     ai_mode="demo",
     allowed_origins=(),
     identity_clock=None,
+    pair_clock=None,
     rate_clock=time.monotonic,
     rate_limit=5,
     rate_window=60,
@@ -161,12 +163,17 @@ def create_app(
     app.state.identity_service = IdentityService(
         repository, **({"clock": identity_clock} if identity_clock is not None else {})
     )
+    clock = pair_clock if pair_clock is not None else identity_clock
+    app.state.pair_service = PairService(
+        repository, **({"clock": clock} if clock is not None else {})
+    )
     limiter = RateLimiter(
         limit=rate_limit, window=rate_window, max_keys=rate_max_keys, clock=rate_clock
     )
     install_handlers(app)
     app.include_router(accounts.router)
     app.include_router(sessions.router)
+    app.include_router(pairs.router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,

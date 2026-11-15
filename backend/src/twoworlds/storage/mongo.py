@@ -231,6 +231,16 @@ class MongoRepository:
         with self._operation():
             return self._read("pairs", {"_id": _key(pair_id)}, PairRecord)
 
+    def list_pairs_for_member(self, member_id: str) -> tuple[PairRecord, ...]:
+        with self._operation():
+            member_id = _key(member_id)
+            return tuple(
+                _decode(document, PairRecord)
+                for document in self._database.pairs.find(
+                    {"$or": [{"member_a": member_id}, {"member_b": member_id}]}
+                ).sort("_id", 1)
+            )
+
     def get_pair_by_invite_digest(self, digest: Digest) -> PairRecord | None:
         with self._operation():
             return self._read("pairs", {"invite_digest": _key(digest)}, PairRecord)

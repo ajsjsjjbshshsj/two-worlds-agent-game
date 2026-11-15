@@ -327,6 +327,16 @@ class SQLiteRepository:
                 PairRecord,
             )
 
+    def list_pairs_for_member(self, member_id: str) -> tuple[PairRecord, ...]:
+        with self._transaction() as connection:
+            return tuple(
+                _decode(row, PairRecord)
+                for row in connection.execute(
+                    "SELECT * FROM pairs WHERE member_a=? OR member_b=? ORDER BY pair_id",
+                    (member_id, member_id),
+                )
+            )
+
     def get_pair_by_invite_digest(self, digest: Digest) -> PairRecord | None:
         with self._transaction() as connection:
             return _decode(
