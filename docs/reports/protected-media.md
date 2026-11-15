@@ -133,4 +133,4 @@ uv lock --check --offline
 
 正式灯塔28项素材仍缺文件/许可，正式发布库保持为空。所有临时合成素材标注test-only并在pytest临时目录按真实审核/封存流程发布，未声称正式授权。QA-M03只有后端媒体授权/no-store部分具备证据；正式public构建产物/预载、Service Worker、前端播放、手机实际播放、完整QA-M03与QA-M07均未完成。
 
-不执行T09星轨、T10前端、T11播放、T12WS或T14NPC。当前分支codex/t08-3-protected-media，独立PR目标codex/bootstrap；创建后在交接补入实际链接，等待用户手动审查合并，不开启自动合并。完成后立即停止。
+不执行T09星轨、T10前端、T11播放、T12WS或T14NPC。实现提交`e66741c9db26c61e17442bceaa9125254366986e`已推送codex/t08-3-protected-media，创建[PR #20](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/20)，目标codex/bootstrap；收尾交接提交更新同一PR。等待用户手动审查合并，不开启自动合并。当前环节已停止。
