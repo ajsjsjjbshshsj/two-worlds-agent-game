@@ -7,6 +7,7 @@ from typing import Callable
 
 from pydantic import TypeAdapter, ValidationError
 
+from twoworlds.application.media import MediaContent, media_content
 from twoworlds.application.commands import (
     AcceptedReceipt,
     CommandError,
@@ -42,6 +43,7 @@ class SaveError(RuntimeError):
         super().__init__(
             {
                 "SAVE_NOT_FOUND": "存档不存在或无法访问。",
+                "MEDIA_NOT_FOUND": "媒体不存在或当前无法访问。",
                 "SCRIPT_NOT_FOUND": "指定的已发布剧本版本不存在。",
                 "SCRIPT_VERSION_CONFLICT": "已有存档绑定另一内容版本。",
                 "SCRIPT_UNSUPPORTED": "该剧本暂不支持游戏初始化。",
@@ -176,6 +178,28 @@ class SaveService:
             raise SaveError("SAVE_NOT_FOUND")
         _, role = self._role(actor_id, save.pair_id)
         return self._snapshot(save, role)
+
+    @_fail_safely
+    def read_media(self, actor_id, save_id, asset_id) -> MediaContent:
+        save, _, role = self._authorized_save(actor_id, save_id)
+        script = self._publications.load(save.script_id, save.script_version)
+        snapshot = project_save(save.state, script, role, save.public_history)
+        presentation = snapshot.presentation
+        visible = {asset.asset_id for cue in presentation.cues for asset in cue.assets}
+        if presentation.background is not None:
+            visible.add(presentation.background.asset_id)
+        # Projection is the single authorization policy, including cue conditions.
+        # Unknown and hidden IDs fail identically before any asset lookup/read.
+        if asset_id not in visible:
+            raise SaveError("MEDIA_NOT_FOUND")
+        asset = next(asset for asset in script.media if asset.id == asset_id)
+        raw = self._publications.read_media(
+            save.script_id, save.script_version, asset_id
+        )
+        content = media_content(asset, raw)
+        if content is None:
+            raise SaveError("CONTENT_UNAVAILABLE")
+        return content
 
     @_fail_safely
     def list_saves(self, actor_id, pair_id=None) -> tuple[SaveSummary, ...]:
