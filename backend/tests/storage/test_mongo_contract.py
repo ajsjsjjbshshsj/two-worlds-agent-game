@@ -25,6 +25,13 @@ def repository_factory(mongo_repository_factory):
     return mongo_repository_factory
 
 
+def test_save_list_revalidates_every_document(mongo_database, world):
+    database, _ = mongo_database
+    database.saves.update_one({"_id": "save_one"}, {"$set": {"version": 1}})
+    with pytest.raises(CorruptRecord):
+        world.list_saves_for_pair("pair_one")
+
+
 def test_indexes_are_named_exact_and_idempotent(mongo_database, repository_factory):
     from twoworlds.storage.indexes import ensure_indexes
 

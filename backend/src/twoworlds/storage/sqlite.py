@@ -470,6 +470,15 @@ class SQLiteRepository:
                 SaveRecord,
             )
 
+    def list_saves_for_pair(self, pair_id: str) -> tuple[SaveRecord, ...]:
+        with self._transaction() as connection:
+            return tuple(
+                _decode(row, SaveRecord)
+                for row in connection.execute(
+                    "SELECT * FROM saves WHERE pair_id=? ORDER BY save_id", (pair_id,)
+                ).fetchall()
+            )
+
     def get_save_for_pair_script(
         self, pair_id: str, script_id: str
     ) -> SaveRecord | None:

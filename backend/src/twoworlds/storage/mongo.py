@@ -341,6 +341,15 @@ class MongoRepository:
         with self._operation():
             return self._read("saves", {"_id": _key(save_id)}, SaveRecord)
 
+    def list_saves_for_pair(self, pair_id: str) -> tuple[SaveRecord, ...]:
+        with self._operation():
+            return tuple(
+                _decode(document, SaveRecord)
+                for document in self._database.saves.find(
+                    {"pair_id": _key(pair_id)}
+                ).sort("_id", 1)
+            )
+
     def get_save_for_pair_script(
         self, pair_id: str, script_id: str
     ) -> SaveRecord | None:

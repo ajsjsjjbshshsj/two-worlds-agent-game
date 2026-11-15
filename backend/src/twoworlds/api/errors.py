@@ -4,6 +4,7 @@ from starlette.responses import JSONResponse
 
 from twoworlds.application.identity import IdentityError
 from twoworlds.application.pairs import PairError
+from twoworlds.application.saves import SaveError
 
 _STATUS = {
     "UNAUTHENTICATED": 401,
@@ -64,8 +65,19 @@ async def http_error(request, error):
     return failure(error.status_code, code, "请求无法处理。", headers=error.headers)
 
 
+async def save_error(request, error):
+    status = {
+        "SAVE_NOT_FOUND": 404,
+        "SCRIPT_NOT_FOUND": 404,
+        "SCRIPT_VERSION_CONFLICT": 409,
+        "SCRIPT_UNSUPPORTED": 409,
+    }.get(error.code, 503)
+    return failure(status, error.code, str(error), status == 503)
+
+
 def install_handlers(app):
     app.add_exception_handler(IdentityError, identity_error)
     app.add_exception_handler(PairError, pair_error)
+    app.add_exception_handler(SaveError, save_error)
     app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(HTTPException, http_error)

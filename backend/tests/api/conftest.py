@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from tests.storage.conftest import mongo_database, mongo_repository_factory  # noqa: F401
+from tests.save_support import published_story  # noqa: F401
 
 
 @pytest.fixture
