@@ -124,3 +124,34 @@ Python3.12.4、PyMongo4.19.0、真实MongoDB8.0.34。最终专项51通过用时1
 | `tests.contracts.test_platform::test_unfilled_room_allows_reading_but_no_game_or_npc_write[game-command]` | support.py:102，POST /api/saves，404 NOT_FOUND | 同一位置，422 INVALID_INPUT，缺少script_version |
 | `tests.contracts.test_platform::test_unfilled_room_allows_reading_but_no_game_or_npc_write[npc]` | support.py:102，POST /api/saves，404 NOT_FOUND | 同一位置，422 INVALID_INPUT，缺少script_version |
 | `tests.contracts.test_platform::test_websocket_uses_auth_frame_and_personal_projection_on_reconnect` | support.py:102，POST /api/saves，404 NOT_FOUND | 同一位置，422 INVALID_INPUT，缺少script_version |
+
+
+## 修改文件清单
+
+- `backend/README.md`
+- `backend/src/twoworlds/api/app.py`
+- `backend/src/twoworlds/api/errors.py`
+- `backend/src/twoworlds/api/routers/saves.py`
+- `backend/src/twoworlds/api/schemas/saves.py`
+- `backend/src/twoworlds/application/saves.py`
+- `backend/src/twoworlds/ports/repository.py`
+- `backend/src/twoworlds/storage/mongo.py`
+- `backend/src/twoworlds/storage/sqlite.py`
+- `backend/tests/api/conftest.py`
+- `backend/tests/api/test_saves.py`
+- `backend/tests/application/conftest.py`
+- `backend/tests/application/test_saves.py`
+- `backend/tests/save_support.py`
+- `backend/tests/storage/test_mongo_contract.py`
+- `backend/tests/storage/test_repository_contract.py`
+- `backend/tests/storage/test_sqlite.py`
+- `docs/03-技术架构与数据接口.md`
+- `docs/04-开发阶段与任务清单.md`
+- `docs/05-测试验收与交付标准.md`
+- `docs/reports/saves-lifecycle.md`
+- `docs/开发进度与交接.md`
+
+
+## GitHub交付
+
+实现提交`818dd960d8687aa3b969f7bd97f4f0edb421ade8`已推送分支`codex/t08-1-scripts-saves`；[PR #18](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/18)目标`codex/bootstrap`，状态open，未合并。本轮检查22个文件，未新增凭证、数据库文件、缓存或临时媒体；既有无效Mongo URI测试样例与基线一致。后续收尾仅更新本报告/交接，业务代码测试结果不变。当前停止等待用户审查，不自动开始T08.2。
