@@ -6,12 +6,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from .support import Platform
+from tests.save_support import make_publications
 
 ORIGIN = "http://testserver"
 
 
+@pytest.fixture(scope="module")
+def contract_publication_store(tmp_path_factory):
+    # Test-only sealed lighthouse content; never publish into the product package.
+    store, publish = make_publications(tmp_path_factory.mktemp("contract-publications"))
+    publish()
+    return store
+
+
 @pytest.fixture
-def client_factory(tmp_path):
+def client_factory(tmp_path, contract_publication_store):
     """Open real applications; separate instances can share one SQLite file."""
     with ExitStack() as stack:
 
@@ -31,6 +40,7 @@ def client_factory(tmp_path):
             )
             app = create_app(
                 repository=repository,
+                publication_store=contract_publication_store,
                 ai_mode="demo",
                 allowed_origins=[ORIGIN],
             )

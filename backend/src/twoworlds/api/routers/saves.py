@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, Request
 
 from twoworlds.api.auth import Authenticated, current_identity
 from twoworlds.api.schemas.saves import CreateSave
-from twoworlds.application.saves import SaveSnapshot, SaveSummary
+from twoworlds.api.schemas.commands import SubmitCommand
+from twoworlds.application.commands import RequestId, ReceiptFound, ReceiptMissing
+from twoworlds.application.saves import CommandResponse, SaveSnapshot, SaveSummary
 from twoworlds.content.schema import ScriptMetadata
 
 router = APIRouter()
@@ -41,3 +43,30 @@ def read_save(
     save_id: str, request: Request, identity: Authenticated = Depends(current_identity)
 ):
     return request.app.state.save_service.read_save(identity.account.id, save_id)
+
+
+@router.post("/api/saves/{save_id}/commands", response_model=CommandResponse)
+def submit_command(
+    save_id: str,
+    body: SubmitCommand,
+    request: Request,
+    identity: Authenticated = Depends(current_identity),
+):
+    return request.app.state.save_service.submit_command(
+        identity.account.id, save_id, body
+    )
+
+
+@router.get(
+    "/api/saves/{save_id}/receipts/{request_id}",
+    response_model=ReceiptFound | ReceiptMissing,
+)
+def get_receipt(
+    save_id: str,
+    request_id: RequestId,
+    request: Request,
+    identity: Authenticated = Depends(current_identity),
+):
+    return request.app.state.save_service.get_receipt(
+        identity.account.id, save_id, request_id
+    )

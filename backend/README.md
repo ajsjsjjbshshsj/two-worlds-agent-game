@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容/灯塔领域、SQLite/Mongo仓储、身份与房间HTTP；本轮T08.1新增发布剧本目录和存档创建/列表/个人读档。[存档生命周期报告](../docs/reports/saves-lifecycle.md)记录本轮验证；T08.2游戏命令/CAS/回执API与T08.3媒体接口尚未实现。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
+后端已有内容/灯塔领域、SQLite/Mongo仓储、身份与房间HTTP；T08.1目录与存档生命周期已合并；本轮T08.2新增游戏命令、CAS编排和本人回执查询。[存档生命周期报告](../docs/reports/saves-lifecycle.md)记录本轮验证；[命令报告](../docs/reports/commands-receipts.md)记录本轮913项=904通过/9后续失败、新增78项全通过及逐项对照；T08.3媒体接口尚未实现。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
 
 ## 1. 先看这几个文件
 
@@ -15,8 +15,8 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份、房间、目录与存档生命周期已实现；命令、媒体、WS待后续 |
-| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService、PairService与SaveService已实现；命令与对话待后续 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份/房间/目录/存档/命令回执已实现；媒体与WS待后续 |
+| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService、PairService及SaveService生命周期/命令已实现；对话待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
@@ -221,3 +221,23 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 ```
 
 测试使用正式灯塔JSON的临时发布副本和明确标记的测试PNG/WAV，未提供正式素材、独立TCP地址或完整可玩前端。游戏命令、幂等回执、操作同步、WS、受保护媒体、AI均待后续。本环节结束后停止，等待用户审查。
+
+
+## 13. 游戏命令与本人回执（T08.2）
+
+`POST /api/saves/{id}/commands`接受`{request_id,expected_version,kind,args}`。例如A在v0提交`inspect {target:maintenance_log}`，B读取v1再提交`inspect {target:sea_chart}`。服务从Bearer及Pair推导角色，客户端不能传role/account_id/state/completed；所有响应no-store。
+
+成功返回`{receipt:{request_id,status:accepted,accepted_version,duplicate},save:个人快照}`。同请求重试保留整个原载荷，即使B已推进世界，仍返回原接受版本和当前A投影。换原版本、kind或args的同ID请求409 REQUEST_ID_REUSED。`GET /api/saves/{id}/receipts/{request_id}`只查询当前actor；没有返回`{accepted:false}`，有则只返回accepted/request_id/accepted_version。外人404，不泄露伙伴回执。
+
+调用链：严格GameCommand → 认证/Pair授权 → 同聚合查询回执与指纹 → 版本/容量/满员 → 精确发布剧本/纯规则 → 新状态与公共历史/回执整档CAS → 个人快照。CAS失败只重读确认同请求或409 VERSION_CONFLICT，不自动把业务动作重放到新版本。512条完整保留，旧请求/读档可用，新命令409 SAVE_COMMAND_LIMIT。未满员422 PAIR_NOT_READY；规则拒绝422，存储故障503。
+
+读取application/commands.py的规范指纹、application/saves.py的submit_command/_duplicate，再看routers/saves.py和tests/api/test_commands.py的真实并发、两结局、512上限与应用重开测试。仓储原CAS/表/索引未改，没有新增依赖或模型调用。
+
+```powershell
+# 位于本工作树；需要真实本地Mongo的用例读取MONGO_URI
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api/test_commands.py -k 'full_lighthouse and sqlite' -q
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_commands.py backend/tests/api/test_commands.py -q
+```
+
+测试工厂自动创建并封存临时内容副本，不发布到正式包。生产默认发布目录仍为空，不能把这些测试PNG/WAV当正式素材。原契约辅助已适配精确版本，业务断言不改；后续星轨/WS/NPC失败保留。完整证据和手动调用顺序见[报告](../docs/reports/commands-receipts.md)。本轮结束后停止，不开始T08.3。

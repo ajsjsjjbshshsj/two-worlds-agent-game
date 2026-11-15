@@ -5,7 +5,15 @@ from functools import wraps
 import secrets
 from typing import Callable
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
+
+from twoworlds.application.commands import (
+    AcceptedReceipt,
+    CommandError,
+    GameCommand,
+    ReceiptFound,
+    ReceiptMissing,
+)
 
 from twoworlds.content.publication import PublicationError, PublicationStore
 from twoworlds.content.schema import (
@@ -15,12 +23,17 @@ from twoworlds.content.schema import (
     ScriptMetadata,
     Version,
 )
-from twoworlds.domain.engine import create_initial_state
+from twoworlds.domain.engine import apply_command, create_initial_state
 from twoworlds.domain.errors import DomainError
-from twoworlds.domain.persistence import SaveRecord, UTCDateTime
+from twoworlds.domain.persistence import CommandReceipt, SaveRecord, UTCDateTime
 from twoworlds.domain.projection import PlayerSnapshot, project_save
-from twoworlds.domain.recap import PublicHistory
-from twoworlds.ports.repository import DuplicateRecord, Repository, RepositoryError
+from twoworlds.domain.recap import PublicHistory, append_public_history
+from twoworlds.ports.repository import (
+    DuplicateRecord,
+    ReceiptLimitReached,
+    Repository,
+    RepositoryError,
+)
 
 
 class SaveError(RuntimeError):
@@ -59,6 +72,11 @@ class SaveSummary(ContentModel):
     role: Role
     created_at: UTCDateTime
     updated_at: UTCDateTime
+
+
+class CommandResponse(ContentModel):
+    receipt: AcceptedReceipt
+    save: SaveSnapshot
 
 
 def _fail_safely(method):
@@ -187,3 +205,142 @@ class SaveService:
                     )
                 )
         return tuple(sorted(result, key=lambda save: save.id))
+
+    def _authorized_save(self, actor_id, save_id):
+        save = self._repository.get_save(save_id)
+        if save is None:
+            raise SaveError("SAVE_NOT_FOUND")
+        pair, role = self._role(actor_id, save.pair_id)
+        return save, pair, role
+
+    @staticmethod
+    def _receipt(save, actor_id, request_id):
+        # State and receipts come from one aggregate read, avoiding a receipt
+        # from a later version being paired with an earlier snapshot.
+        return next(
+            (
+                r
+                for r in save.receipts
+                if r.actor_id == actor_id and r.request_id == request_id
+            ),
+            None,
+        )
+
+    def _duplicate(self, save, role, actor_id, command, fingerprint):
+        receipt = self._receipt(save, actor_id, command.request_id)
+        if receipt is None:
+            return None
+        if receipt.fingerprint != fingerprint:
+            raise CommandError("REQUEST_ID_REUSED")
+        return CommandResponse(
+            receipt=AcceptedReceipt(
+                request_id=receipt.request_id,
+                accepted_version=receipt.accepted_version,
+                duplicate=True,
+            ),
+            save=self._snapshot(save, role),
+        )
+
+    @_fail_safely
+    def submit_command(
+        self, actor_id, save_id, command: GameCommand
+    ) -> CommandResponse:
+        if not isinstance(command, GameCommand):
+            raise CommandError("INVALID_COMMAND")
+        try:
+            command = GameCommand.model_validate(command.model_dump(warnings=False))
+        except (ValidationError, TypeError, ValueError):
+            raise CommandError("INVALID_COMMAND") from None
+        current, pair, role = self._authorized_save(actor_id, save_id)
+        fingerprint = command.fingerprint()
+        duplicate = self._duplicate(current, role, actor_id, command, fingerprint)
+        if duplicate is not None:
+            return duplicate
+        if command.expected_version != current.version:
+            raise CommandError("VERSION_CONFLICT")
+        if current.version == 512:
+            raise CommandError("SAVE_COMMAND_LIMIT")
+        if pair.member_b is None:
+            raise CommandError("PAIR_NOT_READY")
+        try:
+            now = TypeAdapter(UTCDateTime).validate_python(self._clock())
+        except Exception:
+            raise SaveError("CLOCK_ERROR") from None
+        if now < max(current.updated_at, pair.updated_at):
+            raise SaveError("CLOCK_ERROR")
+        script = self._publications.load(current.script_id, current.script_version)
+        try:
+            state, events = apply_command(
+                current.state,
+                script,
+                role,
+                {
+                    "kind": command.kind,
+                    "args": command.args,
+                },
+            )
+        except DomainError as error:
+            if error.code in {
+                "INVALID_STATE",
+                "INVALID_SCRIPT",
+                "SCRIPT_MISMATCH",
+                "SCRIPT_UNSUPPORTED",
+            }:
+                raise
+            raise CommandError(error.code) from None
+        history = append_public_history(
+            current.public_history, script, state.version, events
+        )
+        receipt = CommandReceipt(
+            actor_id=actor_id,
+            request_id=command.request_id,
+            fingerprint=fingerprint,
+            accepted_version=state.version,
+            created_at=now,
+        )
+        candidate = SaveRecord.model_validate(
+            current.model_dump()
+            | {
+                "state": state,
+                "public_history": history,
+                "version": state.version,
+                "receipts": (*current.receipts, receipt),
+                "updated_at": now,
+            }
+        )
+        # Validate the outgoing projection before any commit. No raw rule events
+        # or hidden state are placed in the response, including on CAS failure.
+        snapshot = self._snapshot(candidate, role)
+        try:
+            accepted = self._repository.compare_and_swap_save(
+                save_id, current.version, candidate
+            )
+        except ReceiptLimitReached:
+            raise CommandError("SAVE_COMMAND_LIMIT") from None
+        if accepted:
+            return CommandResponse(
+                receipt=AcceptedReceipt(
+                    request_id=receipt.request_id,
+                    accepted_version=receipt.accepted_version,
+                    duplicate=False,
+                ),
+                save=snapshot,
+            )
+        latest, _, role = self._authorized_save(actor_id, save_id)
+        duplicate = self._duplicate(latest, role, actor_id, command, fingerprint)
+        if duplicate is not None:
+            return duplicate
+        # Never re-execute an action against a new version automatically.
+        raise CommandError("VERSION_CONFLICT")
+
+    @_fail_safely
+    def get_receipt(
+        self, actor_id, save_id, request_id
+    ) -> ReceiptFound | ReceiptMissing:
+        save, _, _ = self._authorized_save(actor_id, save_id)
+        receipt = self._receipt(save, actor_id, request_id)
+        if receipt is None:
+            return ReceiptMissing()
+        return ReceiptFound(
+            request_id=receipt.request_id, accepted_version=receipt.accepted_version
+        )
