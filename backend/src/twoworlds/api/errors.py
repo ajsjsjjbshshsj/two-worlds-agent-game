@@ -3,6 +3,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 from twoworlds.application.identity import IdentityError
+from twoworlds.application.pairs import PairError
 
 _STATUS = {
     "UNAUTHENTICATED": 401,
@@ -38,6 +39,24 @@ async def invalid_request(request, error):
     return failure(422, "INVALID_INPUT", "身份输入无效。")
 
 
+async def pair_error(request, error):
+    status = {"INVITE_INVALID": 404, "PAIR_NOT_FOUND": 404, "PAIR_FULL": 409}.get(
+        error.code, _STATUS.get(error.code, 503)
+    )
+    return failure(
+        status,
+        error.code,
+        str(error),
+        error.code
+        in {
+            "CONCURRENT_UPDATE",
+            "DEPENDENCY_UNAVAILABLE",
+            "GENERATION_FAILED",
+            "CLOCK_ERROR",
+        },
+    )
+
+
 async def http_error(request, error):
     code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(
         error.status_code, "HTTP_ERROR"
@@ -47,5 +66,6 @@ async def http_error(request, error):
 
 def install_handlers(app):
     app.add_exception_handler(IdentityError, identity_error)
+    app.add_exception_handler(PairError, pair_error)
     app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(HTTPException, http_error)

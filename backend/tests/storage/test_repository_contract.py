@@ -16,6 +16,32 @@ from twoworlds.ports.repository import (
 )
 
 
+def test_member_pairs_query_is_isolated_ordered_and_fresh(
+    repository_factory, account_factory, pair_record, now
+):
+    repo = repository_factory()
+    for name in ("a", "b", "c"):
+        repo.create_account(account_factory(name))
+    first = repo.create_pair(pair_record.model_copy(update={"id": "pair_z"}))
+    second = repo.create_pair(
+        pair_record.model_copy(
+            update={"id": "pair_a", "member_a": "account_b", "invite_digest": "f" * 64}
+        )
+    )
+    third = repo.create_pair(
+        pair_record.model_copy(
+            update={"id": "pair_c", "member_a": "account_c", "invite_digest": "0" * 64}
+        )
+    )
+    assert repo.list_pairs_for_member("missing") == ()
+    assert repo.list_pairs_for_member("account_a") == (first,)
+    assert repo.join_pair(second.id, "account_a", second.invite_digest, now)
+    joined = repo.get_pair(second.id)
+    assert repo.list_pairs_for_member("account_a") == (joined, first)
+    assert repo.list_pairs_for_member("account_b") == (joined,)
+    assert repo.list_pairs_for_member("account_c") == (third,)
+
+
 def test_account_creation_digest_lookup_and_uniqueness(
     repository_factory, account_factory
 ):

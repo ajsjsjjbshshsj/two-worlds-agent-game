@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容、灯塔领域、投影/分享与回顾、持久化模型、SQLite 演示仓储、MongoRepository、IdentityService 和 T06.2 四个 HTTP 身份接口。HTTP/原身份契约 60、身份服务 44、SQLite 仓储 41、Mongo 仓储 47、领域 308、内容 191 项通过。串行全量 661 通过、32 项未实现房间及后续业务接口的契约失败。[身份 HTTP 报告](../docs/reports/identity-http.md) · [Mongo 仓储报告](../docs/reports/mongo-repository.md) · [SQLite 报告](../docs/reports/sqlite-repository.md)
+后端已有内容/灯塔领域、SQLite/Mongo仓储、身份服务及HTTP接口；T07本轮新增双人房间与邀请。PairService 30项、房间HTTP 55项、SQLite/Mongo共享契约各31项通过；完整后端750通过/31项未实现存档API的历史失败，无新增失败ID。[房间报告](../docs/reports/pairs-api.md)记录最新完整回归与未完成项；T08存档/游戏命令API仍未实现。
 
 ## 1. 先看这几个文件
 
@@ -15,15 +15,15 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 四个HTTP身份接口及安全装配已实现，WS与其他业务路由待后续 |
-| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | 身份核心已实现，其余待后续 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份与房间HTTP接口、安全装配已实现，WS与存档业务路由待后续 |
+| src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService与PairService已实现，存档/对话待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务及 Mongo 单文档 CAS/索引已实现，真库契约通过 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
 | src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
-| tests/contracts | 已迁移的身份、命令与平台行为要求 | 身份6项通过，其余32项待后续API |
+| tests/contracts | 已迁移的身份、命令与平台行为要求 | 身份6项及房间竞争契约通过；后续存档/平台契约待T08等 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
 | tests/storage | 同一共享契约切换适配器，真实约束/故障验证 | SQLite/Mongo 各30项共享契约、SQLite专项11、Mongo专项17通过 |
@@ -131,7 +131,7 @@ $env:TWOWORLDS_TEST_BACKEND='sqlite'
 
 前两条分别为30/17通过；最后全量557通过、38项原API失败，退出码1。共享契约默认 sqlite，设置 mongo 后使用真库；两种专项各自固定适配器。完整测试包含真实 Mongo 专项，需 MONGO_URI、Docker 和缓存测试镜像（默认 mongodb/mongodb-atlas-local:8.0，TWOWORLDS_TEST_MONGO_IMAGE 可指定已准备镜像，不自动拉取）。缺数据库会明确失败，不使用 mock/skip。
 
-每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06.1 已由PR #15合并；T06.2本轮已实现，待PR审查。
+每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06.1 已由PR #15合并；T06.2已由PR #16合并。
 
 
 ## 9. 身份服务（T06.1）
@@ -145,9 +145,9 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_identity.py -q
 ```
 
-本轮实际44项通过（SQLite/Mongo各22项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。T06.1已合并，HTTP接口见下节；房间和游戏业务API未实现。
+本轮实际44项通过（SQLite/Mongo各22项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。T06.1已合并，HTTP接口见下节；房间API见T07；游戏业务API未实现。
 
-## 10. HTTP 身份接口（T06.2，待PR审查）
+## 10. HTTP 身份接口（T06.2，PR #16已合并）
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
@@ -169,4 +169,32 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/api backend/tests/contracts/test_identity.py -q -p no:cacheprovider --basetemp=work/pytest-http-local
 ```
 
-实际60项通过（身份28、限频10、正文限制16、原身份契约6），包含两个独立应用关闭/重开同一SQLite文件后恢复同一账号。工厂可注入identity_clock、rate_clock与限频参数，HTTP客户端不能设置这些选项。阅读顺序：schemas/identity.py → auth.py/routers → errors.py → rate_limit.py → app.py → tests/api。[报告](../docs/reports/identity-http.md)含完整命令、661通过/32历史失败逐项比较、首次Windows文件重试偶发失败及复验记录。尚无独立监听或公开演示地址；WS、前端缓存、T07/T08接口未实现。本轮完成后等待审查，不自动继续。
+T06.2合并基线的身份HTTP与契约62项通过（身份30、限频10、正文限制16、原身份契约6），包含两个独立应用关闭/重开同一SQLite文件后恢复同一账号。工厂可注入identity_clock、rate_clock与限频参数，HTTP客户端不能设置这些选项。阅读顺序：schemas/identity.py → auth.py/routers → errors.py → rate_limit.py → app.py → tests/api。[报告](../docs/reports/identity-http.md)含完整命令、T06.2历史失败逐项比较、首次Windows文件重试偶发失败及复验记录。尚无独立监听或公开演示地址；WS、前端缓存与T08接口未实现；T07见下节。本轮完成后等待审查，不自动继续。
+
+
+## 11. 双人房间与邀请（T07，待PR审查）
+
+四个端点均要求有效Bearer会话并返回no-store：
+
+| 方法/路径 | 请求 | 200响应 |
+| --- | --- | --- |
+| POST /api/pairs | 无正文、null或空对象 | {id,role:"a",invite_token,invite_expires_at} |
+| POST /api/pairs/{id}/invite | 同上，仅A且B空 | 与创建相同；旧邀请立即失效 |
+| POST /api/pairs/join | 仅{invite_token} | {id,role:"b"} |
+| GET /api/pairs | 无 | 直接数组[{id,role,member_count}]，仅本人房间，id升序 |
+
+成员与角色来自认证后的Account，额外成员/角色字段422。A不能加入自己房间；第三人加入已满房间409。非A刷新404，满员A刷新409。32随机字节的tw_invite_凭证与session/recovery分开，只存SHA-256摘要，有效24小时，准确到期时刻失效。已加入B持同一邀请重试为幂等读取，即使后来过期也不重复写入。
+
+PairService只依赖Repository Protocol。创建/刷新最多8次尝试；唯一冲突重生凭证，CAS冲突重读。刷新与加入竞争由Pair版本和数据库条件决定，未成功提交不会返回新凭证。两个适配器新增list_pairs_for_member，完整校验每条记录；没有数据库迁移或新索引。
+
+PairError按INVITE_INVALID/PAIR_NOT_FOUND→404、PAIR_FULL/CONCURRENT_UPDATE→409、依赖/生成/时钟错误→503映射统一错误，前3项不可直接重试，后4项retryable=true。模块导入不连接数据库，每app独立PairService；pair_clock可注入，未设置时复用identity_clock（或使用UTC系统时钟），客户端不能设置时钟/重试策略。
+
+复验示例（MONGO_URI设置为你当前可用的本地真Mongo；本轮隔离环境见报告）：
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_pairs.py -q
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api/test_pairs.py -q
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests/api/test_pairs.py -k 'compete' -q
+```
+
+阅读security/credentials.py → ports/repository.py及两个list实现 → application/pairs.py → api/schemas/pairs.py与routers/pairs.py → 两个测试文件。竞争测试用独立真实Repository与应用，Barrier仅对齐真实写入，未用Mock替代数据库。QA-R01～R03取得证据；QA-R04游戏写入/NPC、T08、WS、前端和生产部署未实现，不能宣称完整游戏可玩。本轮完成后停止等待用户审查。
