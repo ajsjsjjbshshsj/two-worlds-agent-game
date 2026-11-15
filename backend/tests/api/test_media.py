@@ -68,9 +68,11 @@ def denied(response, status=404, code="MEDIA_NOT_FOUND"):
     "role,asset,mime",
     [
         ("a", "old_tower", "image/png"),
+        ("b", "future_station", "image/png"),
         ("a", "sea_wind", "audio/wav"),
         ("b", "sea_wind", "audio/wav"),
         ("a", "opening_voice", "audio/wav"),
+        ("a", "emitter_click", "audio/wav"),
         ("b", "receiver_tone", "audio/wav"),
     ],
 )
@@ -79,12 +81,22 @@ def test_visible_binary_headers_and_complete_save_unchanged(
 ):
     game, a, b, save, repo, store, _, script, _ = media_world
     actor = a if role == "a" else b
-    if asset == "receiver_tone":
-        save = game.accept(b, save, "inspect", {"target": "sea_chart"})
+    if asset in {"emitter_click", "receiver_tone"}:
+        target = "maintenance_log" if role == "a" else "sea_chart"
+        save = game.accept(actor, save, "inspect", {"target": target})
     before = repo.get_save(save["id"])
     raw = store.read_media("lighthouse", "1.0.0", asset)
     response = get_media(game, actor, save, asset)
     granted(response, raw, mime)
+    if asset in {"old_tower", "future_station", "emitter_click", "receiver_tone"}:
+        # First prove the media is unlocked for its owner; only the caller changes.
+        partner = b if role == "a" else a
+        cross_role = get_media(game, partner, save, asset)
+        denied(cross_role)
+        unknown = get_media(game, partner, save, "unknown")
+        denied(unknown)
+        assert raw not in cross_role.content
+        assert cross_role.content == unknown.content
     assert repo.get_save(save["id"]) == before
     for media in script.media:
         assert media.path.encode() not in response.content
@@ -188,11 +200,17 @@ def test_http_commands_change_asset_and_cue_visibility_then_scene(media_world):
     denied(get_media(game, b, save, "beam_90"))  # asset filter condition false
     save = game.accept(b, save, "set_filter", {"filter": "amber"})
     before = repo.get_save(save["id"])
-    granted(
-        get_media(game, b, save, "beam_90"),
-        store.read_media("lighthouse", "1.0.0", "beam_90"),
-        "image/png",
-    )
+    raw = store.read_media("lighthouse", "1.0.0", "beam_90")
+    granted(get_media(game, b, save, "beam_90"), raw, "image/png")
+    # Same save and committed state: B's unlocked beam is still private from A.
+    a_response = get_media(game, a, save, "beam_90")
+    denied(a_response)
+    unknown = get_media(game, a, save, "unknown")
+    denied(unknown)
+    assert raw not in a_response.content
+    assert a_response.content == unknown.content
+    assert save["id"] == before.id
+    assert repo.get_save(save["id"]) == before
     # beam_blurred's own condition is true, but none of its cues is active.
     denied(get_media(game, b, save, "beam_blurred"))
     assert repo.get_save(save["id"]) == before
