@@ -152,3 +152,7 @@ uv lock --check --offline --project backend --cache-dir F:/two-worlds-agent-game
 学习顺序：credentials的用途隔离 → Repository与两个成员查询 → PairService创建/刷新/join/列表 → 响应白名单与认证依赖 → WriteBarrier和两应用HTTP测试。输入例：A先创建，B只持invite_token加入；A刷新与B使用旧邀请若同时进行，数据库条件更新决定唯一合法状态，服务重读后返回明确错误。
 
 QA-R01～R03取得真实证据；QA-R04未满员开场/游戏写入/NPC的完整HTTP验收留T08及后续。当前没有T08存档/命令、WS、前端、AI、OAuth、实时语音或生产部署。只提供TestClient验证，不提供未启动的TCP演示地址。完成后创建独立PR、目标codex/bootstrap，由用户审查手动合并；停止等待，不自动执行T08。
+
+## GitHub交付
+
+实现提交`0bfe1ae00fe300ebe749f138d879c0c8cc6730ba`已推送codex/t07-pairs-invite，创建[PR #17](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/17)，目标codex/bootstrap；本条收尾记录追加同一PR。没有推送目标分支、合并或开启自动合并，当前停止等待用户审查。
