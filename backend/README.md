@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容/灯塔领域、SQLite/Mongo仓储、身份与房间HTTP；T08.1目录与存档生命周期已合并；本轮T08.2新增游戏命令、CAS编排和本人回执查询。[存档生命周期报告](../docs/reports/saves-lifecycle.md)记录本轮验证；[命令报告](../docs/reports/commands-receipts.md)记录本轮913项=904通过/9后续失败、新增78项全通过及逐项对照；T08.3媒体接口尚未实现。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
+后端已有内容/灯塔领域、SQLite/Mongo仓储、身份与房间HTTP；T08.1与T08.2已合并。本轮T08.3增加受保护媒体读取，等待PR审查。[存档生命周期报告](../docs/reports/saves-lifecycle.md)、[命令报告](../docs/reports/commands-receipts.md)、[媒体接口报告](../docs/reports/protected-media.md)分别记录各环节的实际验证。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
 
 ## 1. 先看这几个文件
 
@@ -240,4 +240,21 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/application/test_commands.py backend/tests/api/test_commands.py -q
 ```
 
-测试工厂自动创建并封存临时内容副本，不发布到正式包。生产默认发布目录仍为空，不能把这些测试PNG/WAV当正式素材。原契约辅助已适配精确版本，业务断言不改；后续星轨/WS/NPC失败保留。完整证据和手动调用顺序见[报告](../docs/reports/commands-receipts.md)。本轮结束后停止，不开始T08.3。
+测试工厂自动创建并封存临时内容副本，不发布到正式包。生产默认发布目录仍为空，不能把这些测试PNG/WAV当正式素材。原契约辅助已适配精确版本，业务断言不改；后续星轨/WS/NPC失败保留。完整证据和手动调用顺序见[报告](../docs/reports/commands-receipts.md)。以上是T08.2交付记录；用户随后单独授权的T08.3见下一节。
+
+## 14. 受保护媒体读取（T08.3）
+
+`GET /api/saves/{save_id}/media/{asset_id}`带当前身份Bearer。current_identity验证会话；SaveService.read_media验证Pair成员并推导a/b、加载绑定的精确发布版本，调用project_save后只接受当前presentation.background或cues[].assets中的ID，再调用PublicationStore.read_media核验路径/链接/哈希并读字节。素材条件与cue条件统一由投影判定，public也不能越过场景/条件。
+
+成功返回二进制200、服务端MIME白名单、Cache-Control: no-store与X-Content-Type-Options: nosniff。MIME/文件头筛查不是完整媒体解码器；当前支持Schema既有的PNG/JPEG/WebP、MP3/OGG/WAV/M4A。未知与不可见素材均404 MEDIA_NOT_FOUND，外人/缺档404 SAVE_NOT_FOUND，缺绑定版本404 SCRIPT_NOT_FOUND，资源损坏/缺文件/格式不符503 CONTENT_UNAVAILABLE；其他认证和依赖错误沿用现有统一结构。
+
+Range/条件头本轮忽略，仍逐次鉴权并完整200，无206、304、静态重定向或缓存。读取不会新增回执或修改状态。正式发布库保持空，不提供独立演示地址；前端播放、缓存/Blob清理、手机体验与正式资源许可尚未实现/验证。
+
+在backend目录执行以下测试，以临时真实封存PNG/WAV观察双身份授权；无需先发布正式灯塔，也不能用测试素材填补正式内容：
+
+```powershell
+$env:MONGO_URI='mongodb://127.0.0.1:27017'
+.venv/Scripts/python.exe -m pytest tests/api/test_media.py tests/application/test_media.py -q -p no:cacheprovider --basetemp=work/media-learning
+```
+
+`--basetemp`每轮选用新目录。建议在test_http_commands_change_asset_and_cue_visibility_then_scene设断点，观察A/B凭证请求同一个beam_90如何随HTTP操作得到404→200→404。测试中的完整SaveRecord前后相等验证只读。[报告](../docs/reports/protected-media.md)列出结果、失败基线和复现命令；只完成T08.3后停止，不自动开始T09或T10。

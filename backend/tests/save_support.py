@@ -20,13 +20,17 @@ from twoworlds.content.publication import (
 def make_publications(tmp_path):
     store = PublicationStore.initialize(tmp_path / "releases")
 
-    def publish(identifier="lighthouse", version="1.0.0"):
+    def publish(
+        identifier="lighthouse", version="1.0.0", *, transform=None, media=None
+    ):
         document = json.loads(
             (Path(loader.__file__).parent / "scripts/lighthouse/1.0.0.json").read_text(
                 encoding="utf-8"
             )
         )
         document["metadata"].update(id=identifier, content_version=version)
+        if transform is not None:
+            transform(document)
         png = base64.b64decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aM1cAAAAASUVORK5CYII="
         )
@@ -49,6 +53,8 @@ def make_publications(tmp_path):
             path = assets / asset["path"]
             path.parent.mkdir(parents=True, exist_ok=True)
             raw = png if asset["kind"] == "image" else audio.getvalue()
+            if media is not None and asset["id"] in media:
+                raw = media[asset["id"]]
             path.write_bytes(raw)
             approvals.append(
                 MediaApproval(

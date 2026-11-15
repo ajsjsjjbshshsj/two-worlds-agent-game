@@ -69,6 +69,7 @@ async def http_error(request, error):
 async def save_error(request, error):
     status = {
         "SAVE_NOT_FOUND": 404,
+        "MEDIA_NOT_FOUND": 404,
         "SCRIPT_NOT_FOUND": 404,
         "SCRIPT_VERSION_CONFLICT": 409,
         "SCRIPT_UNSUPPORTED": 409,

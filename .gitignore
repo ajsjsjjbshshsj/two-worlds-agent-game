@@ -47,6 +47,7 @@ test-results/
 # Keep the architecture generator so exported diagrams can be reproduced.
 /work/*
 !/work/generate_architecture.py
+/backend/work/
 
 # Operating-system files
 .DS_Store
