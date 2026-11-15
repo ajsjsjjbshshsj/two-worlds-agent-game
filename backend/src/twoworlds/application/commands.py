@@ -1,4 +1,4 @@
-"""Validated command envelope and deterministic, actor-scoped receipt views."""
+"""Validated commands; receipt identity is save_id + actor_id + request_id."""
 
 import hashlib
 import json

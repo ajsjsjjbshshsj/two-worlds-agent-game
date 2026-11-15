@@ -46,6 +46,14 @@ def test_receipt_precedes_version_and_returns_current_private_snapshot(world):
     assert first_response.headers["cache-control"] == "no-store"
     current = game.accept(b, first["save"], "inspect", {"target": "sea_chart"})
     before = repo.get_save(initial["id"])
+    assert (
+        before.version
+        == before.state.version
+        == before.public_history.through_version
+        == 2
+    )
+    assert [r.accepted_version for r in before.receipts] == [1, 2]
+    assert [r.actor_id for r in before.receipts] == [a.account_id, b.account_id]
     duplicate = ok(game.post(a, initial, payload))
     assert duplicate["receipt"] == {**first["receipt"], "duplicate": True}
     assert duplicate["save"] == game.read(a, current)
@@ -78,12 +86,22 @@ def test_reused_id_changed_payload_is_rejected_before_rule_or_version(world, cha
     payload = command(save, "inspect", {"target": "maintenance_log"})
     ok(game.post(a, save, payload))
     before = repo.get_save(save["id"])
+    assert len(before.receipts) == 1
+    assert (before.receipts[0].actor_id, str(before.receipts[0].request_id)) == (
+        a.account_id,
+        payload["request_id"],
+    )
     error(game.post(a, save, payload | changes), 409, "REQUEST_ID_REUSED")
     assert repo.get_save(save["id"]) == before
 
 
-def test_same_uuid_is_independent_per_actor_and_per_save(world):
-    game, a, b, pair, save, repo, _, _, _ = world
+def test_same_uuid_is_independent_per_actor_and_per_save(
+    world, save_repository_factory
+):
+    """The full key is (save_id, actor_id, request_id), including concurrent retries."""
+    from twoworlds.application.commands import GameCommand
+
+    game, a, b, _, save, repo, factory, _, _ = world
     request_id = str(uuid4())
     next_save = game.accept(
         a, save, "inspect", {"target": "maintenance_log"}, request_id
@@ -91,7 +109,7 @@ def test_same_uuid_is_independent_per_actor_and_per_save(world):
     game.accept(b, next_save, "inspect", {"target": "sea_chart"}, request_id)
     assert game.receipt(a, save, request_id)["accepted_version"] == 1
     assert game.receipt(b, save, request_id)["accepted_version"] == 2
-    _, _, other_pair = game.pair(a=a)
+    _, _, other_pair = game.pair(a=a, b=b)
     other = ok(
         game.http.post(
             "/api/saves",
@@ -104,9 +122,67 @@ def test_same_uuid_is_independent_per_actor_and_per_save(world):
         )
     )
     assert game.receipt(a, other, request_id) == {"accepted": False}
-    game.accept(a, other, "inspect", {"target": "maintenance_log"}, request_id)
-    assert repo.get_save(save["id"]).version == 2
-    assert repo.get_save(other["id"]).version == 1
+    other = game.accept(a, other, "inspect", {"target": "maintenance_log"})
+    # A can reuse its UUID with different content in a different save. The same
+    # content change within either save must still be REQUEST_ID_REUSED.
+    first_body = command(
+        {"version": 0}, "inspect", {"target": "maintenance_log"}, request_id
+    )
+    second_body = command(
+        other, "set_emitter", {"angle": 90, "pattern": "pulse"}, request_id
+    )
+    other = ok(game.post(a, other, second_body))["save"]
+    first, second = repo.get_save(save["id"]), repo.get_save(other["id"])
+    for stored in (first, second):
+        assert (
+            stored.version
+            == stored.state.version
+            == stored.public_history.through_version
+            == 2
+        )
+        assert [r.accepted_version for r in stored.receipts] == [1, 2]
+    assert [(r.actor_id, str(r.request_id)) for r in first.receipts] == [
+        (a.account_id, request_id),
+        (b.account_id, request_id),
+    ]
+    assert second.receipts[-1].actor_id == a.account_id
+    assert str(second.receipts[-1].request_id) == request_id
+    assert (
+        first.receipts[0].fingerprint
+        == GameCommand.model_validate(first_body).fingerprint()
+    )
+    assert (
+        second.receipts[-1].fingerprint
+        == GameCommand.model_validate(second_body).fingerprint()
+    )
+    assert first.receipts[0].fingerprint != second.receipts[-1].fingerprint
+    assert first.state.discovered_clues == ("a_maintenance_log", "b_sea_chart")
+    assert second.state.device("emitter", "angle") == 90
+
+    independent_repo = save_repository_factory()
+    assert independent_repo is not repo
+    client, _ = factory(independent_repo)
+    second_game = Platform(client, lambda: None)
+    with ThreadPoolExecutor(2) as pool:
+        pending = [
+            pool.submit(game.post, a, save, first_body),
+            pool.submit(second_game.post, a, other, second_body),
+        ]
+        results = [ok(f.result(timeout=25)) for f in pending]
+    assert [r["receipt"]["duplicate"] for r in results] == [True, True]
+    assert [r["receipt"]["accepted_version"] for r in results] == [1, 2]
+    assert [r["save"]["id"] for r in results] == [first.id, second.id]
+    error(
+        game.post(a, other, second_body | {"args": {"angle": 180, "pattern": "pulse"}}),
+        409,
+        "REQUEST_ID_REUSED",
+    )
+    assert game.receipt(a, save, request_id)["accepted_version"] == 1
+    assert game.receipt(a, other, request_id)["accepted_version"] == 2
+    assert game.receipt(b, other, request_id) == {"accepted": False}
+    # Every retry/query/rejected reuse preserves both complete aggregates.
+    assert repo.get_save(first.id) == independent_repo.get_save(first.id) == first
+    assert repo.get_save(second.id) == independent_repo.get_save(second.id) == second
 
 
 @pytest.mark.parametrize(
@@ -250,6 +326,24 @@ def test_independent_apps_compete_at_real_database_cas(
         == 1
     )
     assert len(current.receipts) == 1
+    from twoworlds.application.commands import GameCommand
+
+    winner = next(r.json() for r in responses if r.status_code == 200)
+    actor, body = (
+        (a, payload)
+        if current.receipts[0].actor_id == a.account_id
+        else (b, other_payload)
+    )
+    assert current.receipts[0].actor_id == actor.account_id
+    assert str(current.receipts[0].request_id) == body["request_id"]
+    assert (
+        current.receipts[0].fingerprint
+        == GameCommand.model_validate(body).fingerprint()
+    )
+    assert current.receipts[0].accepted_version == winner["save"]["version"] == 1
+    assert current.state.discovered_clues == (
+        "a_maintenance_log" if actor == a else "b_sea_chart",
+    )
     if same_request:
         assert sorted(r.json()["receipt"]["duplicate"] for r in responses) == [
             False,
@@ -341,7 +435,8 @@ def test_closed_app_restores_identity_receipts_and_old_request(
             rate_limit=100,
         )
 
-    with TestClient(app(save_repository_factory())) as client:
+    original_repo = save_repository_factory()
+    with TestClient(app(original_repo)) as client:
         game = Platform(client, lambda: None)
         a, b, pair = game.pair()
         save = ok(
@@ -359,7 +454,10 @@ def test_closed_app_restores_identity_receipts_and_old_request(
         first = ok(game.post(a, save, payload))
         current = game.accept(b, first["save"], "inspect", {"target": "sea_chart"})
         expected = game.read(a, current)
-    with TestClient(app(save_repository_factory())) as client:
+        stored_before = original_repo.get_save(save["id"])
+    reopened_repo = save_repository_factory()
+    assert reopened_repo is not original_repo
+    with TestClient(app(reopened_repo)) as client:
         game = Platform(client, lambda: None)
         restored = game.recover(a)
         assert restored.account_id == a.account_id and restored.token != a.token
@@ -369,6 +467,12 @@ def test_closed_app_restores_identity_receipts_and_old_request(
         )
         retry = ok(game.post(restored, save, payload))
         assert retry["receipt"]["duplicate"] and retry["save"] == expected
+        stored_after = reopened_repo.get_save(save["id"])
+        assert stored_after == stored_before
+        assert stored_after.version == stored_after.public_history.through_version == 2
+        assert [r.accepted_version for r in stored_after.receipts] == [1, 2]
+        assert stored_after.receipts[0].actor_id == restored.account_id
+        assert str(stored_after.receipts[0].request_id) == payload["request_id"]
 
 
 def test_unfilled_pair_has_readonly_opening(world):

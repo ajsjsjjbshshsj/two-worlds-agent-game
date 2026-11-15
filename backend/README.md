@@ -227,7 +227,7 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 
 `POST /api/saves/{id}/commands`接受`{request_id,expected_version,kind,args}`。例如A在v0提交`inspect {target:maintenance_log}`，B读取v1再提交`inspect {target:sea_chart}`。服务从Bearer及Pair推导角色，客户端不能传role/account_id/state/completed；所有响应no-store。
 
-成功返回`{receipt:{request_id,status:accepted,accepted_version,duplicate},save:个人快照}`。同请求重试保留整个原载荷，即使B已推进世界，仍返回原接受版本和当前A投影。换原版本、kind或args的同ID请求409 REQUEST_ID_REUSED。`GET /api/saves/{id}/receipts/{request_id}`只查询当前actor；没有返回`{accepted:false}`，有则只返回accepted/request_id/accepted_version。外人404，不泄露伙伴回执。
+成功返回`{receipt:{request_id,status:accepted,accepted_version,duplicate},save:个人快照}`。幂等完整范围为save_id+actor_id+request_id；同账号跨存档可独立复用UUID。同一存档内同请求重试保留原save_id及整个原载荷，即使B已推进世界，仍返回原接受版本和当前A投影。同一存档同actor换原版本、kind或args的同ID请求409 REQUEST_ID_REUSED。`GET /api/saves/{id}/receipts/{request_id}`只查询该存档当前actor；没有返回`{accepted:false}`，有则只返回accepted/request_id/accepted_version。外人404，不泄露伙伴回执。
 
 调用链：严格GameCommand → 认证/Pair授权 → 同聚合查询回执与指纹 → 版本/容量/满员 → 精确发布剧本/纯规则 → 新状态与公共历史/回执整档CAS → 个人快照。CAS失败只重读确认同请求或409 VERSION_CONFLICT，不自动把业务动作重放到新版本。512条完整保留，旧请求/读档可用，新命令409 SAVE_COMMAND_LIMIT。未满员422 PAIR_NOT_READY；规则拒绝422，存储故障503。
 

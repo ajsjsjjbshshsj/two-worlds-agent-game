@@ -215,6 +215,8 @@ class SaveService:
 
     @staticmethod
     def _receipt(save, actor_id, request_id):
+        # The save is the namespace: the same actor/UUID in another save is
+        # independent. There is no account-wide or global receipt registry.
         # State and receipts come from one aggregate read, avoiding a receipt
         # from a later version being paired with an earlier snapshot.
         return next(
