@@ -168,4 +168,4 @@ T09.2存档隔离/版本相关工作保持未开始；没有修改SQLite/Mongo�
 
 可以在backend目录运行专项pytest，并在accept/reject断点查看旧state/new state、事件audience与version。只对纯规则操作，不需要启动API或提供账号；没有实际演示服务地址。
 
-本轮分支codex/t09-1-starline-domain，独立PR目标codex/bootstrap。完成报告、验证和PR后停止等待用户学习/审查，不自动开始T09.2，不合并PR。
+本轮实现提交`0adb63e5046ef06df8cf28a770577d139be213fd`已正常Git推送到codex/t09-1-starline-domain，创建[PR #21](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/21)，标题为`feat: implement Starline content and domain engine (T09.1)`，目标codex/bootstrap。收尾文档继续提交同一PR；当前停止等待用户学习/审查，不自动开始T09.2，不合并或启用自动合并。
