@@ -172,3 +172,8 @@ JUnit证据保留在忽略目录work/t082-baseline.xml、t082-first.xml、t082-m
 - `docs/05-测试验收与交付标准.md`
 - `docs/reports/commands-receipts.md`
 - `docs/开发进度与交接.md`
+
+
+## GitHub交付与检查点
+
+实现提交`f8e33b16090d59b6c4cbd1bbf71d08d150c90c15`已推送`codex/t08-2-command-receipts`，创建[PR #19](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/19)，目标`codex/bootstrap`。16个文件已检查，无新增凭证、数据库、临时资源或私人配置；原规则/仓储/原业务断言不变。收尾只更新交接与PR链接，业务代码测试结果不变。未合并或开启自动合并，当前停止，等待用户学习/审查，不开始T08.3。
