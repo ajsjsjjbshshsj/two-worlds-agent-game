@@ -17,8 +17,7 @@ from twoworlds.content.publication import (
 )
 
 
-@pytest.fixture
-def published_story(tmp_path):
+def make_publications(tmp_path):
     store = PublicationStore.initialize(tmp_path / "releases")
 
     def publish(identifier="lighthouse", version="1.0.0"):
@@ -78,3 +77,8 @@ def published_story(tmp_path):
         return store.load(identifier, version)
 
     return store, publish
+
+
+@pytest.fixture
+def published_story(tmp_path):
+    return make_publications(tmp_path)

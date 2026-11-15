@@ -97,13 +97,18 @@ class Platform:
         assert pair["role"] == "a" and joined["role"] == "b"
         return a, b, pair
 
-    def save(self, actor, pair, script="lighthouse"):
+    def save(self, actor, pair, script="lighthouse", version="1.0.0"):
         """开档。同一房间同一剧本只有一份存档，重复开档返回同一份。"""
         return ok(
             self.http.post(
                 "/api/saves",
                 headers=actor.headers,
-                json={"pair_id": pair["id"], "script_id": script},
+                # The fixture seals 1.0.0; never ask the server to guess latest.
+                json={
+                    "pair_id": pair["id"],
+                    "script_id": script,
+                    "script_version": version,
+                },
             )
         )
 

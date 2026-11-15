@@ -3,6 +3,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 from twoworlds.application.identity import IdentityError
+from twoworlds.application.commands import CommandError
 from twoworlds.application.pairs import PairError
 from twoworlds.application.saves import SaveError
 
@@ -79,5 +80,20 @@ def install_handlers(app):
     app.add_exception_handler(IdentityError, identity_error)
     app.add_exception_handler(PairError, pair_error)
     app.add_exception_handler(SaveError, save_error)
+    app.add_exception_handler(CommandError, command_error)
     app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(HTTPException, http_error)
+
+
+async def command_error(request, error):
+    status = (
+        409
+        if error.code
+        in {
+            "VERSION_CONFLICT",
+            "REQUEST_ID_REUSED",
+            "SAVE_COMMAND_LIMIT",
+        }
+        else 422
+    )
+    return failure(status, error.code, str(error))
