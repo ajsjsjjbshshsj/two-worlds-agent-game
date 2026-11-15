@@ -27,6 +27,13 @@ _MESSAGES = {
     "PRECONDITION_NOT_MET": "当前还不满足操作条件。",
     "NO_STATE_CHANGE": "当前设置或选择没有变化。",
     "SAVE_COMPLETED": "本次故事已经完成，不能再修改结果。",
+    "POWER_BUDGET_EXCEEDED": "能源方案超过5单位预算，整组配置未改变。",
+    "WRONG_TRACK": "接车轨道尚未与已确认的列车信号对位。",
+    "SCAN_UNAVAILABLE": "声呐扫描需要东侧回声通道、声呐供电并关闭引擎。",
+    "TRACK_NOT_SCANNED": "请先由列车端实际扫描定位缺轨段。",
+    "SIGNAL_UNAVAILABLE": "信号灯当前无电，不能确认灯号。",
+    "SIGNAL_NOT_CONFIRMED": "请先由列车端确认真实灯号。",
+    "DISPATCH_NOT_READY": "接车需要导轨安装、信号确认以及引擎和灯开启、声呐关闭。",
 }
 
 

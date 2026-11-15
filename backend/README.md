@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有内容/灯塔领域、SQLite/Mongo仓储、身份与房间HTTP；T08.1与T08.2已合并。本轮T08.3增加受保护媒体读取，等待PR审查。[存档生命周期报告](../docs/reports/saves-lifecycle.md)、[命令报告](../docs/reports/commands-receipts.md)、[媒体接口报告](../docs/reports/protected-media.md)分别记录各环节的实际验证。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
+后端已有灯塔领域、SQLite/Mongo仓储、身份与房间/存档/命令/受保护媒体HTTP，T08.3的PR #20已合并。本轮T09.1增加星轨正式内容和纯规则，等待PR审查；T09.2未开始。[星轨报告](../docs/reports/starline-engine.md)记录纯领域范围与实际回归。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
 
 ## 1. 先看这几个文件
 
@@ -258,3 +258,15 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017'
 ```
 
 `--basetemp`每轮选用新目录。建议在test_http_commands_change_asset_and_cue_visibility_then_scene设断点，观察A/B凭证请求同一个beam_90如何随HTTP操作得到404→200→404。测试中的完整SaveRecord前后相等验证只读。[报告](../docs/reports/protected-media.md)列出结果、失败基线和复现命令；只完成T08.3后停止，不自动开始T09或T10。
+
+## 15. 星轨内容与纯规则（T09.1）
+
+`content/scripts/starline/1.0.0.json`定义全新四场景、两角色设备与条件链。`domain/engine.py`显式注册灯塔和星轨，仍使用同一apply_command入口；`mechanics/starline.py`仅增加功率预算/错误轨道检查、各自观察及状态不变量。条件、参数、有限效果、投票及版本递增继续复用原有引擎/common，没有第二份API或引擎。
+
+例如B提交engine=true、sonar=true时成本为6，先抛POWER_BUDGET_EXCEEDED，三个设备、完整GameState及版本都不变；有效方案为声呐/灯4单位，扫描和装轨后再切换到引擎/灯4单位。A不经B扫描不能猜装bridge_2，B不经A选轨不能接车，双方同票才结束。
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/domain/test_starline.py tests/content/test_starline_content.py -q
+```
+
+无需数据库或AI即可观察纯规则。建议读正式JSON → engine._MECHANICS → starline.check_action → common.apply_effect/settle_votes → test_starline.py的TRACE及accept/reject。星轨25项媒体仅有明确“待制作、待核验、禁止生产发布”的声明；未发布到PublicationStore，默认HTTP仍不能创建星轨正式存档。本轮不改身份/仓储/API，不声称星轨HTTP/跨档、播放或手机体验通过。[复现与逐项结果](../docs/reports/starline-engine.md)。完成T09.1后停止，T09.2需用户单独授权。

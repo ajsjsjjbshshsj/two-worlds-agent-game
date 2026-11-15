@@ -5,10 +5,13 @@ from pydantic import TypeAdapter, ValidationError
 from twoworlds.content.schema import Identifier, ScriptVersion
 
 from .errors import DomainError
-from .mechanics import common, lighthouse
+from .mechanics import common, lighthouse, starline
 from .models import CommandResult, DeviceState, DomainEvent, GameState, StateValue
 
 _CLUE_ID = TypeAdapter(Identifier)
+# Only these explicitly imported modules can execute rules. Content cannot name
+# a Python module, callable or expression to load dynamically.
+_MECHANICS = {"lighthouse": lighthouse, "starline": starline}
 
 
 def _require_script(script: ScriptVersion) -> ScriptVersion:
@@ -21,7 +24,7 @@ def _require_script(script: ScriptVersion) -> ScriptVersion:
         )
     except (ValidationError, TypeError, KeyError, AttributeError):
         raise DomainError("INVALID_SCRIPT") from None
-    if validated.metadata.id != "lighthouse":
+    if validated.metadata.id not in _MECHANICS:
         raise DomainError("SCRIPT_UNSUPPORTED")
     if any(
         action.kind == "share_clue" or action.id == "share_clue"
@@ -58,10 +61,14 @@ def create_initial_state(script: ScriptVersion) -> GameState:
     )
     try:
         state = state.model_copy(
-            update={"observations": lighthouse.observations(state, script)}
+            update={
+                "observations": _MECHANICS[script.metadata.id].observations(
+                    state, script
+                )
+            }
         )
         _validate_state(state, script)
-    except (StopIteration, KeyError, ValidationError):
+    except (StopIteration, KeyError, ValidationError, TypeError):
         raise DomainError("INVALID_SCRIPT") from None
     return state
 
@@ -127,8 +134,9 @@ def _validate_state(state: GameState, script: ScriptVersion) -> None:
         raise DomainError("INVALID_STATE")
     if not common.conditions_met(state, scene.entry_conditions):
         raise DomainError("INVALID_STATE")
-    lighthouse.validate_invariants(state, script)
-    if state.observations != lighthouse.observations(state, script):
+    mechanics = _MECHANICS[script.metadata.id]
+    mechanics.validate_invariants(state, script)
+    if state.observations != mechanics.observations(state, script):
         raise DomainError("INVALID_STATE")
 
 
@@ -255,6 +263,8 @@ def _apply_supported_command(
             raise DomainError("REPAIR_MODE_UNSAFE")
         raise DomainError("INVALID_ARGUMENTS")
     common.require_preconditions(state, definition)
+    if script.metadata.id == "starline":
+        starline.check_action(state, definition, action["args"])
     candidate, events = state, []
     for effect in definition.effects:
         candidate, emitted = common.apply_effect(
@@ -267,7 +277,7 @@ def _apply_supported_command(
     if candidate == state:
         # Observe文案不算游戏状态变化，不让重复设置仅凭生成事件消耗版本。
         raise DomainError("NO_STATE_CHANGE")
-    observations = lighthouse.observations(candidate, script)
+    observations = _MECHANICS[script.metadata.id].observations(candidate, script)
     for item in observations:
         if item not in state.observations:
             events.append(
