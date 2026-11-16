@@ -48,7 +48,20 @@ export const useIdentityStore = defineStore('identity', () => {
   const error = ref<{ message: string; code: string } | null>(null)
   const storageWarning = ref<string | null>(null)
   const pendingRecoveries = ref<PendingRecovery[]>([])
-  const pendingStorageWarning = ref<string | null>(null)
+  const pendingStorageIssues = ref({ read: false, write: false, remove: false, invalid: false })
+  const pendingStorageWarning = computed(() => {
+    const issues = pendingStorageIssues.value
+    const messages = [
+      issues.read &&
+        '无法读取本机恢复提醒；本页仍保留内存提醒，但不能保证重开后可见。请妥善保存密钥。',
+      issues.write &&
+        '无法保存恢复提醒；本页仍保留内存提醒，刷新或关闭后可能丢失。请现在妥善保存密钥。',
+      issues.remove &&
+        '本次确认只在本页生效，旧提醒后续读取或重开后可能再次出现。请检查浏览器存储设置。',
+      issues.invalid && '部分恢复提醒格式无效，已保留原记录但未读取。请核对自行保存的密钥。',
+    ].filter(Boolean)
+    return messages.length ? messages.join(' ') : null
+  })
   const legacyPendingWarning = ref<string | null>(null)
   const http = createHttpClient()
   function storageWarningMessage() {
@@ -64,13 +77,11 @@ export const useIdentityStore = defineStore('identity', () => {
         if (raw === null) continue
         const record = parsePending(key, raw)
         if (record) records.set(record.account_id, record)
-        else
-          pendingStorageWarning.value =
-            '部分恢复提醒格式无效，已保留原记录但未读取。请核对自行保存的密钥。'
+        else pendingStorageIssues.value.invalid = true
       }
+      pendingStorageIssues.value.read = false
     } catch {
-      pendingStorageWarning.value =
-        '无法读取本机恢复提醒；本页仍保留内存提醒，但不能保证重开后可见。请妥善保存密钥。'
+      pendingStorageIssues.value.read = true
     }
     pendingRecoveries.value = [...records.values()].sort(
       (a, b) =>
@@ -89,10 +100,16 @@ export const useIdentityStore = defineStore('identity', () => {
     if (!pendingRecoveries.value.some((item) => item.account_id === record.account_id))
       pendingRecoveries.value.push(record)
     try {
-      localStorage.setItem(PENDING_RECOVERY_PREFIX + record.account_id, JSON.stringify(record))
+      const key = PENDING_RECOVERY_PREFIX + record.account_id
+      const existing = localStorage.getItem(key)
+      if (existing !== null && !parsePending(key, existing)) {
+        pendingStorageIssues.value.invalid = true
+        return
+      }
+      localStorage.setItem(key, JSON.stringify(record))
+      pendingStorageIssues.value.write = false
     } catch {
-      pendingStorageWarning.value =
-        '无法保存恢复提醒；本页仍保留内存提醒，刷新或关闭后可能丢失。请现在妥善保存密钥。'
+      pendingStorageIssues.value.write = true
     }
   }
   function confirmRecoveryKeySaved(accountId: string) {
@@ -103,10 +120,16 @@ export const useIdentityStore = defineStore('identity', () => {
       (record) => record.account_id !== accountId,
     )
     try {
-      localStorage.removeItem(PENDING_RECOVERY_PREFIX + accountId)
+      const key = PENDING_RECOVERY_PREFIX + accountId
+      const existing = localStorage.getItem(key)
+      if (existing !== null && !parsePending(key, existing)) {
+        pendingStorageIssues.value.invalid = true
+        return
+      }
+      localStorage.removeItem(key)
+      pendingStorageIssues.value.remove = false
     } catch {
-      pendingStorageWarning.value =
-        '本次确认只在本页生效，旧提醒后续读取或重开后可能再次出现。请检查浏览器存储设置。'
+      pendingStorageIssues.value.remove = true
     }
   }
   function clear() {
@@ -252,6 +275,8 @@ export const useIdentityStore = defineStore('identity', () => {
     storageWarning,
     pendingRecoveries,
     pendingStorageWarning,
+    pendingStorageIssues,
+    loadPendingRecoveries,
     legacyPendingWarning,
     currentRecoveryKeyPending: computed(
       () =>

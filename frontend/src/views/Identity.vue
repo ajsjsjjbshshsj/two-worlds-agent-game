@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, routerKey } from 'vue-router'
 import { useIdentityStore } from '../stores/identity'
 const identity = useIdentityStore()
 const mode = ref<'create' | 'recover'>('create')
@@ -8,6 +9,17 @@ const recoveryInput = ref('')
 const reveal = ref(false)
 // Page memory only: never enter Pinia, storage, URL or automatic sharing.
 const oneTimeKey = ref('')
+// A guard only decides navigation. Clearing here would lose the key if a later
+// guard cancels or navigation fails; component unmount owns the cleanup.
+if (inject(routerKey, null)) {
+  onBeforeRouteLeave(() => {
+    if (identity.busy) return false
+    return (
+      !oneTimeKey.value ||
+      window.confirm('恢复密钥尚未确认保存。离开后无法再次展示，未确认提醒会保留。确定离开吗？')
+    )
+  })
+}
 const oneTimeAccountId = ref<string | null>(null)
 const abandoningAccountId = ref<string | null>(null)
 const pendingReminders = computed(() =>
