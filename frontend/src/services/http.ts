@@ -51,7 +51,10 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
   }
   return {
     async request<T>(path: string, request: RequestOptions = {}): Promise<T> {
-      if (!/^\/api\/[a-z/]+$/.test(path)) throw new ApiError(0, 'INVALID_REQUEST', false)
+      // Compare the entire match: JavaScript's $ alone also accepts a final newline.
+      const validPath =
+        /^\/api\/[a-z][a-z0-9_]{0,63}(?:\/[a-z][a-z0-9_]{0,63})*$/.exec(path)?.[0] === path
+      if (!validPath) throw new ApiError(0, 'INVALID_REQUEST', false)
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000)
       let status = 0

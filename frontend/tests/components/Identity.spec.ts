@@ -156,3 +156,86 @@ it('refresh verifies the token without redisplaying the one-time recovery key', 
   expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
   expect(wrapper.html()).not.toContain(created.recovery_key)
 })
+
+const pendingKey = 'twoworlds.recovery.pending'
+function beforeUnload() {
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  return event.defaultPrevented
+}
+async function createdPage() {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(created)))
+  const wrapper = page()
+  await flushPromises()
+  await wrapper.get('#display-name').setValue('旅人')
+  await wrapper.get('[data-test=create-form]').trigger('submit')
+  await flushPromises()
+  return wrapper
+}
+it('marks pending without storing the secret and protects leaving until confirmation', async () => {
+  expect(beforeUnload()).toBe(false)
+  const wrapper = await createdPage()
+  expect(sessionStorage.getItem(pendingKey)).toBe('1')
+  expect(JSON.stringify(sessionStorage)).not.toContain(created.recovery_key)
+  expect(localStorage.length).toBe(0)
+  expect(beforeUnload()).toBe(true)
+  await wrapper.get('[data-test=confirm-key]').trigger('click')
+  expect(sessionStorage.getItem(pendingKey)).toBeNull()
+  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
+  expect(beforeUnload()).toBe(false)
+})
+it('refresh detects unconfirmed recovery and never redisplays or regenerates the lost secret', async () => {
+  const original = await createdPage()
+  original.unmount()
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(
+      json({ account: created.account, session: { expires_at: created.session.expires_at } }),
+    )
+  vi.stubGlobal('fetch', fetch)
+  const refreshed = page()
+  await flushPromises()
+  expect(refreshed.get('[data-test=pending-recovery-warning]').text()).toContain('尚未确认保存')
+  expect(refreshed.text()).toContain('无法在其他设备恢复')
+  expect(refreshed.find('[data-test=one-time-key]').exists()).toBe(false)
+  expect(refreshed.html()).not.toContain(created.recovery_key)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.calls[0]![0]).toBe('/api/me')
+  expect(beforeUnload()).toBe(false)
+})
+it('removes the exact unload listener on unmount while retaining the pending marker', async () => {
+  const added = vi.spyOn(window, 'addEventListener')
+  const removed = vi.spyOn(window, 'removeEventListener')
+  const wrapper = await createdPage()
+  const callback = added.mock.calls.find(([event]) => event === 'beforeunload')?.[1]
+  expect(callback).toBeTypeOf('function')
+  wrapper.unmount()
+  expect(removed).toHaveBeenCalledWith('beforeunload', callback)
+  expect(beforeUnload()).toBe(false)
+  expect(sessionStorage.getItem(pendingKey)).toBe('1')
+})
+it('keeps an in-memory safety state and unload warning when sessionStorage is blocked', async () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  const wrapper = await createdPage()
+  expect(wrapper.text()).toContain('无法保存会话')
+  expect((wrapper.get('[data-test=one-time-key]').element as HTMLTextAreaElement).value).toBe(
+    created.recovery_key,
+  )
+  expect(beforeUnload()).toBe(true)
+  expect(sessionStorage.length).toBe(0)
+  await wrapper.get('[data-test=confirm-key]').trigger('click')
+  expect(beforeUnload()).toBe(false)
+})
+it('retains the unconfirmed warning even when the refreshed session is invalid', async () => {
+  sessionStorage.setItem(pendingKey, '1')
+  sessionStorage.setItem('twoworlds.session.token', created.session.token)
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fail(401)))
+  const wrapper = page()
+  await flushPromises()
+  expect(wrapper.get('[data-test=pending-recovery-warning]').text()).toContain('尚未确认保存')
+  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
+  expect(sessionStorage.getItem('twoworlds.session.token')).toBeNull()
+  expect(sessionStorage.getItem(pendingKey)).toBe('1')
+})

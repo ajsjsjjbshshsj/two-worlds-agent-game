@@ -5,6 +5,7 @@ import { createdIdentity, currentIdentity, recoveredIdentity } from '../types/ap
 import { ApiError, createHttpClient } from '../services/http'
 
 export const SESSION_KEY = 'twoworlds.session.token'
+export const PENDING_RECOVERY_KEY = 'twoworlds.recovery.pending'
 export const useIdentityStore = defineStore('identity', () => {
   const account = ref<Account | null>(null)
   const token = ref<string | null>(null)
@@ -14,11 +15,25 @@ export const useIdentityStore = defineStore('identity', () => {
   const busy = ref(false)
   const error = ref<{ message: string; code: string } | null>(null)
   const storageWarning = ref<string | null>(null)
+  const recoveryKeyPending = ref(false)
   const http = createHttpClient()
   function storageWarningMessage() {
     storageWarning.value = '当前浏览器无法保存会话，刷新后可能需要恢复密钥。请妥善保存密钥。'
   }
-  function clear() {
+  function setRecoveryKeyPending(pending: boolean) {
+    recoveryKeyPending.value = pending
+    try {
+      // Status only. Neither the recovery key nor account/token is in this marker.
+      if (pending) sessionStorage.setItem(PENDING_RECOVERY_KEY, '1')
+      else sessionStorage.removeItem(PENDING_RECOVERY_KEY)
+    } catch {
+      storageWarningMessage()
+    }
+  }
+  function confirmRecoveryKeySaved() {
+    setRecoveryKeyPending(false)
+  }
+  function clear(forgetRecoveryState = false) {
     token.value = null
     account.value = null
     expiresAt.value = null
@@ -27,6 +42,9 @@ export const useIdentityStore = defineStore('identity', () => {
     } catch {
       storageWarningMessage()
     }
+    // Explicit logout forgets this device's identity; a failed startup validation
+    // retains the warning that its recovery key was never confirmed.
+    if (forgetRecoveryState) setRecoveryKeyPending(false)
   }
   function accept(value: ReturnType<typeof recoveredIdentity>) {
     token.value = value.session.token
@@ -52,6 +70,7 @@ export const useIdentityStore = defineStore('identity', () => {
           body: { display_name: name } satisfies CreateAccount,
         }),
       )
+      setRecoveryKeyPending(true)
       accept(response)
       // The key is returned to the page only; never part of Pinia state or storage.
       return response.recovery_key
@@ -82,6 +101,8 @@ export const useIdentityStore = defineStore('identity', () => {
           }),
         ),
       )
+      // A successful recovery proves possession of the active identity's key.
+      setRecoveryKeyPending(false)
     } catch (cause) {
       const problem = failure(cause)
       if (problem.status === 401) clear()
@@ -93,6 +114,7 @@ export const useIdentityStore = defineStore('identity', () => {
   async function initialize(): Promise<void> {
     if (initialized.value || initializing.value) return
     try {
+      recoveryKeyPending.value = sessionStorage.getItem(PENDING_RECOVERY_KEY) === '1'
       token.value = sessionStorage.getItem(SESSION_KEY)
     } catch {
       storageWarningMessage()
@@ -127,10 +149,10 @@ export const useIdentityStore = defineStore('identity', () => {
     error.value = null
     try {
       await http.request<void>('/api/sessions/current', { method: 'DELETE', token: token.value })
-      clear()
+      clear(true)
     } catch (cause) {
       const problem = failure(cause)
-      if (problem.status === 401) clear()
+      if (problem.status === 401) clear(true)
       error.value = {
         code: problem.code,
         message:
@@ -151,6 +173,8 @@ export const useIdentityStore = defineStore('identity', () => {
     busy,
     error,
     storageWarning,
+    recoveryKeyPending,
+    confirmRecoveryKeySaved,
     authenticated: computed(() => !!account.value && !!token.value),
     create,
     recover,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useIdentityStore } from '../stores/identity'
 const identity = useIdentityStore()
 const mode = ref<'create' | 'recover'>('create')
@@ -8,6 +8,19 @@ const recoveryInput = ref('')
 const reveal = ref(false)
 // Page memory only: never enter Pinia, storage, URL or automatic sharing.
 const oneTimeKey = ref('')
+function protectUnsavedKey(event: BeforeUnloadEvent) {
+  if (!oneTimeKey.value) return
+  event.preventDefault()
+  event.returnValue = true // Legacy browser support; native dialog text is browser-controlled.
+}
+watch(
+  oneTimeKey,
+  (key) => {
+    if (key) window.addEventListener('beforeunload', protectUnsavedKey)
+    else window.removeEventListener('beforeunload', protectUnsavedKey)
+  },
+  { flush: 'sync' },
+)
 const validation = ref('')
 const copyStatus = ref('')
 const expiration = computed(() =>
@@ -21,6 +34,7 @@ onMounted(() => {
   void identity.initialize()
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', protectUnsavedKey)
   oneTimeKey.value = ''
   recoveryInput.value = ''
 })
@@ -67,6 +81,7 @@ async function copyKey() {
   }
 }
 function confirmKey() {
+  identity.confirmRecoveryKeySaved()
   oneTimeKey.value = ''
   copyStatus.value = ''
 }
@@ -127,7 +142,9 @@ function confirmKey() {
           </button>
         </template>
         <template v-else-if="identity.authenticated">
-          <p class="verified">身份已验证</p>
+          <p class="verified">
+            {{ identity.recoveryKeyPending ? '会话已验证 · 恢复密钥未确认' : '身份已验证' }}
+          </p>
           <h2 class="account-name">你好，{{ identity.account?.display_name }}</h2>
           <dl class="session-details">
             <dt>此设备的会话到期时间</dt>
@@ -224,6 +241,14 @@ function confirmKey() {
             </button>
           </form>
         </template>
+        <p
+          v-if="identity.recoveryKeyPending && !oneTimeKey && identity.initialized"
+          class="notice"
+          role="alert"
+          data-test="pending-recovery-warning"
+        >
+          上次创建身份时，尚未确认保存恢复密钥。当前设备可能仍可使用该身份；如密钥已丢失，就无法在其他设备恢复。这里无法重新生成或显示原密钥。
+        </p>
         <p v-if="validation || identity.error" id="form-error" class="error" role="alert">
           {{ validation || identity.error?.message }}
         </p>

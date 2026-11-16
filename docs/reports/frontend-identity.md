@@ -45,7 +45,7 @@ PR #22已合并，重新fetch后origin/codex/bootstrap为a12a72d780dba81aea8ad51
 ## 具体数据流与安全边界
 
 1. 页面提交显示名，按Python的Unicode码点长度做1–40校验 → Store.create → POST `/api/accounts`。服务端是身份权威，前端不接受account_id/player_id/role认领。
-2. `createdIdentity()`检查返回字段，Store只保存account、token和expires_at；sessionStorage只保存token。恢复密钥返回到页面局部ref，不进入Pinia `$state`，不写storage/URL/日志。
+2. `createdIdentity()`检查返回字段，Store保存account、token和expires_at；审查补强后sessionStorage还保存非敏感pending状态（见下文）。恢复密钥返回到页面局部ref，不进入Pinia `$state`，不写storage/URL/日志。
 3. 密钥优先展示，手动复制备用始终可用。复制按钮不承诺系统之外的备份；确认保存或卸载清除页面明文。恢复输入在请求结束后清除（包括错误）。
 4. 页面刷新先从sessionStorage取token再GET `/api/me`，成功才置为已认证；本地过期日期不替代服务端认证判断。401清掉账号和token，断网/503保留未验证token并提供手动重试。
 5. DELETE `/api/sessions/current`得到204才视为撤销成功。网络错误保留当前身份并明确提示撤销尚未确认；401清除已经无效的本地身份。不自动续期、重试或撤销其他设备。
@@ -61,7 +61,7 @@ PR #22已合并，重新fetch后origin/codex/bootstrap为a12a72d780dba81aea8ad51
 
 附加官方npm审计：`npm.cmd audit --registry=https://registry.npmjs.org --json`返回4项moderate（editorconfig、glob、js-beautify、minimatch，均开发依赖）；`--omit=dev`为0。初次审计因用户镜像未实现安全端点而404，已显式改用官方端点，不计为安全通过。未执行强制跨主版本覆盖以消除审计输出。开发依赖问题是已知限制，不宣称全树无漏洞。
 
-## 实际执行结果
+## 初始交付实际执行结果（审查后的当前结果见下节）
 
 所有前端命令在frontend目录执行；下表退出码为该项结果，不用后续成功命令遮盖前面失败。
 
@@ -101,3 +101,38 @@ PR #22已合并，重新fetch后origin/codex/bootstrap为a12a72d780dba81aea8ad51
 初始fetch成功；收尾时CLI默认路径连接重置，两条命令级IPv4路径分别重置/超时，未关闭TLS验证或改全局DNS/Git。通过GitHub连接器再次核实远端基线仍a12a72d，再上传本地已提交的25个文件，逐个blob SHA核对；生成的实现tree与本地完全相同：`eed43b5045513e83abf5efae18aa9532e156e893`。
 
 本地实现提交`64bd98aa508800b414f450e585ce5af797a1ae3f`，远端实现提交`e10be1b4e873051994394a4d8424f776887c7172`；父基线/消息/tree一致，提交元数据不同。创建codex/t10-1-frontend-identity及PR #23，收尾文档继续更新同一PR，逐文件/tree核验。未修改已合并PR、未推送bootstrap、未force/合并/启用自动合并。后续聊天网络恢复后先fetch核对远端，不能直接推送本地不同元数据的提交历史。
+
+## PR #23审查修复 · 未确认密钥与安全动态路径
+
+本轮只处理用户指定的两点。远端PR仍打开，HEAD为d566cf830ce8e7c29b44d9a25c8879e84173a728；本地元数据不同但起点完整tree同为1b5c9fc976db81be57812ef964f30568abec8870，工作树干净。沿原分支追加修复，不覆盖主目录用户工作、不创建新PR、不用子代理。
+
+### Pending与离开提醒
+
+Store新增`recoveryKeyPending`与固定标记`twoworlds.recovery.pending=1`。先设置状态再接受创建返回的token；标记不含任何密钥、token、账号ID。页面仍是唯一保存恢复密钥的状态容器，sessionStorage拒绝写入时内存pending与原密钥、离开保护继续生效。
+
+`watch(oneTimeKey, ..., {flush:'sync'})`只在密钥实际展示期间注册稳定的beforeunload处理器；`preventDefault()`与legacy returnValue请求原生确认。点击保存确认同时清pending与页面密钥、同步移除监听；卸载无条件移除监听并清页面密钥，**不**因此假装用户已经保存。刷新后的新页面读取pending，仍GET me验证会话，但以醒目警告区分“会话可用”和“恢复能力未确认”；绝不重新调用创建或伪造密钥，丢失密钥不可找回。没有密钥可丢的新页面不继续拦截离开。
+
+成功恢复身份已经证明持有该次恢复密钥，清除pending；明确登出时清理此设备身份和pending，保留原有登出清空断言；网络登出失败不清理。启动me返回401仍保留未确认警告，不把失效会话当成正常身份。Storage拒绝读取/写入时只做内存降级，若强行刷新，浏览器存储不可用意味着无法承诺pending跨刷新保留。
+
+原生弹窗由浏览器控制，需用户交互，移动端强制终止等路径不保证触发；不能自定义弹窗文案或承诺阻止所有关闭。[MDN beforeunload说明](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event)。该机制降低误操作风险，不等于持久化或备份密钥。
+
+### Identifier路径
+
+`http.request()`使用完整匹配的`/api/`前缀和逐段`[a-z][a-z0-9_]{0,63}`语法。允许数字/下划线动态资源段；拒绝点号、穿越、编码字符、query/fragment、空段、尾随斜杠、大写/非法首字符、超长段、反斜杠以及非API路径。额外比较匹配结果与原字符串，防止JavaScript `$`允许末尾换行的行为。校验发生在创建请求、fetch或任何网络访问之前，没有新增业务路由。
+
+### 新增测试与实测
+
+原40项保留，新增28项：HTTP22（5个安全路径/长度边界、17个非法路径）；Store1（pending读取与恢复清除）；页面5（创建/确认/离开、刷新丢失、卸载监听、storage不可用、刷新401仍警告）。原storage失败测试新增内存pending断言，没有降低任何断言。原登出2项一度因残留标记失败，修复明确登出清理逻辑后通过，未修改其“storage为空”的原断言。
+
+| 实际命令（frontend目录） | 当前结果 | 退出码 |
+| --- | --- | --- |
+| `npm.cmd run test:unit`，新增红测后 | 10失败/55通过，复现两个缺陷 | 1 |
+| `npm.cmd run typecheck` | strict通过 | 0 |
+| `npm.cmd run test:unit`，修复及补强后 | **68通过、0失败/跳过**，HTTP35/Store15/页面18；1.32秒 | 0 |
+| `npm.cmd run build` | 39模块；JS113.83kB/gzip44.64kB，CSS4.84kB | 0 |
+| `npm.cmd run format:check` | 全部匹配文件通过 | 0 |
+| 本机Edge CDP原生弹窗验证（本地忽略目录内脚本） | 离开/刷新均捕获beforeunload原生弹窗；取消离开保留密钥；确认后离开无弹窗；接受刷新后pending警告可见且创建请求数不增加 | 0 |
+
+浏览器脚本第一次等待密钥超时，定位为目标按钮未滚入视口而未收到可信点击；修正脚本滚动后上述实测通过，未改业务来配合测试。该浏览器测试的API为明确响应桩，未增加后端接口或声称真实HTTP联调；非移动端/系统强制结束验收。预览/浏览器检查结束后关闭，本地辅助/日志不进入提交。
+
+修改仅为三个前端源码、三份测试与相关报告/说明/进度文档。依赖锁、配置、后端源码/测试/依赖不变；不重跑或宣称后端全量通过。更新同一PR #23，不合并、不开始T10.2。

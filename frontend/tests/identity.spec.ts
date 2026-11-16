@@ -130,6 +130,7 @@ it('blocked sessionStorage keeps current identity in memory with a notice', asyn
   expect(await store.create('旅人')).toBe(created.recovery_key)
   expect(store.authenticated).toBe(true)
   expect(store.storageWarning).toBeTruthy()
+  expect(store.$state).toMatchObject({ recoveryKeyPending: true })
 })
 it('expired or revoked token during logout clears local state rather than claiming a network error', async () => {
   vi.stubGlobal(
@@ -169,4 +170,19 @@ it('serializes identity mutations and does not submit another request while crea
   expect(fetch).toHaveBeenCalledTimes(1)
   resolve(json(created))
   expect(await first).toBe(created.recovery_key)
+})
+it('pending marker contains only status and a successful recovery resolves it', async () => {
+  sessionStorage.setItem('twoworlds.recovery.pending', '1')
+  sessionStorage.setItem(SESSION_KEY, session.token)
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValueOnce(json(me)).mockResolvedValueOnce(json(recovered)),
+  )
+  const store = useIdentityStore()
+  await store.initialize()
+  expect(store.$state).toMatchObject({ recoveryKeyPending: true })
+  await store.recover('saved-key')
+  expect(store.$state).toMatchObject({ recoveryKeyPending: false })
+  expect(sessionStorage.getItem('twoworlds.recovery.pending')).toBeNull()
+  expect(JSON.stringify(store.$state)).not.toContain('saved-key')
 })

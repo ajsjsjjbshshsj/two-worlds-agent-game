@@ -8,6 +8,44 @@ afterEach(() => {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
 describe('HTTP boundary', () => {
+  it.each([
+    '/api/me',
+    '/api/pairs/pair_123/invite',
+    '/api/saves/save_123',
+    '/api/sessions/current',
+    `/api/${'a'.repeat(64)}`,
+  ])('accepts safe Identifier segments: %s', async (path) => {
+    const fetch = vi.fn().mockResolvedValue(json({ ok: true }))
+    vi.stubGlobal('fetch', fetch)
+    await expect(createHttpClient().request(path)).resolves.toEqual({ ok: true })
+    expect(fetch.mock.calls[0]![0]).toBe(path)
+  })
+  it.each([
+    '/api/../me',
+    '/api/saves/..',
+    '/api/me?token=secret',
+    '/api/me#secret',
+    '/me',
+    'https://example.test/api/me',
+    '//api/me',
+    '/api//me',
+    '/api/me/',
+    '/api/123',
+    '/api/UPPER',
+    '/api/pair-123',
+    '/api/%2e%2e/me',
+    '/api/saves\\save_123',
+    `/api/${'a'.repeat(65)}`,
+    '/api/me\n',
+    '/api/me\r',
+  ])('rejects unsafe paths before fetch: %s', async (path) => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    await expect(createHttpClient().request(path)).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
   it('GET sends Bearer only in headers, omits cookies and disables cache', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ account: 'ok' }))
     vi.stubGlobal('fetch', fetch)
