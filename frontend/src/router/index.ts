@@ -6,7 +6,7 @@ import Identity from '../views/Identity.vue'
 import Pairs from '../views/Pairs.vue'
 import PairRoom from '../views/PairRoom.vue'
 import Library from '../views/Library.vue'
-import SaveEntry from '../views/SaveEntry.vue'
+import Game from '../views/Game.vue'
 export function createAppRouter(
   history: RouterHistory = createWebHistory(import.meta.env.BASE_URL),
   pinia?: Pinia,
@@ -18,7 +18,7 @@ export function createAppRouter(
       { path: '/pairs', component: Pairs, meta: { requiresAuth: true } },
       { path: '/pairs/:pairId', component: PairRoom, meta: { requiresAuth: true } },
       { path: '/pairs/:pairId/library', component: Library, meta: { requiresAuth: true } },
-      { path: '/saves/:saveId', component: SaveEntry, meta: { requiresAuth: true } },
+      { path: '/saves/:saveId', component: Game, meta: { requiresAuth: true } },
       { path: '/:pathMatch(.*)*', redirect: '/' },
     ],
   })
