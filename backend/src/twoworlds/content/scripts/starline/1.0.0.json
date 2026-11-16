@@ -1,0 +1,1735 @@
+{
+  "metadata": {
+    "id": "starline",
+    "content_version": "1.0.0",
+    "title": "末班星轨",
+    "summary": "失落站台与末班列车隔着回声相望。两人分配有限能源、定位断轨、交换灯号，合作完成最后一次接车。",
+    "roles": [
+      {
+        "id": "a",
+        "name": "站台记录员",
+        "description": "掌握站台记录，操作回声闸、安装导轨并选择接车轨道。"
+      },
+      {
+        "id": "b",
+        "name": "列车驾驶员",
+        "description": "操作有限能源、声呐与信号面板，等待搭档对位后接车。"
+      }
+    ],
+    "difficulty": "medium",
+    "estimated_minutes": 15
+  },
+  "initial_state": {
+    "scene_id": "survey",
+    "discovered_clues": [],
+    "shared_clues": [],
+    "votes": [],
+    "completed": false
+  },
+  "scenes": [
+    {
+      "id": "survey",
+      "title": "让回声抵达",
+      "observations": [
+        {
+          "role": "a",
+          "text": "废弃站台的导轨断在雾里。检修记录锁在你的工作台；只有你能开合回声闸。列车端必须先听见回声，才有机会定位断轨。"
+        },
+        {
+          "role": "b",
+          "text": "末班列车停在回声之外。功率板控制引擎、声呐和信号灯，但它们不能同时工作。请与你的站台搭档建立回声通道。"
+        }
+      ],
+      "entry_conditions": [],
+      "completion_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "rail_installed",
+          "equals": true
+        }
+      ],
+      "next_scene_ids": [
+        "boarding"
+      ],
+      "terminal": false
+    },
+    {
+      "id": "boarding",
+      "title": "交换信号",
+      "observations": [
+        {
+          "role": "a",
+          "text": "定位导轨已安装，回声闸进入机械锁定。列车端需要确认真实灯号；请保留你的站台标识记录，等待搭档报出信号后选择接车轨道。"
+        },
+        {
+          "role": "b",
+          "text": "导轨的连接指示亮起。把能源从声呐转向引擎与信号灯，确认面板灯号，再等待站台端将接车轨道对准。"
+        }
+      ],
+      "entry_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "rail_installed",
+          "equals": true
+        }
+      ],
+      "completion_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "train_dispatched",
+          "equals": true
+        }
+      ],
+      "next_scene_ids": [
+        "decision"
+      ],
+      "terminal": false
+    },
+    {
+      "id": "decision",
+      "title": "最后的岔路",
+      "observations": [
+        {
+          "role": "a",
+          "text": "末班列车已安全抵达站台。你们可以绕行救援，或直接归站；双方拥有同样的决定权。"
+        },
+        {
+          "role": "b",
+          "text": "接车完成，能源配置被锁定为这次旅程的共同记录。下一段路需要你们共同选择：绕行救援，还是直接归站？"
+        }
+      ],
+      "entry_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "train_dispatched",
+          "equals": true
+        }
+      ],
+      "completion_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        }
+      ],
+      "next_scene_ids": [
+        "completed"
+      ],
+      "terminal": false
+    },
+    {
+      "id": "completed",
+      "title": "末班之后",
+      "observations": [
+        {
+          "role": "a",
+          "text": "共同选择已经写入站台记录，这段旅程不再接受机关修改。"
+        },
+        {
+          "role": "b",
+          "text": "末班列车按两人一致的选择继续前行，结局与双方贡献一同留档。"
+        }
+      ],
+      "entry_conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        }
+      ],
+      "completion_conditions": [],
+      "next_scene_ids": [],
+      "terminal": true
+    }
+  ],
+  "facts": [
+    {
+      "id": "track_scanned",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "rail_installed",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "signal_confirmed",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "train_dispatched",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "completed",
+      "audience": "public",
+      "initial_value": false
+    },
+    {
+      "id": "ending_id",
+      "audience": "public",
+      "initial_value": "none"
+    },
+    {
+      "id": "scanned_segment",
+      "audience": "public",
+      "initial_value": "unknown"
+    },
+    {
+      "id": "confirmed_signal",
+      "audience": "public",
+      "initial_value": "unknown"
+    }
+  ],
+  "clues": [
+    {
+      "id": "a_station_log",
+      "role": "a",
+      "text": "站台检修记录：东侧east回声闸通向实际断轨区，west与closed不能传回完整回声。站台标识：蓝色双闪接二号轨track_2、白色常亮接一号轨track_1、黄色单闪接三号轨track_3。断轨位置必须等列车声呐实际扫描，不能猜装。",
+      "shareable": true,
+      "discovery_conditions": []
+    },
+    {
+      "id": "b_power_board",
+      "role": "b",
+      "text": "列车功率板：总预算5，引擎engine占3、声呐sonar占3、信号灯lamp占1。勘测需要声呐开且引擎关；接车需要引擎和灯开、声呐关。先点亮信号灯查看本人面板，确认后才能把真实灯号告知站台端。",
+      "shareable": true,
+      "discovery_conditions": []
+    }
+  ],
+  "devices": [
+    {
+      "id": "echo_gate",
+      "role": "a",
+      "fields": [
+        {
+          "id": "position",
+          "value_type": "string",
+          "choices": [
+            "west",
+            "east",
+            "closed"
+          ],
+          "initial_value": "closed"
+        }
+      ]
+    },
+    {
+      "id": "platform",
+      "role": "a",
+      "fields": [
+        {
+          "id": "track",
+          "value_type": "string",
+          "choices": [
+            "unset",
+            "track_1",
+            "track_2",
+            "track_3"
+          ],
+          "initial_value": "unset"
+        }
+      ]
+    },
+    {
+      "id": "power_panel",
+      "role": "b",
+      "fields": [
+        {
+          "id": "engine",
+          "value_type": "boolean",
+          "choices": [
+            false,
+            true
+          ],
+          "initial_value": false
+        },
+        {
+          "id": "sonar",
+          "value_type": "boolean",
+          "choices": [
+            false,
+            true
+          ],
+          "initial_value": false
+        },
+        {
+          "id": "lamp",
+          "value_type": "boolean",
+          "choices": [
+            false,
+            true
+          ],
+          "initial_value": false
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "inspect_station_log",
+      "kind": "inspect",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "survey"
+      ],
+      "parameters": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "station_log"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_station_log",
+          "discovered": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "discover_clue",
+          "clue_id": "a_station_log"
+        }
+      ],
+      "error_codes": [
+        "ALREADY_DISCOVERED"
+      ]
+    },
+    {
+      "id": "inspect_power_board",
+      "kind": "inspect",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "survey"
+      ],
+      "parameters": [
+        {
+          "id": "target",
+          "value_type": "string",
+          "choices": [
+            "power_board"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_power_board",
+          "discovered": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "discover_clue",
+          "clue_id": "b_power_board"
+        }
+      ],
+      "error_codes": [
+        "ALREADY_DISCOVERED"
+      ]
+    },
+    {
+      "id": "set_echo_gate",
+      "kind": "set_echo_gate",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "survey"
+      ],
+      "parameters": [
+        {
+          "id": "position",
+          "value_type": "string",
+          "choices": [
+            "west",
+            "east",
+            "closed"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_station_log",
+          "discovered": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_device",
+          "device_id": "echo_gate",
+          "field": "position",
+          "parameter": "position"
+        }
+      ],
+      "error_codes": [
+        "CLUE_NOT_DISCOVERED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "allocate_power",
+      "kind": "allocate_power",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "survey",
+        "boarding"
+      ],
+      "parameters": [
+        {
+          "id": "engine",
+          "value_type": "boolean",
+          "choices": [
+            false,
+            true
+          ]
+        },
+        {
+          "id": "sonar",
+          "value_type": "boolean",
+          "choices": [
+            false,
+            true
+          ]
+        },
+        {
+          "id": "lamp",
+          "value_type": "boolean",
+          "choices": [
+            false,
+            true
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_power_board",
+          "discovered": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_device",
+          "device_id": "power_panel",
+          "field": "engine",
+          "parameter": "engine"
+        },
+        {
+          "op": "set_device",
+          "device_id": "power_panel",
+          "field": "sonar",
+          "parameter": "sonar"
+        },
+        {
+          "op": "set_device",
+          "device_id": "power_panel",
+          "field": "lamp",
+          "parameter": "lamp"
+        }
+      ],
+      "error_codes": [
+        "CLUE_NOT_DISCOVERED",
+        "POWER_BUDGET_EXCEEDED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "scan_track",
+      "kind": "scan_track",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "survey"
+      ],
+      "parameters": [],
+      "preconditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_power_board",
+          "discovered": true
+        },
+        {
+          "kind": "device",
+          "device_id": "echo_gate",
+          "field": "position",
+          "equals": "east"
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "sonar",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "engine",
+          "equals": false
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "track_scanned",
+          "value": true
+        },
+        {
+          "op": "set_fact",
+          "fact_id": "scanned_segment",
+          "value": "bridge_2"
+        },
+        {
+          "op": "observe",
+          "audience": "public",
+          "text": "扫描确认缺轨段 bridge_2；站台端现在可以安装定位导轨。"
+        }
+      ],
+      "error_codes": [
+        "SCAN_UNAVAILABLE",
+        "CLUE_NOT_DISCOVERED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "install_rail",
+      "kind": "install_rail",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "survey"
+      ],
+      "parameters": [
+        {
+          "id": "segment",
+          "value_type": "string",
+          "choices": [
+            "bridge_2"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "track_scanned",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "rail_installed",
+          "value": true
+        },
+        {
+          "op": "enter_scene",
+          "scene_id": "boarding"
+        }
+      ],
+      "error_codes": [
+        "TRACK_NOT_SCANNED"
+      ]
+    },
+    {
+      "id": "confirm_signal",
+      "kind": "confirm_signal",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "boarding"
+      ],
+      "parameters": [],
+      "preconditions": [
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "lamp",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "signal_confirmed",
+          "value": true
+        },
+        {
+          "op": "set_fact",
+          "fact_id": "confirmed_signal",
+          "value": "blue_double_flash"
+        },
+        {
+          "op": "observe",
+          "audience": "public",
+          "text": "列车确认信号为蓝色双闪；请站台端按自己的记录选择接车轨道。"
+        }
+      ],
+      "error_codes": [
+        "SIGNAL_UNAVAILABLE",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "set_platform",
+      "kind": "set_platform",
+      "roles": [
+        "a"
+      ],
+      "scene_ids": [
+        "boarding"
+      ],
+      "parameters": [
+        {
+          "id": "track",
+          "value_type": "string",
+          "choices": [
+            "track_1",
+            "track_2",
+            "track_3"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_confirmed",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_device",
+          "device_id": "platform",
+          "field": "track",
+          "parameter": "track"
+        }
+      ],
+      "error_codes": [
+        "SIGNAL_NOT_CONFIRMED",
+        "NO_STATE_CHANGE"
+      ]
+    },
+    {
+      "id": "dispatch_train",
+      "kind": "dispatch_train",
+      "roles": [
+        "b"
+      ],
+      "scene_ids": [
+        "boarding"
+      ],
+      "parameters": [],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "rail_installed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "signal_confirmed",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "engine",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "sonar",
+          "equals": false
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "lamp",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "set_fact",
+          "fact_id": "train_dispatched",
+          "value": true
+        },
+        {
+          "op": "enter_scene",
+          "scene_id": "decision"
+        }
+      ],
+      "error_codes": [
+        "DISPATCH_NOT_READY",
+        "WRONG_TRACK"
+      ]
+    },
+    {
+      "id": "vote_ending",
+      "kind": "vote_ending",
+      "roles": [
+        "a",
+        "b"
+      ],
+      "scene_ids": [
+        "decision"
+      ],
+      "parameters": [
+        {
+          "id": "choice",
+          "value_type": "string",
+          "choices": [
+            "rescue_detour",
+            "return_station"
+          ]
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "fact",
+          "fact_id": "train_dispatched",
+          "equals": true
+        }
+      ],
+      "effects": [
+        {
+          "op": "record_vote",
+          "parameter": "choice"
+        }
+      ],
+      "error_codes": [
+        "ENDING_UNAVAILABLE",
+        "NO_STATE_CHANGE"
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "rescue_detour",
+      "scene_id": "completed",
+      "summary_template": "你们让回声穿过失落站台，定位并修复导轨，交换灯号完成接车。两人一致决定绕行救援：末班列车转入支线，将仍在等待的人也带回灯火。"
+    },
+    {
+      "id": "return_station",
+      "scene_id": "completed",
+      "summary_template": "你们分配有限能源，先勘测、后接车，让末班列车抵达二号轨。两人一致决定直接归站：不再追逐更远的回声，先把彼此和这趟列车安全送回家。"
+    }
+  ],
+  "npc": {
+    "name": "末班报站员",
+    "public_persona": "只依据当前角色获准的事实提醒协作，不替玩家修改装置、预算或结局。",
+    "allowed_topics": [
+      "当前场景",
+      "协作顺序",
+      "已公开的工程进度"
+    ],
+    "hints": [
+      {
+        "scene_id": "survey",
+        "level": 1,
+        "text": "先检查各自记录，让回声与声呐在同一个时刻具备工作条件。"
+      },
+      {
+        "scene_id": "boarding",
+        "level": 1,
+        "text": "把灯号与站台标识分开核对，别忘了能源也需要切换。"
+      },
+      {
+        "scene_id": "decision",
+        "level": 1,
+        "text": "两种去向都能结束旅程；一致之前可以修改自己的选择。"
+      }
+    ]
+  },
+  "media": [
+    {
+      "id": "survey_a_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "survey"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/survey_a_background.webp",
+      "alt_text": "让回声抵达：站台记录员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "survey_b_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "survey"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/survey_b_background.webp",
+      "alt_text": "让回声抵达：列车驾驶员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "boarding_a_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "boarding"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/boarding_a_background.webp",
+      "alt_text": "交换信号：站台记录员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "boarding_b_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "boarding"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/boarding_b_background.webp",
+      "alt_text": "交换信号：列车驾驶员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "decision_a_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "decision"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/decision_a_background.webp",
+      "alt_text": "最后的岔路：站台记录员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "decision_b_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "decision"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/decision_b_background.webp",
+      "alt_text": "最后的岔路：列车驾驶员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "completed_a_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/completed_a_background.webp",
+      "alt_text": "末班之后：站台记录员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "completed_b_background",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/completed_b_background.webp",
+      "alt_text": "末班之后：列车驾驶员的当前场景。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "station_ambience",
+      "kind": "ambience",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "survey",
+        "boarding",
+        "decision",
+        "completed"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/station_ambience.ogg",
+      "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "opening_voice",
+      "kind": "narration",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "survey"
+      ],
+      "conditions": [],
+      "path": "starline/1.0.0/opening_voice.ogg",
+      "alt_text": "末班星轨开场旁白，同时提供字幕。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。",
+      "transcript": "一端是失落站台，一端是末班列车。先交换各自看到的线索，再轮流为对方创造可操作的条件。"
+    },
+    {
+      "id": "gate_movement",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "survey"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "a_station_log",
+          "discovered": true
+        }
+      ],
+      "path": "starline/1.0.0/gate_movement.ogg",
+      "alt_text": "本人回声闸设置确认后的机械反馈。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "sonar_pulse",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "survey"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "track_scanned",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/sonar_pulse.ogg",
+      "alt_text": "声呐扫描完成的短脉冲，结果另有文字说明。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "rail_location",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "survey"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "track_scanned",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/rail_location.webp",
+      "alt_text": "扫描公开定位的bridge_2安装点。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "power_switch",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "survey",
+        "boarding"
+      ],
+      "conditions": [
+        {
+          "kind": "clue",
+          "clue_id": "b_power_board",
+          "discovered": true
+        }
+      ],
+      "path": "starline/1.0.0/power_switch.ogg",
+      "alt_text": "本人确认能源配置后的开关反馈。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "rail_connection",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "boarding"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "rail_installed",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/rail_connection.ogg",
+      "alt_text": "导轨扣合成功，安装事实保留。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "signal_blink",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "boarding"
+      ],
+      "conditions": [
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "lamp",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/signal_blink.webp",
+      "alt_text": "列车面板显示蓝色双闪，待本人确认后才能公开。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "signal_confirmed_tone",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "boarding"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_confirmed",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/signal_confirmed_tone.ogg",
+      "alt_text": "灯号已确认，等待站台端选择接车轨道。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "train_ready",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "boarding"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "signal_confirmed",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "platform",
+          "field": "track",
+          "equals": "track_2"
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "engine",
+          "equals": true
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "sonar",
+          "equals": false
+        },
+        {
+          "kind": "device",
+          "device_id": "power_panel",
+          "field": "lamp",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/train_ready.webp",
+      "alt_text": "站台端已对位，列车能源满足接车条件。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "train_arrival",
+      "kind": "sfx",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "decision"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "train_dispatched",
+          "equals": true
+        }
+      ],
+      "path": "starline/1.0.0/train_arrival.ogg",
+      "alt_text": "列车按规则确认抵达后的到站声。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "rescue_detour_a",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "rescue_detour"
+        }
+      ],
+      "path": "starline/1.0.0/rescue_detour_a.webp",
+      "alt_text": "你们让回声穿过失落站台，定位并修复导轨，交换灯号完成接车。两人一致决定绕行救援：末班列车转入支线，将仍在等待的人也带回灯火。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "rescue_detour_b",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "rescue_detour"
+        }
+      ],
+      "path": "starline/1.0.0/rescue_detour_b.webp",
+      "alt_text": "你们让回声穿过失落站台，定位并修复导轨，交换灯号完成接车。两人一致决定绕行救援：末班列车转入支线，将仍在等待的人也带回灯火。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "rescue_detour_voice",
+      "kind": "narration",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "rescue_detour"
+        }
+      ],
+      "path": "starline/1.0.0/rescue_detour_voice.ogg",
+      "alt_text": "共同结局旁白与字幕，可跳过。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。",
+      "transcript": "你们让回声穿过失落站台，定位并修复导轨，交换灯号完成接车。两人一致决定绕行救援：末班列车转入支线，将仍在等待的人也带回灯火。"
+    },
+    {
+      "id": "return_station_a",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "a",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "return_station"
+        }
+      ],
+      "path": "starline/1.0.0/return_station_a.webp",
+      "alt_text": "你们分配有限能源，先勘测、后接车，让末班列车抵达二号轨。两人一致决定直接归站：不再追逐更远的回声，先把彼此和这趟列车安全送回家。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "return_station_b",
+      "kind": "image",
+      "content_version": "1.0.0",
+      "audience": "b",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "return_station"
+        }
+      ],
+      "path": "starline/1.0.0/return_station_b.webp",
+      "alt_text": "你们分配有限能源，先勘测、后接车，让末班列车抵达二号轨。两人一致决定直接归站：不再追逐更远的回声，先把彼此和这趟列车安全送回家。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。"
+    },
+    {
+      "id": "return_station_voice",
+      "kind": "narration",
+      "content_version": "1.0.0",
+      "audience": "public",
+      "scene_ids": [
+        "completed"
+      ],
+      "conditions": [
+        {
+          "kind": "fact",
+          "fact_id": "completed",
+          "equals": true
+        },
+        {
+          "kind": "fact",
+          "fact_id": "ending_id",
+          "equals": "return_station"
+        }
+      ],
+      "path": "starline/1.0.0/return_station_voice.ogg",
+      "alt_text": "共同结局旁白与字幕，可跳过。",
+      "source": "待制作：《末班星轨》原创素材计划，尚无实际文件。",
+      "license": "待核验；禁止生产发布，未取得素材授权。",
+      "transcript": "你们分配有限能源，先勘测、后接车，让末班列车抵达二号轨。两人一致决定直接归站：不再追逐更远的回声，先把彼此和这趟列车安全送回家。"
+    }
+  ],
+  "presentation": [
+    {
+      "scene_id": "survey",
+      "role": "a",
+      "background_asset_id": "survey_a_background",
+      "cues": [
+        {
+          "id": "survey_a_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "survey_a_opening_voice",
+          "asset_ids": [
+            "opening_voice"
+          ],
+          "conditions": [],
+          "alt_text": "末班星轨开场旁白，同时提供字幕。"
+        },
+        {
+          "id": "survey_a_gate_movement",
+          "asset_ids": [
+            "gate_movement"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "a_station_log",
+              "discovered": true
+            }
+          ],
+          "alt_text": "本人回声闸设置确认后的机械反馈。"
+        },
+        {
+          "id": "survey_a_rail_location",
+          "asset_ids": [
+            "rail_location"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "track_scanned",
+              "equals": true
+            }
+          ],
+          "alt_text": "扫描公开定位的bridge_2安装点。"
+        }
+      ]
+    },
+    {
+      "scene_id": "survey",
+      "role": "b",
+      "background_asset_id": "survey_b_background",
+      "cues": [
+        {
+          "id": "survey_b_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "survey_b_opening_voice",
+          "asset_ids": [
+            "opening_voice"
+          ],
+          "conditions": [],
+          "alt_text": "末班星轨开场旁白，同时提供字幕。"
+        },
+        {
+          "id": "survey_b_sonar_pulse",
+          "asset_ids": [
+            "sonar_pulse"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "track_scanned",
+              "equals": true
+            }
+          ],
+          "alt_text": "声呐扫描完成的短脉冲，结果另有文字说明。"
+        },
+        {
+          "id": "survey_b_power_switch",
+          "asset_ids": [
+            "power_switch"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_power_board",
+              "discovered": true
+            }
+          ],
+          "alt_text": "本人确认能源配置后的开关反馈。"
+        }
+      ]
+    },
+    {
+      "scene_id": "boarding",
+      "role": "a",
+      "background_asset_id": "boarding_a_background",
+      "cues": [
+        {
+          "id": "boarding_a_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "boarding_a_rail_connection",
+          "asset_ids": [
+            "rail_connection"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "rail_installed",
+              "equals": true
+            }
+          ],
+          "alt_text": "导轨扣合成功，安装事实保留。"
+        }
+      ]
+    },
+    {
+      "scene_id": "boarding",
+      "role": "b",
+      "background_asset_id": "boarding_b_background",
+      "cues": [
+        {
+          "id": "boarding_b_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "boarding_b_power_switch",
+          "asset_ids": [
+            "power_switch"
+          ],
+          "conditions": [
+            {
+              "kind": "clue",
+              "clue_id": "b_power_board",
+              "discovered": true
+            }
+          ],
+          "alt_text": "本人确认能源配置后的开关反馈。"
+        },
+        {
+          "id": "boarding_b_signal_blink",
+          "asset_ids": [
+            "signal_blink"
+          ],
+          "conditions": [
+            {
+              "kind": "device",
+              "device_id": "power_panel",
+              "field": "lamp",
+              "equals": true
+            }
+          ],
+          "alt_text": "列车面板显示蓝色双闪，待本人确认后才能公开。"
+        },
+        {
+          "id": "boarding_b_signal_confirmed_tone",
+          "asset_ids": [
+            "signal_confirmed_tone"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "signal_confirmed",
+              "equals": true
+            }
+          ],
+          "alt_text": "灯号已确认，等待站台端选择接车轨道。"
+        },
+        {
+          "id": "boarding_b_train_ready",
+          "asset_ids": [
+            "train_ready"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "signal_confirmed",
+              "equals": true
+            },
+            {
+              "kind": "device",
+              "device_id": "platform",
+              "field": "track",
+              "equals": "track_2"
+            },
+            {
+              "kind": "device",
+              "device_id": "power_panel",
+              "field": "engine",
+              "equals": true
+            },
+            {
+              "kind": "device",
+              "device_id": "power_panel",
+              "field": "sonar",
+              "equals": false
+            },
+            {
+              "kind": "device",
+              "device_id": "power_panel",
+              "field": "lamp",
+              "equals": true
+            }
+          ],
+          "alt_text": "站台端已对位，列车能源满足接车条件。"
+        }
+      ]
+    },
+    {
+      "scene_id": "decision",
+      "role": "a",
+      "background_asset_id": "decision_a_background",
+      "cues": [
+        {
+          "id": "decision_a_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "decision_a_train_arrival",
+          "asset_ids": [
+            "train_arrival"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "train_dispatched",
+              "equals": true
+            }
+          ],
+          "alt_text": "列车按规则确认抵达后的到站声。"
+        }
+      ]
+    },
+    {
+      "scene_id": "decision",
+      "role": "b",
+      "background_asset_id": "decision_b_background",
+      "cues": [
+        {
+          "id": "decision_b_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "decision_b_train_arrival",
+          "asset_ids": [
+            "train_arrival"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "train_dispatched",
+              "equals": true
+            }
+          ],
+          "alt_text": "列车按规则确认抵达后的到站声。"
+        }
+      ]
+    },
+    {
+      "scene_id": "completed",
+      "role": "a",
+      "background_asset_id": "completed_a_background",
+      "cues": [
+        {
+          "id": "completed_a_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "completed_a_rescue_detour_a",
+          "asset_ids": [
+            "rescue_detour_a"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "rescue_detour"
+            }
+          ],
+          "alt_text": "你们让回声穿过失落站台，定位并修复导轨，交换灯号完成接车。两人一致决定绕行救援：末班列车转入支线，将仍在等待的人也带回灯火。"
+        },
+        {
+          "id": "completed_a_rescue_detour_voice",
+          "asset_ids": [
+            "rescue_detour_voice"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "rescue_detour"
+            }
+          ],
+          "alt_text": "共同结局旁白与字幕，可跳过。"
+        },
+        {
+          "id": "completed_a_return_station_a",
+          "asset_ids": [
+            "return_station_a"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "return_station"
+            }
+          ],
+          "alt_text": "你们分配有限能源，先勘测、后接车，让末班列车抵达二号轨。两人一致决定直接归站：不再追逐更远的回声，先把彼此和这趟列车安全送回家。"
+        },
+        {
+          "id": "completed_a_return_station_voice",
+          "asset_ids": [
+            "return_station_voice"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "return_station"
+            }
+          ],
+          "alt_text": "共同结局旁白与字幕，可跳过。"
+        }
+      ]
+    },
+    {
+      "scene_id": "completed",
+      "role": "b",
+      "background_asset_id": "completed_b_background",
+      "cues": [
+        {
+          "id": "completed_b_station_ambience",
+          "asset_ids": [
+            "station_ambience"
+          ],
+          "conditions": [],
+          "alt_text": "可静音的车站低风与远处电流声，不承载隐藏答案。"
+        },
+        {
+          "id": "completed_b_rescue_detour_b",
+          "asset_ids": [
+            "rescue_detour_b"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "rescue_detour"
+            }
+          ],
+          "alt_text": "你们让回声穿过失落站台，定位并修复导轨，交换灯号完成接车。两人一致决定绕行救援：末班列车转入支线，将仍在等待的人也带回灯火。"
+        },
+        {
+          "id": "completed_b_rescue_detour_voice",
+          "asset_ids": [
+            "rescue_detour_voice"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "rescue_detour"
+            }
+          ],
+          "alt_text": "共同结局旁白与字幕，可跳过。"
+        },
+        {
+          "id": "completed_b_return_station_b",
+          "asset_ids": [
+            "return_station_b"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "return_station"
+            }
+          ],
+          "alt_text": "你们分配有限能源，先勘测、后接车，让末班列车抵达二号轨。两人一致决定直接归站：不再追逐更远的回声，先把彼此和这趟列车安全送回家。"
+        },
+        {
+          "id": "completed_b_return_station_voice",
+          "asset_ids": [
+            "return_station_voice"
+          ],
+          "conditions": [
+            {
+              "kind": "fact",
+              "fact_id": "completed",
+              "equals": true
+            },
+            {
+              "kind": "fact",
+              "fact_id": "ending_id",
+              "equals": "return_station"
+            }
+          ],
+          "alt_text": "共同结局旁白与字幕，可跳过。"
+        }
+      ]
+    }
+  ]
+}
