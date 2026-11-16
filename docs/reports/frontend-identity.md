@@ -136,3 +136,53 @@ Store新增`recoveryKeyPending`与固定标记`twoworlds.recovery.pending=1`。�
 浏览器脚本第一次等待密钥超时，定位为目标按钮未滚入视口而未收到可信点击；修正脚本滚动后上述实测通过，未改业务来配合测试。该浏览器测试的API为明确响应桩，未增加后端接口或声称真实HTTP联调；非移动端/系统强制结束验收。预览/浏览器检查结束后关闭，本地辅助/日志不进入提交。
 
 修改仅为三个前端源码、三份测试与相关报告/说明/进度文档。依赖锁、配置、后端源码/测试/依赖不变；不重跑或宣称后端全量通过。更新同一PR #23，不合并、不开始T10.2。
+
+## PR #23再次审查 · 按身份管理Pending生命周期（当前）
+
+本轮起点：远端PR #23打开、未合并，HEAD为df231305d80ae9d2c05fbbba1fe21d2429c6a2e6；本地d941950元数据不同但完整tree同为486e3a091db054953f0478195fbc82ebfda2ebad，工作区干净。只修Pending，未用子代理，不扩展房间/书架或后端。
+
+### 数据与四种生命周期
+
+后端`api/auth.py`实际用Authorization Bearer提取token，再由IdentityService.authenticate验证；account_id不是凭证。本机提醒保存于localStorage的独立key，值严格只有下列四字段，created_at是本机记录提醒的时间，不冒称服务端账号创建时间：
+
+```text
+key: twoworlds.recovery.pending.v1.account_a
+value: {"account_id":"account_a","display_name":"旅人甲","created_at":"2026-11-16T00:00:00.000Z","pending":true}
+```
+
+来源是通过既有响应校验的Account，不保存恢复密钥、session/Bearer token或提交的恢复输入。读取检查key与account_id一致、Identifier语法、精确字段白名单、日期与昵称长度、大小上限；异常记录保留原始存储但不进入页面/Pinia，也不回显原内容，显示格式警告。
+
+- 创建A：只新增/写入A的key，内存列表保留其余身份；密钥仍只在页面局部ref。beforeunload只在密钥实际可见时启用。
+- 确认保存：页面捕获对应密钥的account_id，只清该项；即使当前账号后来变化，也不会误清另一身份。A/B/C各自独立，确认C后A/B保留。
+- 恢复B：服务端恢复成功后按响应account_id清B；A不变。me成功只证明当前会话，不清任何提醒。
+- 登出或401：`clear()`仅清会话token/account/expiry，不访问Pending；所有身份提醒保留。重开浏览器即使没有sessionStorage token也加载本机提醒。
+
+`pendingRecoveries`列表是唯一新状态源，不再使用全局Boolean。`currentRecoveryKeyPending`仅按当前account_id派生用于UI标签，不参与其他身份的保存/清除。所有持久化写入/移除只针对一个key，不把整组数组回写，避免操作B覆盖A。
+
+### 界面和异常
+
+提醒独立于登录区，列出所有未确认身份的昵称、ID和提醒时间。展示当前密钥时只暂时隐藏它自身的重复提醒，其他身份继续显示。提供明确“我已在其他位置保存此身份的密钥”；放弃则必须再次确认“可能永久无法恢复”，并说明只移除本机提醒、不删除服务端身份/撤销密钥。没有普通关闭按钮或虚构恢复接口。
+
+localStorage不可读/不可写时，已经存在的内存记录不丢弃，创建的新提醒仍留内存并明确警告。用户明确确认后的移除若无法持久化，仅本页生效、旧提醒后续读取或重开可能再次出现，显示相应提示。token仍只在sessionStorage，未迁入localStorage。提醒不跨设备同步，浏览器清理/禁止存储后不能保证重开仍在，不是密钥备份。
+
+旧版单一sessionStorage标记没有身份归属，无法安全判断是A还是B；保留为独立只读旧版警告，不猜账号、不自动生成新记录，不因为恢复B就清理它。它不作为新多身份模型的全局状态源；旧标记无法可靠按身份自动迁移是明确限制。
+
+### 测试保留、适配与新增
+
+保留原68个用例及所有参数表；本地用TypeScript AST核对原40个测试声明（展开为68项）均存在，缺失/参数表变化0。旧用例中“localStorage必须为空”和“全局标记值1”的字面断言与本轮要求矛盾，已按新契约适配：精确四字段元数据白名单、对应身份独立key、token/Recovery Key禁止进入localStorage、密钥禁止任何持久化；没有删除用例/skip或放松凭证边界。原登出sessionStorage为空、重复请求、路径安全、密钥确认/离开监听等断言保留。
+
+新增14项：Pending生命周期8（创建白名单、恢复隔离、A/B/C确认、登出重开、写入阻止、异常元数据、读取失败内存保留、移除失败隔离），页面6（多提醒/单项确认、B恢复不影响A、登出重新打开、放弃二次确认/取消、localStorage禁用时密钥与离开保护、旧版无归属提醒保留）。fixture仅使用明确TEST凭证。原68测试的HTTP35/Store15/页面18仍保留；当前总82=HTTP35/Store15/页面24/新生命周期8。
+
+先新增6项红测全部失败，确认原缺陷。初次只拦截localStorage实例方法的jsdom测试未实际拦截原型调用，改为Storage原型按this区分localStorage后，正确验证存储异常；未修改业务迁就该桩。实现后最终验收：
+
+| 当前实际命令（frontend目录） | 结果 | 退出码 |
+| --- | --- | --- |
+| `npm.cmd run typecheck` | TypeScript strict通过 | 0 |
+| `npm.cmd run test:unit` | 82通过、0失败/跳过，4文件；最终1.54秒 | 0 |
+| `npm.cmd run build` | 39模块，最终JS118.73kB/gzip46.32kB，CSS4.84kB；非部署 | 0 |
+| `npm.cmd run format:check` | 全部匹配文件通过 | 0 |
+| `npm.cmd run test:unit -- --reporter=json --outputFile=../backend/work/t101-account-pending-tests.json` | 82通过，原始证据仅本地忽略目录 | 0 |
+| 原测试声明/参数表AST核对 | 原40声明全保留、缺失/参数表变化0，对应68用例 | 0 |
+| Edge CDP原生离开/刷新检查 | 取消离开保留密钥、确认后无弹窗、刷新后提醒且不重新生成；API为响应桩 | 0 |
+
+浏览器检查使用临时5184端口；默认5173被占用，未停止原服务。只关闭本轮预览，不承诺真实后端联调/真机验收，beforeunload平台限制仍适用。未重跑后端或依赖审计，锁/依赖/HTTP客户端/后端源码与测试均不改。修改文件为identity Store、Identity页面、Pending类型、测试/fixture以及前端说明/报告/任务进度。继续向PR #23追加提交、核对远端HEAD租约和blob/tree一致，不创建新PR、不合并、不进入T10.2。

@@ -8,6 +8,13 @@ const recoveryInput = ref('')
 const reveal = ref(false)
 // Page memory only: never enter Pinia, storage, URL or automatic sharing.
 const oneTimeKey = ref('')
+const oneTimeAccountId = ref<string | null>(null)
+const abandoningAccountId = ref<string | null>(null)
+const pendingReminders = computed(() =>
+  identity.pendingRecoveries.filter(
+    (record) => !(oneTimeKey.value && record.account_id === oneTimeAccountId.value),
+  ),
+)
 function protectUnsavedKey(event: BeforeUnloadEvent) {
   if (!oneTimeKey.value) return
   event.preventDefault()
@@ -36,6 +43,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', protectUnsavedKey)
   oneTimeKey.value = ''
+  oneTimeAccountId.value = null
   recoveryInput.value = ''
 })
 function choose(next: 'create' | 'recover') {
@@ -55,7 +63,10 @@ async function create() {
   }
   validation.value = ''
   const key = await identity.create(name)
-  if (key) oneTimeKey.value = key
+  if (key && identity.account) {
+    oneTimeAccountId.value = identity.account.id
+    oneTimeKey.value = key
+  }
 }
 async function recover() {
   if (identity.busy) return
@@ -81,9 +92,15 @@ async function copyKey() {
   }
 }
 function confirmKey() {
-  identity.confirmRecoveryKeySaved()
+  if (oneTimeAccountId.value) identity.confirmRecoveryKeySaved(oneTimeAccountId.value)
   oneTimeKey.value = ''
+  oneTimeAccountId.value = null
   copyStatus.value = ''
+}
+function abandonReminder(accountId: string) {
+  if (abandoningAccountId.value !== accountId) return
+  identity.confirmRecoveryKeySaved(accountId)
+  abandoningAccountId.value = null
 }
 </script>
 <template>
@@ -143,7 +160,7 @@ function confirmKey() {
         </template>
         <template v-else-if="identity.authenticated">
           <p class="verified">
-            {{ identity.recoveryKeyPending ? '会话已验证 · 恢复密钥未确认' : '身份已验证' }}
+            {{ identity.currentRecoveryKeyPending ? '会话已验证 · 恢复密钥未确认' : '身份已验证' }}
           </p>
           <h2 class="account-name">你好，{{ identity.account?.display_name }}</h2>
           <dl class="session-details">
@@ -241,13 +258,71 @@ function confirmKey() {
             </button>
           </form>
         </template>
-        <p
-          v-if="identity.recoveryKeyPending && !oneTimeKey && identity.initialized"
-          class="notice"
-          role="alert"
+        <section
+          v-if="pendingReminders.length && identity.initialized"
           data-test="pending-recovery-warning"
+          aria-label="未确认保存的恢复密钥"
         >
-          上次创建身份时，尚未确认保存恢复密钥。当前设备可能仍可使用该身份；如密钥已丢失，就无法在其他设备恢复。这里无法重新生成或显示原密钥。
+          <h3>本机待确认的恢复提醒</h3>
+          <p class="help">这些提醒独立于当前登录身份，仅保存在此浏览器，不会跨设备同步。</p>
+          <article
+            v-for="record in pendingReminders"
+            :key="record.account_id"
+            data-test="pending-reminder"
+            :data-account-id="record.account_id"
+          >
+            <p class="notice" role="alert">
+              身份「{{
+                record.display_name
+              }}」尚未确认保存恢复密钥。当前设备可能仍可使用该身份；如密钥已丢失，就无法在其他设备恢复。系统不会重新生成或展示已丢失的密钥。
+            </p>
+            <p class="help">
+              身份标识：{{ record.account_id }}<br />提醒创建时间：{{ record.created_at }}
+            </p>
+            <button
+              class="secondary"
+              data-test="acknowledge-pending"
+              @click="identity.confirmRecoveryKeySaved(record.account_id)"
+            >
+              我已在其他位置保存此身份的密钥
+            </button>
+            <button
+              class="secondary"
+              data-test="abandon-pending"
+              @click="abandoningAccountId = record.account_id"
+            >
+              放弃此身份的恢复提醒
+            </button>
+            <div
+              v-if="abandoningAccountId === record.account_id"
+              role="alertdialog"
+              aria-label="确认放弃恢复提醒"
+            >
+              <p class="error">
+                如果你没有有效会话或另存的密钥，此身份可能永久无法恢复。此操作只移除本机提醒，不会删除服务端身份或重发密钥。
+              </p>
+              <button
+                class="secondary"
+                data-test="cancel-abandon"
+                @click="abandoningAccountId = null"
+              >
+                返回，不放弃
+              </button>
+              <button
+                class="secondary"
+                data-test="confirm-abandon"
+                @click="abandonReminder(record.account_id)"
+              >
+                确认放弃恢复提醒
+              </button>
+            </div>
+          </article>
+        </section>
+        <p v-if="identity.pendingStorageWarning" class="notice" role="alert">
+          {{ identity.pendingStorageWarning }}
+        </p>
+        <p v-if="identity.legacyPendingWarning" class="notice" role="alert">
+          {{ identity.legacyPendingWarning }}
         </p>
         <p v-if="validation || identity.error" id="form-error" class="error" role="alert">
           {{ validation || identity.error?.message }}

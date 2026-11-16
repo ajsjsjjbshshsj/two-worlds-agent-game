@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SESSION_KEY, useIdentityStore } from '../src/stores/identity'
-import { account, created, fail, json, me, recovered, session } from './fixtures'
+import { account, created, fail, json, me, recovered, session, pendingMetadata } from './fixtures'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -21,7 +21,15 @@ it('creates identity, persists only token and returns the one-time key to the ca
   expect(sessionStorage.getItem(SESSION_KEY)).toBe(session.token)
   expect(JSON.stringify(store.$state)).not.toContain(created.recovery_key)
   expect(JSON.stringify(sessionStorage)).not.toContain(created.recovery_key)
-  expect(localStorage.length).toBe(0)
+  expect(localStorage.length).toBe(1)
+  expect(JSON.parse(localStorage.getItem('twoworlds.recovery.pending.v1.' + account.id)!)).toEqual({
+    account_id: account.id,
+    display_name: account.display_name,
+    created_at: expect.any(String),
+    pending: true,
+  })
+  expect(JSON.stringify(localStorage)).not.toContain(created.recovery_key)
+  expect(JSON.stringify(localStorage)).not.toContain(session.token)
 })
 it('recovers the existing account with the exact backend request', async () => {
   const fetch = vi.fn().mockResolvedValue(json(recovered))
@@ -130,7 +138,17 @@ it('blocked sessionStorage keeps current identity in memory with a notice', asyn
   expect(await store.create('旅人')).toBe(created.recovery_key)
   expect(store.authenticated).toBe(true)
   expect(store.storageWarning).toBeTruthy()
-  expect(store.$state).toMatchObject({ recoveryKeyPending: true })
+  expect(store.$state).toMatchObject({
+    pendingRecoveries: [
+      {
+        account_id: account.id,
+        display_name: account.display_name,
+        created_at: expect.any(String),
+        pending: true,
+      },
+    ],
+  })
+  expect(store.pendingStorageWarning).toBeTruthy()
 })
 it('expired or revoked token during logout clears local state rather than claiming a network error', async () => {
   vi.stubGlobal(
@@ -172,7 +190,10 @@ it('serializes identity mutations and does not submit another request while crea
   expect(await first).toBe(created.recovery_key)
 })
 it('pending marker contains only status and a successful recovery resolves it', async () => {
-  sessionStorage.setItem('twoworlds.recovery.pending', '1')
+  localStorage.setItem(
+    'twoworlds.recovery.pending.v1.' + account.id,
+    JSON.stringify(pendingMetadata(account)),
+  )
   sessionStorage.setItem(SESSION_KEY, session.token)
   vi.stubGlobal(
     'fetch',
@@ -180,9 +201,9 @@ it('pending marker contains only status and a successful recovery resolves it', 
   )
   const store = useIdentityStore()
   await store.initialize()
-  expect(store.$state).toMatchObject({ recoveryKeyPending: true })
+  expect(store.$state).toMatchObject({ pendingRecoveries: [pendingMetadata(account)] })
   await store.recover('saved-key')
-  expect(store.$state).toMatchObject({ recoveryKeyPending: false })
-  expect(sessionStorage.getItem('twoworlds.recovery.pending')).toBeNull()
+  expect(store.$state).toMatchObject({ pendingRecoveries: [] })
+  expect(localStorage.getItem('twoworlds.recovery.pending.v1.' + account.id)).toBeNull()
   expect(JSON.stringify(store.$state)).not.toContain('saved-key')
 })

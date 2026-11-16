@@ -4,6 +4,13 @@ export interface Account {
   readonly id: string
   readonly display_name: string
 }
+// Local reminder metadata only; account_id is a label, never authentication.
+export interface PendingRecovery {
+  readonly account_id: string
+  readonly display_name: string
+  readonly created_at: string
+  readonly pending: true
+}
 export interface Session {
   readonly expires_at: string
 }

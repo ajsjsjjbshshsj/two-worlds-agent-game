@@ -21,8 +21,11 @@ npm.cmd run dev
 `Identity.vue`校验表单 → `stores/identity.ts`调用类型化HTTP → `types/api.ts`白名单校验响应 → Store更新账号/会话 → 页面显示状态。
 
 - session token仅在内存和sessionStorage的`twoworlds.session.token`保存，只有Bearer头携带，不进URL/日志，不用localStorage或自动持久化插件。
-- recovery_key从创建动作返回到页面内存，**不在Pinia state、storage或URL中**。创建成功优先显示密钥；另在内存/sessionStorage用`twoworlds.recovery.pending=1`标记“未确认”，该标记只有状态，没有密钥。密钥展示期间注册beforeunload，确认保存清标记/密钥并移除监听，卸载也移除监听但保留pending以便刷新识别。复制失败保留可选择的只读文本，用户自行保存。恢复输入在请求结束后清空。
-- 强行刷新后，密钥不会再显示或重新生成；即使me验证成功，也显示未确认警告及恢复限制。pending在me返回401时仍保留警告；成功恢复身份（已经持有密钥）或明确登出后清除。sessionStorage不可用时保留本页内存pending和离开保护，但不能承诺强行刷新后还能保留标记或找回密钥。
+- recovery_key从创建动作返回到页面内存，**不在Pinia state、storage或URL中**。创建成功优先显示密钥并为该账号新增独立提醒；密钥展示期间注册beforeunload。确认保存只清该账号提醒/页面密钥/监听，卸载清密钥与监听但保留提醒。复制失败有手动备用，恢复输入请求结束清空。
+- 提醒采用localStorage的`twoworlds.recovery.pending.v1.<account_id>`，严格只有`account_id`、`display_name`、`created_at`、`pending: true`。created_at是本机首次记录提醒的时间；account_id只作标识，不是认证凭证。**token仍只在sessionStorage，不迁入localStorage**，持久化不含任何恢复密钥、token或Bearer。
+- 会话与提醒生命周期分离：登出/401清会话但保留全部提醒；恢复B只清B，A仍保留；确认C不影响A/B。重开无会话的页面也显示提醒，me验证成功不代表已经保存密钥。
+- 多个提醒独立于当前登录身份，显示昵称、ID、提醒时间与恢复限制。可点击“我已在其他位置保存此身份的密钥”仅清该项；放弃须二次确认，说明没有会话/密钥时可能永久无法恢复。操作只移除本机提醒，不删除服务端身份或撤销密钥。
+- localStorage不可用时保留本页内存提醒并警告；强行刷新/清理浏览器数据后不能保证提醒仍在，移除失败会提示旧提醒可能再次出现。提醒不是密钥备份，不跨设备同步。旧全局标记缺少身份信息，保留为只读“旧版未关联身份”警告，不猜账号或因恢复另一身份而清除。
 - 刷新后先GET `/api/me`；401清除本地身份，网络/503保留未验证token并提供手动重试。服务器决定会话是否有效，本地时钟只负责显示到期时间。
 - 登出成功204才清理；网络错误保留当前身份并提示撤销未确认。401说明会话已失效，清除本地状态。
 - 创建结果不明不会自动重试，提示“服务端可能已创建”；未收到密钥的匿名身份无法承诺找回。
@@ -38,7 +41,7 @@ npm.cmd run build
 npm.cmd run format:check
 ```
 
-初次交付40项，PR #23审查修复后为**68项通过**：HTTP35、Store15、页面18；本次类型检查、生产构建、格式检查全部通过，未删除/skip/弱化原40项。历史干净安装、后端身份30项与1440/390px布局结果仍保留为初次交付证据，本次未重跑后端，不冒称完整回归。单测用响应桩验证前端逻辑，不替代实际前后端联调。
+初次交付40项，上轮审查68项，本轮按身份Pending修复后为**82项通过**：HTTP35、Store15、页面24、Pending生命周期8。原68个用例及参数表保留，新增14项；旧全局标记/“localStorage为空”断言按新需求适配为精确四字段白名单和凭证禁止持久化断言，未删除/skip或减少安全断言。当前类型检查、构建、格式通过。后端身份30、初始布局与干净安装仅为历史证据，本次未重跑后端。单测响应桩不替代真实联调。
 
 本次Edge CDP额外验证原生beforeunload弹窗：取消离开后仍持有密钥，确认后不再弹出，继续刷新后显示pending警告且不重新创建身份。浏览器检查的API仍是明确响应桩。原生弹窗需要用户交互，移动端系统终止等情况不保证触发，页面不能自定义浏览器提示文字；详见[MDN](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event)。它是降低误操作风险的提醒，不是密钥备份。
 
