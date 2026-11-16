@@ -2,6 +2,8 @@
 
 2026-11-16。用户附件为本轮已授权规格；只执行T10.1，不使用子代理，不实现T10.2。
 
+交付：[PR #23](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/23)，目标codex/bootstrap，打开、未合并。本环节结束，等待用户学习/审查。
+
 ## 基线与实施设计
 
 PR #22已合并，重新fetch后origin/codex/bootstrap为a12a72d780dba81aea8ad515302d994d1f9546a3。从该提交在已有干净隔离工作树创建codex/t10-1-frontend-identity；主目录未提交的学习修改不触碰。
@@ -19,7 +21,7 @@ PR #22已合并，重新fetch后origin/codex/bootstrap为a12a72d780dba81aea8ad51
 - [x] identity.ts：创建、恢复、启动验证、401清理、网络保留、登出与内存降级。
 - [x] Identity.vue/路由/样式：一次性密钥确认、复制与手动备用、加载/错误/结果未知。
 - [x] 类型检查、单元测试、构建、后端身份回归、可用环境下的页面检查。
-- [ ] 更新文档与交接，提交/推送独立PR，停止等待审查。
+- [x] 更新文档与交接，提交/上传独立PR，停止等待审查。
 
 ## 验证记录
 
@@ -93,3 +95,9 @@ PR #22已合并，重新fetch后origin/codex/bootstrap为a12a72d780dba81aea8ad51
 先看`types/api.ts`对照后端四响应，再看`http.ts`的request/error、`identity.ts`的create/initialize/logout、`Identity.vue`的一次性密钥分支，最后看对应测试。具体运行步骤见[前端README](../../frontend/README.md)。例如创建成功后账号和token进Store，密钥只交给页面；点击保存确认后清密钥，刷新再通过me恢复身份而非重新展示密钥。
 
 未完成：真实HTTP联调、独立后端启动/部署、房间/邀请/书架/游戏页、WS/PWA/AI/音频/动画、生产安全与真机验收。下一任务T10.2只介绍房间与书架，本轮交付后立即停止，等待用户审查。
+
+## Git交付核验
+
+初始fetch成功；收尾时CLI默认路径连接重置，两条命令级IPv4路径分别重置/超时，未关闭TLS验证或改全局DNS/Git。通过GitHub连接器再次核实远端基线仍a12a72d，再上传本地已提交的25个文件，逐个blob SHA核对；生成的实现tree与本地完全相同：`eed43b5045513e83abf5efae18aa9532e156e893`。
+
+本地实现提交`64bd98aa508800b414f450e585ce5af797a1ae3f`，远端实现提交`e10be1b4e873051994394a4d8424f776887c7172`；父基线/消息/tree一致，提交元数据不同。创建codex/t10-1-frontend-identity及PR #23，收尾文档继续更新同一PR，逐文件/tree核验。未修改已合并PR、未推送bootstrap、未force/合并/启用自动合并。后续聊天网络恢复后先fetch核对远端，不能直接推送本地不同元数据的提交历史。
