@@ -4,6 +4,17 @@ const messages: Record<number, string> = {
   429: '请求过于频繁，请稍后再试。',
   503: '服务暂时不可用，请稍后再试。',
 }
+const resourceMessages: Record<string, string> = {
+  INVITE_INVALID: '邀请无效、已过期或已刷新。请向搭档索取新链接。',
+  PAIR_FULL: '房间已满员，无法加入或刷新邀请。',
+  PAIR_NOT_FOUND: '房间不存在或你无权访问，请刷新房间列表。',
+  SAVE_NOT_FOUND: '存档不存在或你无权访问，请返回书架。',
+  SCRIPT_NOT_FOUND: '此内容版本尚未发布或不可用，请返回书架。',
+  SCRIPT_VERSION_CONFLICT: '已有存档绑定旧版本，请刷新书架并继续原存档。',
+  PAIR_NOT_READY: '请等待搭档加入后再开始。',
+  KEY_NOT_CONFIRMED: '请先在身份页确认已保存恢复密钥，再接受邀请。',
+  DEPENDENCY_UNAVAILABLE: '服务暂时不可用，请稍后再试。',
+}
 
 export class ApiError extends Error {
   constructor(
@@ -18,7 +29,7 @@ export class ApiError extends Error {
           ? '无法连接服务，请检查网络或服务地址。'
           : code === 'INVALID_RESPONSE'
             ? '服务返回的数据无法识别，请稍后再试。'
-            : (messages[status] ?? '请求未能完成，请稍后再试。'),
+            : (resourceMessages[code] ?? messages[status] ?? '请求未能完成，请稍后再试。'),
     )
     this.name = 'ApiError'
   }
@@ -32,6 +43,7 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'DELETE'
   body?: unknown
   token?: string
+  query?: { pair_id: string }
 }
 
 export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number } = {}) {
@@ -55,6 +67,18 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
       const validPath =
         /^\/api\/[a-z][a-z0-9_]{0,63}(?:\/[a-z][a-z0-9_]{0,63})*$/.exec(path)?.[0] === path
       if (!validPath) throw new ApiError(0, 'INVALID_REQUEST', false)
+      let query = ''
+      if (request.query !== undefined) {
+        if (
+          path !== '/api/saves' ||
+          (request.method ?? 'GET') !== 'GET' ||
+          Object.keys(request.query).join(',') !== 'pair_id' ||
+          typeof request.query.pair_id !== 'string' ||
+          /^[a-z][a-z0-9_]{0,63}$/.exec(request.query.pair_id)?.[0] !== request.query.pair_id
+        )
+          throw new ApiError(0, 'INVALID_REQUEST', false)
+        query = '?' + new URLSearchParams(request.query).toString()
+      }
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000)
       let status = 0
@@ -62,7 +86,7 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
         const headers = new Headers({ Accept: 'application/json' })
         if (request.token) headers.set('Authorization', `Bearer ${request.token}`)
         if (request.body !== undefined) headers.set('Content-Type', 'application/json')
-        const response = await fetch(base + path, {
+        const response = await fetch(base + path + query, {
           method: request.method ?? 'GET',
           headers,
           body: request.body === undefined ? undefined : JSON.stringify(request.body),

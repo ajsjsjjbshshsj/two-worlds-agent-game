@@ -290,5 +290,6 @@ export const useIdentityStore = defineStore('identity', () => {
     initialize,
     verifySession,
     logout,
+    expireSession: clear,
   }
 })

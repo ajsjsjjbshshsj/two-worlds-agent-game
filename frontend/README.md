@@ -1,36 +1,48 @@
-# TwoWorlds 前端 · T10.1
+# TwoWorlds 前端 · T10.2
 
-当前只有身份入口：创建、恢复、启动验证、一次性恢复密钥确认和当前设备登出。Vue Router仅注册`/`。房间、邀请、书架、游戏、WS、PWA、音频和AI尚未实现，没有相应占位按钮。
+已实现身份创建/恢复、一次性密钥保护、房间创建/加入/邀请刷新、成员状态、正式剧本书架和本人存档入口。游戏操作、场景/音频、WebSocket、PWA与AI尚未实现，存档入口明确说明T11后续范围。
 
 ## 本地运行
 
-本轮实测Node **20.19.0**、npm **10.8.2**。依赖为精确版本，提交package-lock.json。Windows若`npm`命中异常的系统路径，使用已有`npm.cmd`；无需全局安装Vue或Vite。
+使用Node20.19.0/npm10.8.2或package.json支持的Node版本。前端依赖及package-lock本轮未改。先按[后端说明](../backend/README.md#17-开发专用http启动器t102)在另一个终端启动后端：
 
 ```powershell
 cd F:/two-worlds-agent-game/work/pr-t01-1-schema/frontend
 npm.cmd ci --engine-strict --registry=https://registry.npmjs.org
-npm.cmd run dev
+$env:VITE_API_BASE_URL='http://127.0.0.1:8016'
+npm.cmd run dev -- --port 5186 --strictPort
 ```
 
-开发服务仅绑定127.0.0.1，地址以Vite实际输出为准。本轮检查后已停止预览进程，不宣称有持续运行的演示或后端地址。当前可查看页面；**仓库后端没有独立TCP启动入口，不能完成真实HTTP身份联调**。不能把Vite页面可打开或单元测试的响应桩当成真实注册成功。
+本轮真实SQLite/Mongo浏览器验收使用这两个回环端口，验收后本轮服务已关闭。启动后的页面地址为http://127.0.0.1:5186；后端Origin须精确匹配。VITE变量是公开配置，禁止放凭证。Vite不自动启动/切换数据库，无内置代理或线上部署。
 
-默认API与页面同源，路径是`/api/accounts`、`/api/sessions/recover`、`/api/me`、`/api/sessions/current`。未来有真实后端地址后，可在本地`.env.local`设置公开的`VITE_API_BASE_URL`，重启Vite；不得放密钥/token、用户名密码、query或fragment。没有硬编码生产地址或Vite代理，也不会自动启动或回退SQLite。跨源时后端必须显式允许前端Origin，不用Cookie认证。
+## 页面与流程
 
-## 调用与安全边界
+| 路由 | 能做什么 |
+| --- | --- |
+| / | 创建、恢复、一次性密钥确认、各身份提醒、登出 |
+| /pairs | 创建/列出本人房间、明确接受邀请 |
+| /pairs/:pairId | 角色和服务端成员数；未满员A生成/刷新邀请 |
+| /pairs/:pairId/library | 正式元数据+本房间存档概要，开始或继续 |
+| /saves/:saveId | 从已有个人投影提取本人角色/场景/版本/完成状态 |
 
-`Identity.vue`校验表单 → `stores/identity.ts`调用类型化HTTP → `types/api.ts`白名单校验响应 → Store更新账号/会话 → 页面显示状态。
+受保护路由先验证身份，401清会话及私人列表并返回身份页，不清Pending。角色最终由后端认证确定。人数不是在线状态，搭档加入后手动刷新。
 
-- session token仅在内存和sessionStorage的`twoworlds.session.token`保存，只有Bearer头携带，不进URL/日志，不用localStorage或自动持久化插件。
-- recovery_key从创建动作返回到页面内存，**不在Pinia state、storage或URL中**。创建成功优先显示密钥并为该账号新增独立提醒；密钥展示期间注册beforeunload。确认保存只清该账号提醒/页面密钥/监听，卸载清密钥与监听但保留提醒。复制失败有手动备用，恢复输入请求结束清空。
-- 提醒采用localStorage的`twoworlds.recovery.pending.v1.<account_id>`，严格只有`account_id`、`display_name`、`created_at`、`pending: true`。created_at是本机首次记录提醒的时间；account_id只作标识，不是认证凭证。**token仍只在sessionStorage，不迁入localStorage**，持久化不含任何恢复密钥、token或Bearer。
-- 会话与提醒生命周期分离：登出/401清会话但保留全部提醒；恢复B只清B，A仍保留；确认C不影响A/B。重开无会话的页面也显示提醒，me验证成功不代表已经保存密钥。
-- 多个提醒独立于当前登录身份，显示昵称、ID、提醒时间与恢复限制。可点击“我已在其他位置保存此身份的密钥”仅清该项；放弃须二次确认，说明没有会话/密钥时可能永久无法恢复。操作只移除本机提醒，不删除服务端身份或撤销密钥。
-- localStorage不可用时保留本页内存提醒并警告；强行刷新/清理浏览器数据后不能保证提醒仍在，移除失败会提示旧提醒可能再次出现。提醒不是密钥备份，不跨设备同步。旧全局标记缺少身份信息，保留为只读“旧版未关联身份”警告，不猜账号或因恢复另一身份而清除。
-- 刷新后先GET `/api/me`；401清除本地身份，网络/503保留未验证token并提供手动重试。服务器决定会话是否有效，本地时钟只负责显示到期时间。
-- 登出成功204才清理；网络错误保留当前身份并提示撤销未确认。401说明会话已失效，清除本地状态。
-- 创建结果不明不会自动重试，提示“服务端可能已创建”；未收到密钥的匿名身份无法承诺找回。
-- HTTP使用`cache: no-store`、`credentials: omit`、拒绝重定向；超时覆盖取响应和解析正文。保留status/code/retryable，但以安全本地文案显示错误，不回显原始异常或正文。
-- sessionStorage不可用时仅保留内存会话并明确提示刷新可能需恢复，不降级为localStorage。sessionStorage不是防XSS的保险箱，本轮未声称完成生产安全部署。
+创建身份后先保存密钥。有邀请时，确认保存后进入房间页，再明确点击加入。邀请链接仅用URL Fragment；启动时先读入内存、立即replaceState清理地址，不自动加入。复制失败有手动备用。刷新/关闭会丢失邀请，需重新打开原链接；满员后清除已发出的无用内存邀请。
+
+**正式目录当前为空。** 真实GET /api/scripts返回空数组时显示正常空状态，不能硬编码灯塔/星轨卡片。非空书架测试使用独立test-only发布库，不代表素材授权或正式上线。
+
+## 状态、安全与版本
+
+- token仅在内存/sessionStorage的twoworlds.session.token，只通过Bearer头发送。Recovery Key仅在页面局部内存，不进Pinia、storage、URL或日志。
+- Pending仅保存twoworlds.recovery.pending.v1.<account_id>的四字段元数据：account_id、display_name、created_at、pending:true。恢复B只清B，确认/二次放弃一项不影响其他身份，登出保留全部提醒。
+- read/write/remove/invalid独立跟踪；对应成功操作只清自己的瞬时问题。invalid保守保留到新页面重新检查，不识别的原记录不改写/删除。故障保留内存提醒，浏览器存储不等于密钥备份或跨设备同步，清理/禁用存储时不能保证重开保留。
+- SPA离开实际展示密钥的页面时明确确认；取消或后续guard失败均保留密钥，真正卸载才清密钥但不清Pending。保存确认后不再拦截。beforeunload仍保护刷新/关闭，但[浏览器限制](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event)下不能保证系统强制终止时提示。
+- 旧版无归属全局标记保留独立警告，不猜测迁移；未实现跨标签页实时同步。
+- 邀请只留内存与明确分享界面，不进storage/query/path/日志。创建/刷新结果不明时先刷新列表，不自动重试。
+- HTTP保留no-store、omit、拒绝重定向、超时、安全本地错误与原路径白名单。只有GET /api/saves可通过独立query选项增加合法Identifier的pair_id，原始路径里的query/fragment仍拒绝。
+- 每剧本卡片取数值最新的目录元数据，按ID稳定排序；存档按pair_id+script_id关联。旧档只GET原save_id，仍用原script_version，目录介绍不同版本会标注；下架故事的既有档也保留原入口。
+- 新档只在服务端确认两人加入后创建，用真实content_version并校验返回版本。身份/房间切换、读档请求代次和页面卸载阻断迟到响应，不串入另一身份或房间。
+- 网络错误保留可恢复的会话；登出204或401才清本机会话。服务端验证过期，本地时间不作为认证依据。
 
 ## 验证与学习
 
@@ -41,14 +53,10 @@ npm.cmd run build
 npm.cmd run format:check
 ```
 
-初次交付40项，上轮审查68项，本轮按身份Pending修复后为**82项通过**：HTTP35、Store15、页面24、Pending生命周期8。原68个用例及参数表保留，新增14项；旧全局标记/“localStorage为空”断言按新需求适配为精确四字段白名单和凭证禁止持久化断言，未删除/skip或减少安全断言。当前类型检查、构建、格式通过。后端身份30、初始布局与干净安装仅为历史证据，本次未重跑后端。单测响应桩不替代真实联调。
+当前125通过、0失败/跳过；原82测试文件与fixture完全未改。新增43：告警/路由10、资源HTTP8、房间书架Store17、页面路由8。严格类型、构建和格式均通过。单元测试使用响应桩；另分别用真实SQLite/Mongo TCP、三个独立Edge上下文完成房间/书架验收。390px模拟不是手机真机；正式空目录与test-only非空目录分开验证。
 
-本次Edge CDP额外验证原生beforeunload弹窗：取消离开后仍持有密钥，确认后不再弹出，继续刷新后显示pending警告且不重新创建身份。浏览器检查的API仍是明确响应桩。原生弹窗需要用户交互，移动端系统终止等情况不保证触发，页面不能自定义浏览器提示文字；详见[MDN](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event)。它是降低误操作风险的提醒，不是密钥备份。
+前端锁未改，历史审计生产依赖0/开发4项moderate为T10.1证据，本轮未重审或声称消除。完整结果与限制见[T10.2报告](../docs/reports/t10-2-identity-room-library.md)，历史身份实现见[T10.1报告](../docs/reports/frontend-identity.md)。
 
-HTTP路径必须是`/api/`加一个或多个后端Identifier段（每段`[a-z][a-z0-9_]{0,63}`），允许pair_123/save_123，拒绝穿越、query、fragment、编码字符、重复/尾随斜杠、换行或非API路径。非法路径在fetch之前拒绝，未增加任何房间或存档业务。
+阅读顺序：identity Store独立告警 → Identity路由离开保护 → types/resources白名单 → pairs/library服务和Store → Router/页面 → 测试。例如旧档1.0.0、目录2.0.0：继续只读取原save_id，不POST新档或替换版本。
 
-官方npm审计：生产依赖0项；开发依赖4项moderate，经js-beautify的glob/minimatch/editorconfig链引入。为兼容本机Node20，Vue Test Utils使用2.4.6；其最新版2.6引入了要求更高Node版本的依赖。本轮没有强行跨主版本覆盖依赖来消除审计输出，开发依赖问题保留在报告中，不宣称全部依赖无漏洞。
-
-阅读顺序：`src/types/api.ts` → `src/services/http.ts` → `src/stores/identity.ts` → `src/views/Identity.vue` → 三份测试。把创建成功当作具体例子：响应里的token进入Store，恢复密钥只交给页面；点击“我已保存，继续”后页面清掉密钥，仍以原会话显示身份。
-
-全部命令、工具版本、红测和限制见[本轮报告](../docs/reports/frontend-identity.md)。下一环节T10.2为房间与书架；本轮完成后停止，须用户明确继续。
+本轮交付后停止等待审查，下一阶段T11只介绍，不自动执行。
