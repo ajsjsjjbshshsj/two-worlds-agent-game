@@ -2,6 +2,8 @@
 
 2026-11-16。仅执行 T09.2；基线为 PR #21 合并提交 `a76bb16a1a8308746d0b82c54862b34c8e31ef22`，分支 `codex/t09-2-save-isolation`。从重新 fetch 的远端基线建立分支，交付工作树为 `F:\two-worlds-agent-game\work\pr-t01-1-schema`；主目录未提交的用户学习修改未触碰，未使用子代理。
 
+交付：[PR #22](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/22)，目标codex/bootstrap，打开、未合并。实现提交`385ab2d2c4d40128c321449652043b96dd156dcd`；收尾链接记录继续提交同一PR。本轮已停止，等待用户学习与审查。
+
 ## 实现与文件
 
 | 文件 | 本轮职责 |
