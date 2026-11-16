@@ -1,13 +1,28 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, routerKey } from 'vue-router'
 import { useIdentityStore } from '../stores/identity'
+import { usePairsStore } from '../stores/pairs'
 const identity = useIdentityStore()
+const pairs = usePairsStore()
 const mode = ref<'create' | 'recover'>('create')
 const displayName = ref('')
 const recoveryInput = ref('')
 const reveal = ref(false)
 // Page memory only: never enter Pinia, storage, URL or automatic sharing.
 const oneTimeKey = ref('')
+// A guard only decides navigation. Clearing here would lose the key if a later
+// guard cancels or navigation fails; component unmount owns the cleanup.
+const appRouter = inject(routerKey, null)
+if (appRouter) {
+  onBeforeRouteLeave(() => {
+    if (identity.busy) return false
+    return (
+      !oneTimeKey.value ||
+      window.confirm('恢复密钥尚未确认保存。离开后无法再次展示，未确认提醒会保留。确定离开吗？')
+    )
+  })
+}
 const oneTimeAccountId = ref<string | null>(null)
 const abandoningAccountId = ref<string | null>(null)
 const pendingReminders = computed(() =>
@@ -78,6 +93,7 @@ async function recover() {
   validation.value = ''
   try {
     await identity.recover(key)
+    if (identity.authenticated && !identity.error) void appRouter?.push('/pairs')
   } finally {
     recoveryInput.value = ''
     reveal.value = false
@@ -96,6 +112,7 @@ function confirmKey() {
   oneTimeKey.value = ''
   oneTimeAccountId.value = null
   copyStatus.value = ''
+  if (pairs.hasIncomingInvite) void appRouter?.push('/pairs')
 }
 function abandonReminder(accountId: string) {
   if (abandoningAccountId.value !== accountId) return
@@ -167,7 +184,15 @@ function abandonReminder(accountId: string) {
             <dt>此设备的会话到期时间</dt>
             <dd>{{ expiration }}</dd>
           </dl>
-          <p>身份已就绪。双人房间与剧本书架将在下一阶段接入。</p>
+          <p>身份已就绪。选择双人房间，邀请搭档一起进入故事。</p>
+          <button
+            v-if="appRouter"
+            class="primary"
+            data-test="enter-pairs"
+            @click="appRouter.push('/pairs')"
+          >
+            进入我的房间
+          </button>
           <button class="secondary" :disabled="identity.busy" @click="identity.logout">
             {{ identity.busy ? '正在撤销会话…' : '登出此设备' }}
           </button>
@@ -258,6 +283,9 @@ function abandonReminder(accountId: string) {
             </button>
           </form>
         </template>
+        <p v-if="pairs.hasIncomingInvite" class="notice" role="status">
+          已收到搭档邀请，地址中的凭证已清除。请先完成身份验证；新建身份需先确认保存密钥，再前往房间明确接受邀请。
+        </p>
         <section
           v-if="pendingReminders.length && identity.initialized"
           data-test="pending-recovery-warning"

@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有两剧本领域、SQLite/Mongo仓储、身份与房间/存档/命令/受保护媒体HTTP，PR #21已合并。本轮T09.2验证双剧本HTTP、存档隔离与版本绑定，修复星轨公共回顾和功率板发现前的观察；见[隔离报告](../docs/reports/starline-save-isolation.md)。正式发布库仍为空，未将草稿或测试媒体发布为产品内容，T10未开始。
+后端已有两剧本领域、SQLite/Mongo仓储、身份与房间/存档/命令/受保护媒体HTTP。T10.2新增下方开发专用HTTP启动器，复用既有服务和权限规则，完成前端房间/书架的真实SQLite/Mongo联调。正式发布库仍为空，不将草稿或测试媒体发布为产品内容。[本轮报告](../docs/reports/t10-2-identity-room-library.md)记录实际验证；下文历史阶段的未实现描述以各阶段交付时间为准。
 
 ## 1. 先看这几个文件
 
@@ -15,7 +15,7 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份/房间/目录/存档/命令回执已实现；媒体与WS待后续 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份/房间/目录/存档/命令回执/受保护媒体已实现；WS待后续 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService、PairService及SaveService生命周期/命令已实现；对话待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
@@ -282,3 +282,48 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017'
 ```
 
 `--basetemp`选新目录。先读tests/save_support.py，再读test_save_isolation.py的完整流程、recap.py的四个星轨里程碑、starline.observations的发现门槛。DialogueTurn仅验证仓储内各存档/角色的记录归属及重开，真实私聊HTTP/NPC未实现。完整命令、双适配器结果、历史失败对比与恢复边界见[本轮报告](../docs/reports/starline-save-isolation.md)。本轮交付后停止等待审查，不自动开始T10。
+
+
+## 17. 开发专用HTTP启动器（T10.2）
+
+新增 `src/twoworlds/dev.py`。导入没有模块级app、数据库连接或自动启动；显式调用create_dev_app后才创建Repository，既有应用lifespan负责关闭。唯一新增依赖是dev组的精确Uvicorn0.54.0及其click8.5.1，已有依赖版本未升级。它是[开发ASGI服务器](https://uvicorn.dev/settings/)，不是生产部署方案。
+
+先显式选择本地演示SQLite，在工作树backend目录启动：
+
+```powershell
+cd F:/two-worlds-agent-game/work/pr-t01-1-schema/backend
+uv sync --locked --group dev
+New-Item -ItemType Directory -Path work -Force
+$env:TWOWORLDS_STORAGE_BACKEND='sqlite'
+$env:TWOWORLDS_SQLITE_PATH='work/dev.sqlite3'
+$env:TWOWORLDS_ALLOWED_ORIGINS='http://127.0.0.1:5186'
+$env:TWOWORLDS_DEV_PORT='8016'
+.venv/Scripts/python.exe -m twoworlds.dev
+```
+
+启动后仅监听127.0.0.1:8016。DEV_PORT可省略，默认8000；未开放自定义host、0.0.0.0、代理IP信任或WebSocket。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
+
+真实Mongo开发需另选适当的本地数据库，URI只通过当前进程环境注入，不进入源码/日志/Git：
+
+```powershell
+$env:TWOWORLDS_STORAGE_BACKEND='mongo'
+# 在本机安全设置 MONGO_URI，此处不提交真实连接凭证。
+$env:MONGO_DATABASE='twoworlds_dev'
+$env:TWOWORLDS_ALLOWED_ORIGINS='http://127.0.0.1:5186'
+$env:TWOWORLDS_DEV_PORT='8016'
+.venv/Scripts/python.exe -m twoworlds.dev
+```
+
+必须同时提供MONGO_URI和MONGO_DATABASE，SQLite路径不能作为Mongo失败回退。只配置精确HTTP/HTTPS Origin，不用通配符和Cookie凭证。前端设置公开VITE_API_BASE_URL并启动5186，见[前端README](../frontend/README.md)。以上python模块启动方式已由独立进程TCP测试分别验证SQLite/Mongo，浏览器流程亦通过同一工厂真实连接；本轮临时服务验收后已关闭。
+
+正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。后端PairService、SaveService、身份、Repository与规则语义未变，未新增业务接口。
+
+```powershell
+# 先由本机环境提供 MONGO_URI；Mongo用例会创建并清理随机临时库。
+.venv/Scripts/python.exe -m pytest tests/api/test_dev_launcher.py -q
+.venv/Scripts/python.exe -m ruff check src tests
+.venv/Scripts/python.exe -m ruff format --check src tests
+uv lock --check --offline
+```
+
+专项16通过（包括两个真实CLI/TCP子进程）；完整回归、正式空目录与test-only书架、学习顺序见[T10.2报告](../docs/reports/t10-2-identity-room-library.md)。没有声称正式发布、生产部署、WS、游戏场景或真机验收完成。
