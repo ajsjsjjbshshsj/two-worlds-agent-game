@@ -45,6 +45,7 @@ export interface GameSnapshot extends SaveEntry {
   presentation: {
     background: ImageRef | null
     cues: { id: string; alt_text: string; assets: ImageRef[] }[]
+    visual_state?: { id: string; value: Scalar }[]
   }
 }
 export function object(v: unknown) {
@@ -191,6 +192,10 @@ export function parseGame(v: unknown): GameSnapshot {
     },
     available_actions: actions,
     presentation: {
+      visual_state: list(presentation.visual_state ?? [], (x) => {
+        const effect = object(x)
+        return { id: identifier(effect.id), value: scalar(effect.value) }
+      }),
       background: presentation.background === null ? null : media(presentation.background),
       cues: list(presentation.cues, (x) => {
         const c = object(x)

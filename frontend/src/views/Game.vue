@@ -97,6 +97,7 @@ function focusDevice(id: string) {
           </section>
         </div>
         <ActionPanel
+          v-if="!game.snapshot.completed"
           :actions="game.snapshot.available_actions"
           :disabled="game.busy || game.loading || !!game.pending"
           @command="game.submit"

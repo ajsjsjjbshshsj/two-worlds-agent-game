@@ -609,20 +609,6 @@ dd {
   transform-origin: 365px 122px;
   transition: transform 0.65s ease;
 }
-.circuit {
-  stroke: #496074;
-  transition: stroke 0.5s;
-}
-.power-lamp {
-  fill: #496074;
-  transition: fill 0.5s;
-}
-.energized .circuit {
-  stroke: #e3bd7a;
-}
-.energized .power-lamp {
-  fill: #ffe3aa;
-}
 .scene-hotspots {
   display: flex;
   flex-wrap: wrap;
