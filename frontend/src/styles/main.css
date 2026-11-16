@@ -1,0 +1,369 @@
+:root {
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #eef3f5;
+  background: #091725;
+  font-synthesis: none;
+  --gold: #e3bd7a;
+  --muted: #a7bac7;
+  --line: #385468;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+button,
+input,
+textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  min-height: 48px;
+  min-width: 44px;
+  border-radius: 7px;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 4px;
+}
+button:hover:enabled {
+  border-color: var(--gold);
+}
+button.primary:hover:enabled {
+  background: #f2d59f;
+}
+.identity-shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 36px 60px 24px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: Georgia, 'Songti SC', serif;
+  font-size: 24px;
+  letter-spacing: 0.02em;
+}
+.brand small {
+  display: block;
+  margin-top: 3px;
+  font:
+    11px/1.5 'Microsoft YaHei',
+    sans-serif;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+}
+.brand-symbol {
+  width: 43px;
+  height: 43px;
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+}
+.entry-layout {
+  display: grid;
+  grid-template-columns: 1fr 440px;
+  gap: 72px;
+  align-items: center;
+  min-height: 740px;
+  padding: 64px 0 72px;
+}
+.eyebrow,
+.panel-kicker {
+  color: var(--gold);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  margin: 0 0 28px;
+}
+h1,
+h2 {
+  font-family: 'Noto Serif SC', 'Songti SC', SimSun, serif;
+  font-weight: 500;
+}
+h1 {
+  font-size: clamp(36px, 4.3vw, 58px);
+  line-height: 1.38;
+  letter-spacing: 0.02em;
+  margin: 0 0 24px;
+}
+h1 em {
+  color: #b8ccd7;
+  font-style: normal;
+}
+p {
+  font-size: 14px;
+  line-height: 1.9;
+}
+.intro-copy {
+  color: #b8ccd7;
+}
+.privacy-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.world-mark {
+  position: relative;
+  width: 300px;
+  height: 140px;
+  margin: 34px 0 28px;
+}
+.orbit {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border: 1px solid #526f81;
+  border-radius: 50%;
+}
+.orbit-one {
+  left: 6px;
+  top: 0;
+}
+.orbit-two {
+  left: 166px;
+  top: 14px;
+  border-color: #a38a60;
+}
+.connection {
+  position: absolute;
+  top: 69px;
+  left: 93px;
+  width: 120px;
+  height: 1px;
+  background: var(--gold);
+}
+.connection::before,
+.connection::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: var(--gold);
+  border-radius: 50%;
+  top: -3px;
+}
+.connection::after {
+  right: 0;
+}
+.world-label {
+  position: absolute;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+.label-one {
+  top: 30px;
+  left: 30px;
+}
+.label-two {
+  top: 96px;
+  left: 192px;
+}
+.identity-panel {
+  padding: 35px 34px 24px;
+  background: #11283a;
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--gold);
+  border-radius: 3px 3px 14px 14px;
+  box-shadow: 0 24px 50px #0003;
+  overflow-wrap: anywhere;
+}
+.panel-kicker {
+  margin-bottom: 18px;
+  font-size: 11px;
+}
+h2 {
+  font-size: 27px;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.panel-intro {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 24px;
+}
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 26px;
+}
+.mode-switch button {
+  flex: 1;
+  color: var(--muted);
+  border: 0;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  padding: 12px 4px;
+  background: transparent;
+  font-size: 13px;
+}
+.mode-switch button[aria-pressed='true'] {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+label {
+  display: block;
+  font-size: 13px;
+  margin: 0 0 10px;
+  color: #d7e3eb;
+}
+input,
+textarea {
+  display: block;
+  width: 100%;
+  border: 1px solid #4c677b;
+  background: #0b1d2c;
+  color: #eef3f5;
+  border-radius: 7px;
+  padding: 13px 14px;
+  min-height: 48px;
+  font-size: 16px;
+}
+input::placeholder {
+  color: #92a9b8;
+  font-size: 13px;
+}
+input[aria-invalid='true'] {
+  border-color: #ffb9ac;
+}
+.help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 9px 0 22px;
+}
+.primary {
+  background: var(--gold);
+  color: #102032;
+  border-color: var(--gold);
+  width: 100%;
+  font-weight: 600;
+}
+.secondary {
+  background: transparent;
+  color: #eef3f5;
+  width: 100%;
+  margin-top: 14px;
+}
+.reveal {
+  color: #b8ccd7;
+  background: transparent;
+  border-color: transparent;
+  padding: 10px 0;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.secret {
+  font-family: Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.notice {
+  color: #f1d49e;
+  font-size: 13px;
+}
+.error {
+  color: #ffb9ac;
+  border-left: 2px solid #ffb9ac;
+  padding-left: 12px;
+  font-size: 13px;
+}
+.panel-foot {
+  border-top: 1px solid var(--line);
+  margin-top: 28px;
+  padding-top: 18px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.verified {
+  color: var(--gold);
+  font-size: 13px;
+}
+.account-name {
+  overflow-wrap: anywhere;
+}
+.session-details {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
+  margin: 24px 0;
+}
+dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+dd {
+  font-size: 15px;
+  margin: 8px 0 0;
+}
+.site-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted);
+  border-top: 1px solid #243f52;
+  padding-top: 20px;
+  font-size: 11px;
+}
+@media (max-width: 920px) {
+  .identity-shell {
+    padding: 28px 30px;
+  }
+  .entry-layout {
+    gap: 32px;
+    grid-template-columns: 1fr 390px;
+  }
+  .world-mark {
+    width: 280px;
+  }
+}
+@media (max-width: 760px) {
+  .identity-shell {
+    padding: 22px 20px;
+  }
+  .brand {
+    font-size: 21px;
+  }
+  .entry-layout {
+    display: block;
+    min-height: auto;
+    padding: 42px 0;
+  }
+  .intro {
+    margin-bottom: 32px;
+  }
+  h1 {
+    font-size: 37px;
+  }
+  .eyebrow {
+    margin-bottom: 18px;
+  }
+  .world-mark {
+    display: none;
+  }
+  .privacy-note {
+    margin-top: 20px;
+  }
+  .identity-panel {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 28px 24px 22px;
+  }
+  .site-foot {
+    flex-wrap: wrap;
+  }
+}
