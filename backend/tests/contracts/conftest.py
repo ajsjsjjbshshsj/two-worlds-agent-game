@@ -13,9 +13,10 @@ ORIGIN = "http://testserver"
 
 @pytest.fixture(scope="module")
 def contract_publication_store(tmp_path_factory):
-    # Test-only sealed lighthouse content; never publish into the product package.
+    # Actual distinct stories, sealed only in the module's temporary test library.
     store, publish = make_publications(tmp_path_factory.mktemp("contract-publications"))
     publish()
+    publish(identifier="starline")
     return store
 
 

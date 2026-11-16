@@ -1,6 +1,6 @@
 # TwoWorlds 后端
 
-后端已有灯塔领域、SQLite/Mongo仓储、身份与房间/存档/命令/受保护媒体HTTP，T08.3的PR #20已合并。本轮T09.1增加星轨正式内容和纯规则，等待PR审查；T09.2未开始。[星轨报告](../docs/reports/starline-engine.md)记录纯领域范围与实际回归。正式发布库仍为空，未将草稿或测试媒体发布为产品内容。
+后端已有两剧本领域、SQLite/Mongo仓储、身份与房间/存档/命令/受保护媒体HTTP，PR #21已合并。本轮T09.2验证双剧本HTTP、存档隔离与版本绑定，修复星轨公共回顾和功率板发现前的观察；见[隔离报告](../docs/reports/starline-save-isolation.md)。正式发布库仍为空，未将草稿或测试媒体发布为产品内容，T10未开始。
 
 ## 1. 先看这几个文件
 
@@ -269,4 +269,16 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017'
 .venv/Scripts/python.exe -m pytest tests/domain/test_starline.py tests/content/test_starline_content.py -q
 ```
 
-无需数据库或AI即可观察纯规则。建议读正式JSON → engine._MECHANICS → starline.check_action → common.apply_effect/settle_votes → test_starline.py的TRACE及accept/reject。星轨25项媒体仅有明确“待制作、待核验、禁止生产发布”的声明；未发布到PublicationStore，默认HTTP仍不能创建星轨正式存档。本轮不改身份/仓储/API，不声称星轨HTTP/跨档、播放或手机体验通过。[复现与逐项结果](../docs/reports/starline-engine.md)。完成T09.1后停止，T09.2需用户单独授权。
+无需数据库或AI即可观察纯规则。建议读正式JSON → engine._MECHANICS → starline.check_action → common.apply_effect/settle_votes → test_starline.py的TRACE及accept/reject。星轨25项媒体仅有明确“待制作、待核验、禁止生产发布”的声明；正式发布库为空，默认HTTP仍不能创建星轨正式存档。T09.1的历史结果见[领域报告](../docs/reports/starline-engine.md)；T09.2只在临时合法测试发布库验证HTTP与跨档，不代表正式发布、播放或手机体验完成。
+
+## 16. 双剧本存档隔离与HTTP集成（T09.2）
+
+复用既有路由、SaveService和两个仓储，测试工厂分别封存真实灯塔/星轨1.0.0，PNG/WAV、哈希与审核明确为test-only。测试通过注册/邀请、灯塔部分推进、星轨两种结局、回到灯塔、关闭应用与仓储后重开、恢复身份来检查完整聚合。真实封存2.0.0测试版本验证旧内容、规则和媒体仍按1.0.0读取，不存在的原版本不回退。没有实现版本迁移。
+
+```powershell
+$env:MONGO_URI='mongodb://127.0.0.1:27017'
+.venv/Scripts/python.exe -m pytest tests/api/test_save_isolation.py -q -p no:cacheprovider --basetemp=work/t092-learning
+.venv/Scripts/python.exe -m pytest tests/domain/test_recap.py tests/domain/test_projection.py -q -p no:cacheprovider --basetemp=work/t092-learning-domain
+```
+
+`--basetemp`选新目录。先读tests/save_support.py，再读test_save_isolation.py的完整流程、recap.py的四个星轨里程碑、starline.observations的发现门槛。DialogueTurn仅验证仓储内各存档/角色的记录归属及重开，真实私聊HTTP/NPC未实现。完整命令、双适配器结果、历史失败对比与恢复边界见[本轮报告](../docs/reports/starline-save-isolation.md)。本轮交付后停止等待审查，不自动开始T10。

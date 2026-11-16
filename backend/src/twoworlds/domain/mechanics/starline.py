@@ -55,7 +55,9 @@ def observations(state: GameState, script: ScriptVersion) -> tuple[Observation, 
     b_power = Observation(
         audience="b",
         topic="power",
-        text=f"本人能源配置：engine={engine}、sonar={sonar}、lamp={lamp}，使用{power_used(engine, sonar, lamp)}/{POWER_BUDGET}。",
+        text=f"本人能源配置：engine={engine}、sonar={sonar}、lamp={lamp}，使用{power_used(engine, sonar, lamp)}/{POWER_BUDGET}。"
+        if "b_power_board" in state.discovered_clues
+        else "请先检查本人功率板，再确认能源设备与预算。",
     )
     if state.scene_id == "survey":
         scanned = state.fact("track_scanned")
