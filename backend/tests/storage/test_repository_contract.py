@@ -2,18 +2,119 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from pathlib import Path
 from threading import Barrier
 from uuid import uuid4
 
 import pytest
 
-from twoworlds.domain.persistence import CommandReceipt, SaveRecord
+from twoworlds.application.commands import GameCommand
+from twoworlds.content import loader
+from twoworlds.domain.engine import apply_command, create_initial_state
+from twoworlds.domain.persistence import CommandReceipt, DialogueTurn, SaveRecord
+from twoworlds.domain.recap import PublicHistory, append_public_history
 from twoworlds.ports.repository import (
     DuplicateRecord,
     InvalidRepositoryTransition,
     MissingRecord,
     ReceiptLimitReached,
 )
+
+
+def test_two_story_dialogues_keep_save_and_role_identity_after_reopen(
+    world, repository_factory, script, save_record, now
+):
+    """Storage preservation only: this does not implement a private dialogue API."""
+    starline = loader.ScriptLoader(Path(loader.__file__).parent / "scripts").load(
+        "starline", "1.0.0"
+    )
+    other = world.create_save(
+        SaveRecord(
+            id="save_starline",
+            pair_id=save_record.pair_id,
+            script_id="starline",
+            script_version="1.0.0",
+            version=0,
+            state=create_initial_state(starline),
+            public_history=PublicHistory(script_id="starline", script_version="1.0.0"),
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    ids = (save_record.id, other.id)
+    requests = {role: uuid4() for role in ("a", "b")}
+    expected = {}
+    for source, save_id, targets in (
+        (script, save_record.id, {"a": "maintenance_log", "b": "sea_chart"}),
+        (starline, other.id, {"a": "station_log", "b": "power_board"}),
+    ):
+        for role in ("a", "b"):
+            current = world.get_save(save_id)
+            untouched_id = next(
+                identifier for identifier in ids if identifier != save_id
+            )
+            untouched = world.get_save(untouched_id)
+            command = GameCommand(
+                request_id=requests[role],
+                expected_version=current.version,
+                kind="inspect",
+                args={"target": targets[role]},
+            )
+            state, events = apply_command(
+                current.state,
+                source,
+                role,
+                {"kind": command.kind, "args": command.args},
+            )
+            marker = f"{source.metadata.id}/{role}"
+            turn = DialogueTurn(
+                role=role,
+                question=f"{marker} 私有问题",
+                answer=f"{marker} 私有回答",
+                mode="demo",
+                created_at=now,
+            )
+            candidate = SaveRecord.model_validate(
+                current.model_dump()
+                | {
+                    "version": state.version,
+                    "state": state,
+                    "public_history": append_public_history(
+                        current.public_history, source, state.version, events
+                    ),
+                    "dialogues": (*current.dialogues, turn),
+                    "receipts": (
+                        *current.receipts,
+                        CommandReceipt(
+                            actor_id="account_" + role,
+                            request_id=command.request_id,
+                            fingerprint=command.fingerprint(),
+                            accepted_version=state.version,
+                            created_at=now,
+                        ),
+                    ),
+                }
+            )
+            assert world.compare_and_swap_save(save_id, current.version, candidate)
+            assert world.get_save(untouched_id) == untouched
+            expected[save_id] = candidate
+    world.close()
+    reopened = repository_factory()
+    for save_id, aggregate in expected.items():
+        restored = reopened.get_save(save_id)
+        assert restored == aggregate
+        assert restored.version == restored.state.version == 2
+        assert restored.public_history.through_version == 2
+        assert tuple(turn.role for turn in restored.dialogues) == ("a", "b")
+        for role in ("a", "b"):
+            # Check stored role attribution, not a fabricated authorization endpoint.
+            turns = tuple(turn for turn in restored.dialogues if turn.role == role)
+            marker = f"{restored.script_id}/{role}"
+            assert len(turns) == 1
+            assert turns[0].question == f"{marker} 私有问题"
+            assert turns[0].answer == f"{marker} 私有回答"
+            receipt = reopened.get_receipt(save_id, "account_" + role, requests[role])
+            assert receipt in restored.receipts
 
 
 def test_member_pairs_query_is_isolated_ordered_and_fresh(

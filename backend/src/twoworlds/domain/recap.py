@@ -35,12 +35,20 @@ MilestoneKind = Literal[
     "signal_locked",
     "clock_repaired",
     "route_confirmed",
+    "track_scanned",
+    "rail_installed",
+    "signal_confirmed",
+    "train_dispatched",
     "game_completed",
 ]
 _FACT_STEPS = {
     "signal_locked": "跨时信号已锁定。",
     "clock_repaired": "灯塔时钟已修复。",
     "route_confirmed": "航道已共同验证。",
+    "track_scanned": "列车声呐已定位缺轨段。",
+    "rail_installed": "站台导轨已安装。",
+    "signal_confirmed": "列车信号已确认。",
+    "train_dispatched": "末班列车已完成接车。",
 }
 PUBLIC_PROGRESS_FACTS = tuple(_FACT_STEPS)
 _FACT_TEXT = "世界事实已更新。"

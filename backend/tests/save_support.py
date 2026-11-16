@@ -1,11 +1,13 @@
-"""Real publication snapshots of lighthouse with explicitly test-only PNG/WAV assets."""
+"""Real snapshots of both formal stories with explicitly test-only PNG/WAV assets."""
 
-import base64
+import binascii
 import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
+import struct
 import wave
+import zlib
 
 import pytest
 
@@ -23,16 +25,33 @@ def make_publications(tmp_path):
     def publish(
         identifier="lighthouse", version="1.0.0", *, transform=None, media=None
     ):
+        # Catalog/unsupported-story tests also use explicitly test-only aliases.
+        # Real story IDs always load their own authored definition, never a rename.
+        source_id = (
+            identifier if identifier in {"lighthouse", "starline"} else "lighthouse"
+        )
         document = json.loads(
-            (Path(loader.__file__).parent / "scripts/lighthouse/1.0.0.json").read_text(
-                encoding="utf-8"
-            )
+            (
+                Path(loader.__file__).parent / f"scripts/{source_id}/1.0.0.json"
+            ).read_text(encoding="utf-8")
         )
         document["metadata"].update(id=identifier, content_version=version)
         if transform is not None:
             transform(document)
-        png = base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aM1cAAAAASUVORK5CYII="
+
+        def chunk(kind, data):
+            return (
+                struct.pack(">I", len(data))
+                + kind
+                + data
+                + struct.pack(">I", binascii.crc32(kind + data))
+            )
+
+        png = (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"\x00\x12\x34\x56\xff"))
+            + chunk(b"IEND", b"")
         )
         audio = BytesIO()
         with wave.open(audio, "wb") as output:

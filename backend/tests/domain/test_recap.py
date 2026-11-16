@@ -12,6 +12,81 @@ from twoworlds.domain.models import DomainEvent
 from twoworlds.domain.projection import project_save
 
 
+STARLINE_STEPS = {
+    "track_scanned",
+    "rail_installed",
+    "signal_confirmed",
+    "train_dispatched",
+}
+
+
+def starline_history(ending):
+    from tests.domain.test_starline import TRACE, script as starline_script
+
+    other = "return_station" if ending == "rescue_detour" else "rescue_detour"
+    # Forty real public votes push the early cooperation events out of the window.
+    votes = [
+        ("a", "vote_ending", {"choice": ending if i % 2 == 0 else other})
+        for i in range(40)
+    ]
+    votes += [(role, "vote_ending", {"choice": ending}) for role in ("a", "b")]
+    content = starline_script()
+    state, history = play(content, list(TRACE) + votes)
+    return content, state, history
+
+
+@pytest.mark.parametrize("ending", ["rescue_detour", "return_station"])
+def test_starline_keeps_all_cooperation_milestones_after_window_truncation(ending):
+    content, state, history = starline_history(ending)
+    assert len(history.events) == 30 and history.event_count > 30
+    steps = [step for step in history.milestones if step.kind in STARLINE_STEPS]
+    assert {step.kind for step in steps} == STARLINE_STEPS
+    assert (
+        len(steps) == 4
+        and min(step.ordinal for step in steps) < history.events[0].ordinal
+    )
+    # Reading a serialized aggregate rebuilds exactly the same authoritative recap.
+    restored = type(history).model_validate_json(history.model_dump_json())
+    a, b = (project_save(state, content, role, restored) for role in ("a", "b"))
+    assert a.public == b.public
+    assert a.public.recap.ending_id == ending
+    assert a.public.recap.summary == next(
+        e.summary_template for e in content.endings if e.id == ending
+    )
+    for clue in content.clues:
+        assert clue.text not in history.model_dump_json()
+        assert clue.text not in a.public.model_dump_json()
+
+
+@pytest.mark.parametrize("missing", sorted(STARLINE_STEPS))
+def test_missing_starline_milestone_is_rejected_even_after_events_expire(missing):
+    content, state, history = starline_history("rescue_detour")
+    bad = history.model_copy(
+        update={"milestones": tuple(s for s in history.milestones if s.kind != missing)}
+    )
+    with pytest.raises(DomainError) as error:
+        project_save(state, content, "a", bad)
+    assert error.value.code == "INVALID_PUBLIC_HISTORY"
+
+
+def test_old_lighthouse_history_wire_format_remains_valid_and_strict(script):
+    state, history = play(script, REACH_DECISION)
+    restored = type(history).model_validate_json(history.model_dump_json())
+    assert restored == history
+    assert (
+        project_save(state, script, "a", restored).public
+        == project_save(state, script, "b", history).public
+    )
+    assert not STARLINE_STEPS.intersection(step.kind for step in restored.milestones)
+    foreign = history.milestones[0].model_copy(
+        update={"kind": "track_scanned", "subject_id": "track_scanned"}
+    )
+    bad = history.model_copy(update={"milestones": (foreign, *history.milestones[1:])})
+    with pytest.raises(DomainError) as error:
+        project_save(state, script, "a", bad)
+    assert error.value.code == "INVALID_PUBLIC_HISTORY"
+
+
 @pytest.fixture
 def script():
     return loader.ScriptLoader(Path(loader.__file__).parent / "scripts").load(

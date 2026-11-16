@@ -15,6 +15,29 @@ from twoworlds.domain.errors import DomainError
 from twoworlds.domain.models import GameState
 
 
+def test_starline_power_budget_is_visible_only_after_inspecting_own_board():
+    from tests.domain.test_starline import script as starline_script
+
+    content = starline_script()
+    initial = create_initial_state(content)
+    before_a, before_b = (project(initial, role, content) for role in ("a", "b"))
+    # Check the observation channel, not random IDs or unrelated version numbers.
+    before_text = " ".join(o.text for o in before_b.personal.observations)
+    assert "请先检查" in before_text
+    assert "使用" not in before_text and "/5" not in before_text
+    assert "engine=" not in before_text and not before_b.personal.clues
+    inspected = act(initial, "b", "inspect", content, target="power_board")
+    after_a, after_b = (project(inspected, role, content) for role in ("a", "b"))
+    after_text = " ".join(o.text for o in after_b.personal.observations)
+    assert "使用0/5" in after_text and "engine=False" in after_text
+    assert before_a.personal == after_a.personal
+    assert before_a.public == after_a.public
+    board = next(c for c in content.clues if c.id == "b_power_board")
+    assert board.text in after_b.model_dump_json()
+    assert board.text not in after_a.model_dump_json()
+    assert "/5" not in after_a.model_dump_json()
+
+
 @lru_cache
 def script():
     import twoworlds.content.loader as loader
