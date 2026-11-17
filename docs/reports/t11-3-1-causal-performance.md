@@ -133,4 +133,6 @@ with TemporaryDirectory(prefix='twoworlds-t1131-') as directory:
 
 建议下一环节为T11.3.2扩展其余合作节点与关键演出设计，范围需人工审查后明确授权。本轮结束后停止，不自动执行。
 
-PR与提交状态将在交接表记录；GitHub API当前Forbidden，提交分支成功不等于PR已创建。
+实现提交`8c44dc9`已推送`origin/codex/t11-3-1-causal-performance`。实际执行gh pr create（base=codex/bootstrap，head=本分支）返回`Post "https://api.github.com/graphql": Forbidden`；curl确认代理CONNECT阶段403，当前运行环境自定义放行列表为空。未创建新PR、未自动合并；完整正文保存于[PR正文](t11-3-1-pr-description.md)，网络恢复后可用该文件重试。Git推送成功不等于PR创建成功。
+
+人工创建入口（不是已创建PR链接）：https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/new/codex/t11-3-1-causal-performance 。需选择目标codex/bootstrap，标题`feat: add confirmed-state causal performances (T11.3.1)`并填写上述完整正文。此网络阻塞不涉及新增密钥值要求，本轮不请求聊天提供凭证。
