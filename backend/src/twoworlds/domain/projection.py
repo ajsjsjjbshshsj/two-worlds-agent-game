@@ -19,6 +19,7 @@ from .engine import shareable_clue_ids, validate_state_and_script
 from .errors import DomainError
 from .mechanics.common import conditions_met
 from .models import GameState
+from .visuals import VisualEffect, project_visuals
 from .recap import (
     PUBLIC_PROGRESS_FACTS,
     PublicEvent,
@@ -125,6 +126,7 @@ class CueView(ContentModel):
 class PresentationView(ContentModel):
     background: MediaReference | None
     cues: tuple[CueView, ...]
+    visual_state: tuple[VisualEffect, ...] = ()
 
 
 class PlayerSnapshot(ContentModel):
@@ -223,7 +225,9 @@ def _presentation(
         if allowed:
             cues.append(CueView(id=cue.id, alt_text=cue.alt_text, assets=allowed))
     return PresentationView(
-        background=reference(view.background_asset_id), cues=tuple(cues)
+        background=reference(view.background_asset_id),
+        cues=tuple(cues),
+        visual_state=project_visuals(state, script.metadata.id, role),
     )
 
 
