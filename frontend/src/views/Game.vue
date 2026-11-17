@@ -3,6 +3,7 @@ import { watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, RouterLink, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import SpaceShell from '../components/SpaceShell.vue'
 import SceneRenderer from '../components/game/SceneRenderer.vue'
+import AudioControls from '../components/game/AudioControls.vue'
 import ActionPanel from '../components/game/ActionPanel.vue'
 import Device from '../components/game/Device.vue'
 import { useGameStore } from '../stores/game'
@@ -60,7 +61,7 @@ function focusDevice(id: string) {
         </p>
         <p class="notice">
           {{ game.snapshot.completed ? '已完成，共同结局已确认' : '仅在服务端确认后改变世界' }} ·
-          T11.1 原型，音频与完整演出待后续。
+          T11.2 原型 · 支持音频与字幕，正式素材与完整演出待后续。
         </p>
         <RouterLink class="action-link" :to="'/pairs/' + game.snapshot.pair_id + '/library'"
           >返回书架 →</RouterLink
@@ -70,6 +71,7 @@ function focusDevice(id: string) {
         :snapshot="game.snapshot"
         :token="identity.token ?? undefined"
         @focus-device="focusDevice" />
+      <AudioControls :snapshot="game.snapshot" :token="identity.token ?? ''" />
       <div class="game-columns">
         <div>
           <section class="resource-panel">

@@ -1,10 +1,11 @@
 import { ApiError, createHttpClient } from './http'
 import { identifier } from '../types/resources'
-export async function protectedImage(
+async function protectedMedia(
   token: string,
   saveId: string,
   assetId: string,
   signal: AbortSignal,
+  types: readonly string[],
 ) {
   createHttpClient() // Reuse the configured origin validation; binary parsing stays here.
   const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -16,11 +17,7 @@ export async function protectedImage(
     signal,
   })
   if (!r.ok) throw new ApiError(r.status, 'MEDIA_UNAVAILABLE', false)
-  if (
-    !['image/png', 'image/jpeg', 'image/webp'].includes(
-      r.headers.get('Content-Type')?.split(';')[0] ?? '',
-    )
-  )
+  if (!types.includes(r.headers.get('Content-Type')?.split(';')[0] ?? ''))
     throw new ApiError(200, 'INVALID_RESPONSE', false)
   const reader = r.body?.getReader()
   if (!reader) throw new ApiError(200, 'INVALID_RESPONSE', false)
@@ -43,3 +40,22 @@ export async function protectedImage(
   const url = URL.createObjectURL(blob)
   return { url, dispose: () => URL.revokeObjectURL(url) }
 }
+
+export const protectedImage = (
+  token: string,
+  saveId: string,
+  assetId: string,
+  signal: AbortSignal,
+) => protectedMedia(token, saveId, assetId, signal, ['image/png', 'image/jpeg', 'image/webp'])
+export const protectedAudio = (
+  token: string,
+  saveId: string,
+  assetId: string,
+  signal: AbortSignal,
+) =>
+  protectedMedia(token, saveId, assetId, signal, [
+    'audio/mpeg',
+    'audio/ogg',
+    'audio/wav',
+    'audio/mp4',
+  ])
