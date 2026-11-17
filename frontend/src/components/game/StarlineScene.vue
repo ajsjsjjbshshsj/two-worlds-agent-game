@@ -23,11 +23,29 @@ defineProps<{
         data-visual="gate"
         :data-position="visual.gate_position"
       />
-      <g v-else data-visual="sonar" :data-available="visual.echo_available"
-        ><circle
+      <g v-else data-visual="sonar" :data-available="visual.echo_available">
+        <circle
+          data-causal-part="sonar-core"
+          cx="650"
+          cy="165"
+          r="14"
+          :fill="visual.echo_available ? '#91d4c5' : '#455e72'" />
+        <circle
+          v-if="role === 'b' && visual.echo_available === true"
+          v-for="r in [35, 65, 95]"
+          :key="'wave-' + r"
+          class="causal-wave"
+          data-causal-part="sonar-wave"
+          cx="650"
+          cy="165"
+          :r="r"
+          fill="none"
+          stroke="#b3ebdc"
+          stroke-width="4" />
+        <circle
           v-for="r in [35, 65, 95]"
           :key="r"
-          cx="390"
+          cx="650"
           cy="165"
           :r="r"
           fill="none"
@@ -123,3 +141,15 @@ defineProps<{
     /></g>
   </g>
 </template>
+
+<style scoped>
+.causal-wave {
+  opacity: 0;
+  transform-origin: 650px 165px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .causal-wave {
+    display: none;
+  }
+}
+</style>
