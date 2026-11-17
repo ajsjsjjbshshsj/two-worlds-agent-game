@@ -1,6 +1,6 @@
 # T11.2 · 基础音频与字幕系统
 
-日期：2026-11-17。基线：`acca4ed6c4ff781f1e4077e7da08160aa5d1678a`，Git本地和远端codex/bootstrap均含PR #26合并及最终修复。开始时工作区干净；本轮分支`codex/t11-2-audio-subtitles`，目标`codex/bootstrap`。GitHub API被网络代理拒绝，PR创建状态见交接文件。本轮只做T11.2，不进入T11.3。
+日期：2026-11-17。基线：`acca4ed6c4ff781f1e4077e7da08160aa5d1678a`，Git本地和远端codex/bootstrap均含PR #26合并及最终修复。开始时工作区干净；本轮分支`codex/t11-2-audio-subtitles`，目标`codex/bootstrap`。实现提交`65977da`已推送；实际`gh pr create`的`POST https://api.github.com/graphql`被网络代理以Forbidden拒绝，PR未创建。已保存api.github.com域名到环境草稿，保留原有设置；需在环境设置审阅保存/应用网络变更后重试，草稿保存不代表已生效。Git推送成功不证明API权限或认证可用，未要求重复提供凭证。本轮只做T11.2，不进入T11.3。
 
 ## 可观察行为与阅读顺序
 
