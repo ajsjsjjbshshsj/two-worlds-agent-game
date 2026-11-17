@@ -1,6 +1,7 @@
 export type AudioChannel = 'ambient' | 'sfx' | 'voice'
 export interface AudioCue {
   key: string
+  operation?: boolean
   cue_id: string
   asset_id: string
   channel: AudioChannel

@@ -1,5 +1,5 @@
 import { createHttpClient } from './http'
-import { identifier, invalidResponse } from '../types/resources'
+import { identifier, invalidResponse, list } from '../types/resources'
 import { object, parseGame } from '../types/game'
 export interface Command {
   request_id: string
@@ -32,6 +32,23 @@ export const gameApi = {
       receipt.accepted_version > save.version
     )
       return invalidResponse()
-    return save
+    const events = list(r.audio_events ?? [], (x) => {
+      const e = object(x)
+      const cueId = identifier(e.cue_id),
+        assetId = identifier(e.asset_id)
+      if (
+        e.accepted_version !== receipt.accepted_version ||
+        receipt.duplicate ||
+        !save.presentation.operation_sfx?.includes(assetId) ||
+        !save.presentation.cues.some(
+          (c) => c.id === cueId && c.assets.some((a) => a.asset_id === assetId && a.kind === 'sfx'),
+        )
+      )
+        return invalidResponse()
+      return { accepted_version: e.accepted_version as number, cue_id: cueId, asset_id: assetId }
+    })
+    if (new Set(events.map((e) => `${e.cue_id}:${e.asset_id}`)).size !== events.length)
+      return invalidResponse()
+    return events.length ? { ...save, audio_events: events } : save
   },
 }

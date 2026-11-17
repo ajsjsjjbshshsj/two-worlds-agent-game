@@ -11,6 +11,7 @@ export function audioCues(snapshot: GameSnapshot): AudioCue[] {
         const channel: AudioChannel = channels[a.kind as keyof typeof channels]
         return {
           key: `${cue.id}:${a.asset_id}`,
+          ...(snapshot.presentation.operation_sfx?.includes(a.asset_id) ? { operation: true } : {}),
           cue_id: cue.id,
           asset_id: a.asset_id,
           channel,
@@ -24,4 +25,18 @@ export function audioCues(snapshot: GameSnapshot): AudioCue[] {
         }
       }),
   )
+}
+
+// Events come only from a validated, fresh command response. Current role/scene
+// authorization is intersected again; no operation events are inferred from state.
+export function operationAudioCues(snapshot: GameSnapshot): AudioCue[] {
+  const authorized = audioCues(snapshot)
+  return (snapshot.audio_events ?? []).flatMap((event) => {
+    const cue = authorized.find(
+      (c) => c.operation && c.cue_id === event.cue_id && c.asset_id === event.asset_id,
+    )
+    return cue
+      ? [{ ...cue, operation: false, key: `operation:${event.accepted_version}:${cue.key}` }]
+      : []
+  })
 }

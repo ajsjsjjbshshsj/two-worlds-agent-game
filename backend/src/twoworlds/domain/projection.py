@@ -15,6 +15,7 @@ from twoworlds.content.schema import (
     Version,
 )
 
+from .audio import operation_sounds
 from .engine import shareable_clue_ids, validate_state_and_script
 from .errors import DomainError
 from .mechanics.common import conditions_met
@@ -124,6 +125,7 @@ class CueView(ContentModel):
 
 
 class PresentationView(ContentModel):
+    operation_sfx: tuple[Identifier, ...] = ()
     background: MediaReference | None
     cues: tuple[CueView, ...]
     visual_state: tuple[VisualEffect, ...] = ()
@@ -228,6 +230,17 @@ def _presentation(
         background=reference(view.background_asset_id),
         cues=tuple(cues),
         visual_state=project_visuals(state, script.metadata.id, role),
+        operation_sfx=tuple(
+            sorted(
+                {
+                    asset.asset_id
+                    for cue in cues
+                    for asset in cue.assets
+                    if asset.kind == "sfx"
+                    and asset.asset_id in operation_sounds(script.metadata.id)
+                }
+            )
+        ),
     )
 
 

@@ -76,3 +76,5 @@ npm.cmd run format:check
 读取顺序：`types/audio.ts` → `services/audio-assets.ts` → `services/media.ts` → `services/audio.ts` → `stores/audio.ts` → `components/game/AudioControls.vue`、`AudioSettings.vue`、`SubtitleDisplay.vue` → `views/Game.vue`。后端现有音频MIME白名单、32MiB上限与角色权限不变。首次快照基线不重播历史；只有后续确认快照中的新Cue触发一次性声音。手动刷新获取搭档进度，尚无WS实时同步。
 
 正式发布目录仍空，不会出现可供正式游玩的音频内容。测试的合成WAV与临时发布库严格隔离，不能作为正式配音。现有内容只提供整段中文transcript/alt_text，没有说话人或逐句时间戳；默认speaker=null、start_time=0、duration=null。资源失败不阻断行动，授权文字保留。没有新增依赖、ESLint或大型音频框架。实际检查结果、已知后端基线失败、Chrome与真机验证界限见[报告](../docs/reports/t11-2-audio-subtitles.md)。
+
+PR #27审查修复：`presentation.operation_sfx`由服务端标记当前授权的设备操作声音，发现线索仅开放资源和文字；只有新命令成功CAS提交的`audio_events`触发对应声音。客户端验证其接受版本与Cue权限，使用接受版本+cue_id+asset_id去重，连续实际操作可再次发声，同请求重试不重放。`gameApi.read`不恢复历史事件，丢响应再确认不补播；没有可靠事件日志或伙伴操作音效追溯。阅读新增`backend/domain/audio.py`与`application/audio.py`，再读`services/game.ts`、`types/game.ts`和`audio-assets.ts`。详见[T11.2审查修复报告](../docs/reports/t11-2-audio-subtitles.md#pr-27-审查修复2026-11-17)。

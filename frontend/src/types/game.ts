@@ -18,7 +18,14 @@ export interface ImageRef {
   alt_text: string
   transcript: string | null
 }
+export interface OperationAudioEvent {
+  accepted_version: number
+  cue_id: string
+  asset_id: string
+}
 export interface GameSnapshot extends SaveEntry {
+  // Ephemeral, validated command-response metadata; GET parsing never restores it.
+  audio_events?: OperationAudioEvent[]
   public: {
     clues: { id: string; text: string }[]
     ending: string | null
@@ -43,6 +50,7 @@ export interface GameSnapshot extends SaveEntry {
   }
   available_actions: Action[]
   presentation: {
+    operation_sfx?: string[]
     background: ImageRef | null
     cues: { id: string; alt_text: string; assets: ImageRef[] }[]
     visual_state?: { id: string; value: Scalar }[]
@@ -130,6 +138,19 @@ export function parseGame(v: unknown): GameSnapshot {
     actions.some((a) => new Set(a.parameters.map((p) => p.id)).size !== a.parameters.length)
   )
     return invalidResponse()
+  const operationSfx = list(presentation.operation_sfx ?? [], identifier)
+  const authorizedSfx = new Set(
+    list(presentation.cues, (x) => object(x)).flatMap((c) =>
+      list(c.assets, media)
+        .filter((a) => a.kind === 'sfx')
+        .map((a) => a.asset_id),
+    ),
+  )
+  if (
+    new Set(operationSfx).size !== operationSfx.length ||
+    operationSfx.some((id) => !authorizedSfx.has(id))
+  )
+    return invalidResponse()
   return {
     ...entry,
     public: {
@@ -192,6 +213,7 @@ export function parseGame(v: unknown): GameSnapshot {
     },
     available_actions: actions,
     presentation: {
+      operation_sfx: operationSfx,
       visual_state: list(presentation.visual_state ?? [], (x) => {
         const effect = object(x)
         return { id: identifier(effect.id), value: scalar(effect.value) }

@@ -1,5 +1,5 @@
 import type { AudioCue, AudioPreferences, AudioState } from '../types/audio'
-import { audioCues } from './audio-assets'
+import { audioCues, operationAudioCues } from './audio-assets'
 import { protectedAudio } from './media'
 import type { GameSnapshot } from '../types/game'
 interface Track {
@@ -58,7 +58,7 @@ export class AudioManager {
       this.saveId = snapshot.id
     }
     if (snapshot.version < this.version) return
-    const next = audioCues(snapshot)
+    const next = [...audioCues(snapshot), ...operationAudioCues(snapshot)]
     const sceneChanged = this.scene !== snapshot.scene_id
     this.version = snapshot.version
     this.scene = snapshot.scene_id
@@ -83,7 +83,7 @@ export class AudioManager {
       const fresh = !this.seen.has(cue.key)
       this.seen.add(cue.key) // Consume while muted, disabled or hidden as well.
       if (!this.state.enabled || this.state.paused || this.preferences.muted) continue
-      if (cue.channel === 'ambient' || (!initial && fresh)) void this.start(cue)
+      if (cue.channel === 'ambient' || (!initial && fresh && !cue.operation)) void this.start(cue)
     }
     this.notify()
   }
