@@ -7,6 +7,7 @@ from typing import Callable
 
 from pydantic import TypeAdapter, ValidationError
 
+from twoworlds.application.audio import OperationAudio, project_operation_audio
 from twoworlds.application.media import MediaContent, media_content
 from twoworlds.application.commands import (
     AcceptedReceipt,
@@ -77,6 +78,7 @@ class SaveSummary(ContentModel):
 
 
 class CommandResponse(ContentModel):
+    audio_events: tuple[OperationAudio, ...] = ()
     receipt: AcceptedReceipt
     save: SaveSnapshot
 
@@ -345,6 +347,7 @@ class SaveService:
             raise CommandError("SAVE_COMMAND_LIMIT") from None
         if accepted:
             return CommandResponse(
+                audio_events=project_operation_audio(snapshot, events),
                 receipt=AcceptedReceipt(
                     request_id=receipt.request_id,
                     accepted_version=receipt.accepted_version,
