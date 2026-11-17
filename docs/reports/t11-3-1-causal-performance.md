@@ -133,6 +133,24 @@ with TemporaryDirectory(prefix='twoworlds-t1131-') as directory:
 
 建议下一环节为T11.3.2扩展其余合作节点与关键演出设计，范围需人工审查后明确授权。本轮结束后停止，不自动执行。
 
-实现提交`8c44dc9`已推送`origin/codex/t11-3-1-causal-performance`。实际执行gh pr create（base=codex/bootstrap，head=本分支）返回`Post "https://api.github.com/graphql": Forbidden`；curl确认代理CONNECT阶段403，当前运行环境自定义放行列表为空。未创建新PR、未自动合并；完整正文保存于[PR正文](t11-3-1-pr-description.md)，网络恢复后可用该文件重试。Git推送成功不等于PR创建成功。
+## PR #28真实交付状态与文档审查修正（2026-11-17）
 
-人工创建入口（不是已创建PR链接）：https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/new/codex/t11-3-1-causal-performance 。需选择目标codex/bootstrap，标题`feat: add confirmed-state causal performances (T11.3.1)`并填写上述完整正文。此网络阻塞不涉及新增密钥值要求，本轮不请求聊天提供凭证。
+T11.3.1已完成实现，随后[PR #28](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/28)已成功创建，当前为OPEN、尚未合并，等待人工审查；OPEN状态依据用户本轮确认。本轮仅更新两份交付文档，继续原开发分支`codex/t11-3-1-causal-performance`，目标分支为`codex/bootstrap`，不创建第二个PR、不修改目标分支、不自动合并。
+
+### 远端核对与HEAD
+
+先执行git fetch origin；修正前远端开发分支及refs/pull/28/head均为`36c7f4781b36bbc8c4c4f9c299fe775fb83ea487`，对应此前交付，实施提交为`8c44dc9`。目标分支HEAD为`c31aa9e0043e72712de47d7cefc15541223731e9`。本轮还读取到PR #28的试合并引用`c30fbf56e899ff3a504b7602ab4c07e7161c7822`，两个父提交正是上述目标与开发HEAD；这是GitHub的PR合并预览，不能把它当作已合入目标分支或CI通过的证据。
+
+本条数值记录核对时的HEAD；本次文档提交会推进该SHA。推送后的最新HEAD以[PR提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/28/commits)及refs/pull/28/head为准，完成回复会给出再次核对的SHA，避免将修正前SHA误写成后续HEAD。
+
+### 网络故障历史与当前状态的区别
+
+Codex最初通过命令行创建PR时，gh pr create返回`Post "https://api.github.com/graphql": Forbidden`，curl在代理CONNECT阶段收到403，因此当时没有完成创建。这一事实仍保留为历史；随后PR #28已成功创建，旧文档“待创建”“需要用户人工创建”的当前交付描述已失效，不再作为行动要求。[已准备的PR正文](t11-3-1-pr-description.md)仍可供审阅，无需再创建PR。
+
+本轮gh pr view与REST pulls/28查询也被Forbidden阻断，网页读取未取得PR内容；因此没有声称通过API独立核实OPEN状态。可独立确认的是Git远端的PR引用存在、head与开发分支一致，OPEN状态来源已明确标注。
+
+### 本地测试与GitHub CI分别记录
+
+此前251项前端测试、typecheck/build/format和真实SQLite浏览器检查是本地验证，不是GitHub Actions或外部CI结果。本轮针对修正前HEAD的check-runs与combined status两个API均返回Forbidden，无法独立确认GitHub是否有检查记录；用户已说明开放GitHub插件权限，但本轮重新发现工具后仍未获得可调用GitHub工具，CLI重试依旧Forbidden。不将查询失败等同“无记录”，也不写“CI已通过”。若Checks页明确没有记录，应记为“无GitHub CI检查记录”，不能折算通过。
+
+本轮只有文档变更，执行文档差异、链接与git diff --check验证；没有重跑应用测试，仍保留后端未修改、未运行Mongo回归、正式素材/真机等原有验收限制。完成后停止等待人工审查，不进入T11.3.2。
