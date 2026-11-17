@@ -1,11 +1,53 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { GameSnapshot } from '../../types/game'
 import { protectedImage } from '../../services/media'
+import { CausalPerformance, type PerformanceState } from '../../services/causal-performance'
+import { animatePerformance } from '../../services/performance-animation'
 import LighthouseScene from './LighthouseScene.vue'
 import StarlineScene from './StarlineScene.vue'
 const props = defineProps<{ snapshot: GameSnapshot; token?: string }>(),
   emit = defineEmits<{ focusDevice: [id: string] }>()
+const svg = ref<SVGSVGElement | null>(null)
+const performance = ref<PerformanceState>({ active: null, failed: false })
+const query =
+  typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null
+const coordinator = new CausalPerformance(
+  async (effect, signal) => {
+    await nextTick()
+    if (signal.aborted) return
+    if (!svg.value) throw new Error('Scene unavailable')
+    await animatePerformance(svg.value, effect, signal)
+  },
+  (state) => {
+    performance.value = state
+  },
+)
+function motionPreference() {
+  coordinator.setMotionAllowed(!query?.matches && !document.hidden)
+}
+function pageHidden() {
+  coordinator.reset()
+}
+motionPreference()
+watch(
+  () => [props.snapshot, props.token],
+  () => coordinator.update(props.snapshot, props.token),
+  { immediate: true, flush: 'sync' },
+)
+onMounted(() => {
+  query?.addEventListener('change', motionPreference)
+  document.addEventListener('visibilitychange', motionPreference)
+  window.addEventListener('pagehide', pageHidden)
+})
+onBeforeUnmount(() => {
+  coordinator.reset()
+  query?.removeEventListener('change', motionPreference)
+  document.removeEventListener('visibilitychange', motionPreference)
+  window.removeEventListener('pagehide', pageHidden)
+})
 const images = ref<{ id: string; url: string; alt: string; layer: string | null }[]>([]),
   failed = ref(false)
 let generation = 0,
@@ -91,6 +133,7 @@ const visual = computed(() =>
         @error="imageFailed(image.id)"
       />
       <svg
+        ref="svg"
         viewBox="0 0 800 430"
         role="img"
         :aria-label="`${snapshot.script_id} ${snapshot.role} ${snapshot.scene_id} 原型场景`"
@@ -155,6 +198,22 @@ const visual = computed(() =>
         {{ id }}<span v-for="(value, key) in fields" :key="key">{{ key }}：{{ value }}</span>
       </button>
     </div>
+    <p
+      v-if="performance.active"
+      class="performance-status"
+      role="status"
+      :data-performance="performance.active.id"
+      :data-performance-key="performance.active.key"
+    >
+      {{
+        performance.active.id === 'clock-power-on'
+          ? '电路正在点亮，时钟箱已通电。'
+          : '声呐已具备扫描条件，回声波正在展开。'
+      }}
+    </p>
+    <p v-if="performance.failed" class="notice" role="status">
+      演出暂不可用，已显示服务端确认的最终状态，仍可继续操作。
+    </p>
     <p class="help">画面仅使用服务端确认的本人设备及授权视觉反馈；未知状态不推测。</p>
     <p v-if="failed" class="notice" role="status">
       图片暂不可用，仍可使用原型设备、观察文字与行动操作。
@@ -162,6 +221,10 @@ const visual = computed(() =>
   </section>
 </template>
 <style scoped>
+.performance-status {
+  padding-inline: 1.5rem;
+  color: #b7e4d8;
+}
 .scene-stage {
   position: relative;
   isolation: isolate;

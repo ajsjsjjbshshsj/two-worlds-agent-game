@@ -85,7 +85,15 @@ const point = computed(
         :data-powered="visual.clock_powered"
         :data-repaired="visual.clock_repaired"
       >
-        <circle cx="330" cy="220" r="80" fill="#142a3b" stroke="#c5ab79" stroke-width="10" />
+        <circle
+          data-causal-part="clock-feedback"
+          cx="330"
+          cy="220"
+          r="80"
+          fill="#142a3b"
+          stroke="#c5ab79"
+          stroke-width="10"
+        />
         <g class="clock-hands" :class="{ running: visual.clock_repaired === true }"
           ><path
             d="M330 155V220L375 245"
@@ -95,6 +103,8 @@ const point = computed(
         /></g>
         <path
           v-if="role === 'a'"
+          data-causal-part="clock-circuit"
+          pathLength="1"
           d="M75 340H160V290H220"
           fill="none"
           :stroke="visual.clock_powered ? '#f6cf72' : '#465b6d'"

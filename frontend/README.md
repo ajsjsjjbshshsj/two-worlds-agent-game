@@ -78,3 +78,9 @@ npm.cmd run format:check
 正式发布目录仍空，不会出现可供正式游玩的音频内容。测试的合成WAV与临时发布库严格隔离，不能作为正式配音。现有内容只提供整段中文transcript/alt_text，没有说话人或逐句时间戳；默认speaker=null、start_time=0、duration=null。资源失败不阻断行动，授权文字保留。没有新增依赖、ESLint或大型音频框架。实际检查结果、已知后端基线失败、Chrome与真机验证界限见[报告](../docs/reports/t11-2-audio-subtitles.md)。
 
 PR #27审查修复：`presentation.operation_sfx`由服务端标记当前授权的设备操作声音，发现线索仅开放资源和文字；只有新命令成功CAS提交的`audio_events`触发对应声音。客户端验证其接受版本与Cue权限，使用接受版本+cue_id+asset_id去重，连续实际操作可再次发声，同请求重试不重放。`gameApi.read`不恢复历史事件，丢响应再确认不补播；没有可靠事件日志或伙伴操作音效追溯。阅读新增`backend/domain/audio.py`与`application/audio.py`，再读`services/game.ts`、`types/game.ts`和`audio-assets.ts`。详见[T11.2审查修复报告](../docs/reports/t11-2-audio-subtitles.md#pr-27-审查修复2026-11-17)。
+
+## T11.3.1 · 两个确认状态驱动的因果演出原型
+
+场景现在可在相邻确认版本发生授权false→true时播放短反馈：灯塔A时钟箱通电、星轨B声呐就绪。初次读档/刷新只显示最终状态，同版本不重播，跳过多个操作时不补演。后台、切档/角色/凭证、离页或减少动态会取消旧轨道；没有动画支持也能继续看正确状态并操作。声音开关不控制动画，演出不生成任何操作音效，T11.2的audio_events保持原样。
+
+阅读顺序：`services/causal-performance.ts` → `performance-animation.ts` → `SceneRenderer.vue` → `LighthouseScene.vue`/`StarlineScene.vue` → 新增两个performance测试文件。运行`npm run test:unit -- tests/causal-performance.spec.ts tests/performance-scene.spec.ts`学习机制；前端全量251通过，typecheck/build/format通过。[详细报告](../docs/reports/t11-3-1-causal-performance.md)含真实双角色检查和临时TEST-ONLY演示库的观察步骤。正式目录仍空，未发布正式素材，未宣称Safari/iOS/Android真机通过；本轮只完成T11.3.1。
