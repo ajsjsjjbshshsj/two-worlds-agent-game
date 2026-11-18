@@ -4,7 +4,7 @@
 
 ## 接口与协议
 
-T12.1 接入当前运行的会话服务，落实本轮首帧协议。[PR #30](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/30) 已定义后续邮箱账号和 Cookie WebSocket 握手，具体切换随 T06.3 后端身份实现完成。
+本节与下方测试数据记录 PR #31 审查基准中的旧版首帧协议。现行设计以 PR #30 为准，合并条件与迁移清单见本报告末尾的架构审查。
 
 连接路径为 `/api/ws/saves/{save_id}`。服务器在 Upgrade 前要求恰好一个 Origin 且完整匹配应用白名单。未配置白名单、缺失 Origin、不匹配或重复 Origin 均拒绝。本接口禁止 URL 查询参数，HTTP Bearer 头也不能代替首帧。开发启动器仍绑定回环地址，使用同一个存储与 Origin 配置。
 
@@ -78,4 +78,21 @@ git diff --check
 3. [身份服务](../../backend/src/twoworlds/application/identity.py) 和 [存档服务](../../backend/src/twoworlds/application/saves.py) 查看会话验证、角色推导和按版本读取。
 4. [集成测试](../../backend/tests/api/test_websocket.py) 查看 A/B 快照、HTTP 对照、心跳、超时及关闭验证。
 
-本轮完成 QA-W01 的服务端范围，以及 QA-W02/W03 的初始个人快照和服务端心跳部分。实时广播、前端自动重连、多端版本防回退、pending 恢复、离线缓存、NPC 和生产反代 WSS 验收均留待后续。建议 T12.2 先接通存档版本变化的服务端通知，对每个连接重新授权并单独投影，再进入客户端恢复。完成本轮后等待人工审查。
+以上验证覆盖旧协议中的初始投影与心跳等服务端行为。现行 Cookie 鉴权的验收须在迁移后重新执行。实时广播、前端自动重连、多端版本防回退、pending 恢复、离线缓存、NPC 和生产反代 WSS 验收均留待后续。
+
+## PR #31 架构审查
+
+2026-11-18 核对时，[PR #31](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/31) 为 OPEN、未合并，审查基准 `71593d9b9ee7944f79bb9addcbb4216548f40cef`。目标分支为 `codex/bootstrap`，开发分支为 `codex/t12-1-websocket-auth`。已合并的 [PR #30](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/30) 采用邮箱与密码、Argon2id 和 HttpOnly Cookie 会话，WebSocket 通过握手 Cookie 认证。旧版首帧 token 与该设计冲突，**PR #31 暂停合并**。
+
+保留精确 Origin、`SaveService.read_save`、A/B 授权投影、外人和缺档统一 `4404`、重连取最新快照、心跳与断开清理，以及 SQLite 和 MongoDB 集成测试方法。上面的历史测试结果适用于旧版协议。
+
+先从最新远端 `codex/bootstrap` 单独完成 T06.3.2。待其通过人工审查并合并，在现有 PR #31 执行以下迁移：
+
+1. 将 `codex/t12-1-websocket-auth` 更新到 T06.3.2 合并后的最新基线。
+2. 将 `websocket.py` 的鉴权入口改为握手 Cookie，复用服务端会话验证。移除 `protocol.py` 的 `auth_token` 首帧解析，以及 `subscriptions.py` 等待客户端发送 token 的流程。拒绝首帧 token、URL token 和客户端自报的 `account_id`、`role`。
+3. 使用 Cookie 验证得到的身份检查房间成员，从服务端成员关系确定角色，并返回对应的最新个人快照。外人和缺档继续统一使用 `4404`，不发送快照。
+4. 心跳期间复核该 Cookie 对应的会话。验证登出、密码重置和会话过期后，已有连接会失效。
+5. 重写依赖旧首帧协议的安全与契约测试，保留其拒绝、隔离和资源清理覆盖。分别用真实 SQLite 与 MongoDB 验证 Cookie 握手、会话失效、A/B 投影及重连。
+6. 更新当前协议文档，核查没有首帧 token 或 Bearer 兼容路径，再提交原 PR 人工审查。T12.2 保持暂停。
+
+本轮记录审查结论，未改业务代码与测试，未实施上述迁移。
