@@ -52,7 +52,7 @@ defineProps<{
           :stroke="visual.echo_available ? '#91d4c5' : '#455e72'"
           stroke-width="4"
       /></g>
-      <g v-if="visual.scanned_segment" data-visual="scan-result"
+      <g v-if="visual.scanned_segment" data-visual="scan-result" data-causal-part="track-result"
         ><path
           d="M290 340H510V390H290Z"
           fill="none"
@@ -61,13 +61,33 @@ defineProps<{
           stroke-width="5"
         /><text x="310" y="370" fill="#ffe0a0">{{ visual.scanned_segment }}</text></g
       >
+      <g
+        v-if="visual.scanned_segment"
+        class="causal-flash"
+        data-causal-part="track-sweep"
+        aria-hidden="true"
+        ><rect x="270" y="320" width="260" height="75" rx="12" fill="#91d4c5" opacity=".3"
+      /></g>
     </g>
     <g v-if="visual.rail_connected" data-visual="connected-rail"
-      ><path d="M190 375H610M240 350H560" stroke="#e3bd7a" stroke-width="9" /><path
+      ><path
+        data-causal-part="rail-connection"
+        pathLength="1"
+        d="M190 375H610M240 350H560"
+        stroke="#e3bd7a"
+        stroke-width="9" /><path
         v-for="x in [250, 310, 370, 430, 490, 550]"
         :key="x"
         :d="`M${x} 340V385`"
         stroke="#bba27b"
+        stroke-width="7" /><circle
+        class="causal-flash"
+        data-causal-part="rail-joint"
+        cx="400"
+        cy="360"
+        r="25"
+        fill="none"
+        stroke="#fff1be"
         stroke-width="7"
     /></g>
     <g v-if="stage === 'boarding'" data-visual="boarding-signal">
@@ -94,6 +114,7 @@ defineProps<{
     </g>
     <g
       data-visual="train"
+      :data-ending="ending"
       :data-arrived="visual.train_arrived"
       :transform="
         stage === 'completed' && ending === 'return_station'
@@ -103,18 +124,20 @@ defineProps<{
             : 'translate(60 -35)'
       "
     >
-      <rect x="250" y="160" width="240" height="145" rx="20" fill="#597b90" /><rect
-        x="270"
-        y="180"
-        width="80"
-        height="60"
-        fill="#acc6d1"
-      /><rect x="380" y="180" width="85" height="60" fill="#acc6d1" /><circle
-        cx="290"
-        cy="300"
-        r="18"
-        fill="#152b3d"
-      /><circle cx="450" cy="300" r="18" fill="#152b3d" />
+      <g data-causal-part="ending-train-motion">
+        <rect x="250" y="160" width="240" height="145" rx="20" fill="#597b90" /><rect
+          x="270"
+          y="180"
+          width="80"
+          height="60"
+          fill="#acc6d1"
+        /><rect x="380" y="180" width="85" height="60" fill="#acc6d1" /><circle
+          cx="290"
+          cy="300"
+          r="18"
+          fill="#152b3d"
+        /><circle cx="450" cy="300" r="18" fill="#152b3d" />
+      </g>
     </g>
     <g
       v-if="role === 'b' && (stage === 'survey' || stage === 'boarding')"
@@ -133,16 +156,50 @@ defineProps<{
         /><text :x="80 + index * 95" y="120" fill="#dbe7ee" font-size="16">{{ device }}</text></g
       >
     </g>
-    <g v-if="stage === 'decision' || stage === 'completed'" data-visual="arrival-platform"
-      ><path d="M60 340H740V390H60Z" fill="#5e7d88" /><path
-        d="M60 340H740"
+    <g
+      v-if="stage === 'decision' || stage === 'completed'"
+      data-visual="arrival-platform"
+      data-causal-part="ending-platform"
+      ><path d="M60 340H740V390H60Z" fill="#5e7d88" />
+      <path
+        v-if="visual.rail_connected === true"
+        data-causal-part="ending-rail"
+        d="M120 370H680M170 355H630"
+        fill="none"
+        stroke="#e3bd7a"
+        stroke-width="5" />
+      <path d="M60 340H740" stroke="#e3bd7a" stroke-width="7"
+    /></g>
+    <g v-if="stage === 'completed' && ending === 'rescue_detour'" data-visual="rescue-route">
+      <path
+        d="M300 360L100 300H45"
+        fill="none"
         stroke="#e3bd7a"
         stroke-width="7"
-    /></g>
+        stroke-dasharray="12 6"
+      />
+      <circle cx="75" cy="275" r="12" fill="#b8ddd4" /><path
+        d="M75 287V315M60 300H90"
+        stroke="#b8ddd4"
+        stroke-width="6"
+      />
+    </g>
+    <text
+      v-if="stage === 'completed' && (ending === 'rescue_detour' || ending === 'return_station')"
+      x="70"
+      y="45"
+      fill="#ffe0a0"
+      font-size="22"
+      data-visual="ending-label"
+      >{{ ending === 'rescue_detour' ? '共同决定：绕行救援' : '共同决定：安全归站' }}</text
+    >
   </g>
 </template>
 
 <style scoped>
+.causal-flash {
+  opacity: 0;
+}
 .causal-wave {
   opacity: 0;
   transform-origin: 650px 165px;
