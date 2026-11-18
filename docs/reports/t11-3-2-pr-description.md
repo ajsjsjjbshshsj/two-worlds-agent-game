@@ -42,9 +42,9 @@ npm run format:check
 
 最初 `gh pr create` 返回 `Forbidden`，此后 PR #29 已成功创建。据用户提供的状态，[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已创建，OPEN，尚未合并，等待人工审查。开发分支为 `codex/t11-3-2-cooperative-performances`，目标分支为 `codex/bootstrap`。
 
-已知远端 HEAD 为 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`。本轮 GitHub API 返回 `Forbidden`，Git 远端查询返回 503，PR 最新状态、HEAD、文件列表和 Review 尚待在线核实。
+Git 推送恢复后，已通过 GitHub 的 Git 引用核实文档提交 `3627febc9fdff000244ba6ee9a0c733c0027a66f` 到达原开发分支和 PR #29。后续 HEAD 见 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)。PR 状态和 Review 的 API 查询仍返回 `Forbidden`。
 
-本轮对已知 HEAD 的 check-runs、workflow runs 和 commit status 查询均返回 `Forbidden`。GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
+GitHub API 仍返回 `Forbidden`，GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
 
 ## 建议阅读顺序
 

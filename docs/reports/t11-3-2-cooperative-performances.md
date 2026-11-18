@@ -109,10 +109,10 @@ npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-sce
 
 据用户提供的状态，[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已创建，OPEN，尚未合并，等待人工审查。开发分支为 `codex/t11-3-2-cooperative-performances`，目标分支为 `codex/bootstrap`。
 
-已知远端 HEAD 为 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`。本轮 GitHub API 返回 `Forbidden`，Git 远端查询返回 503，PR 最新状态、HEAD、文件列表和 Review 尚待在线核实。
+Git 推送恢复后，已通过 GitHub 的 Git 引用核实文档提交 `3627febc9fdff000244ba6ee9a0c733c0027a66f` 到达原开发分支和 PR #29。后续 HEAD 见 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)。PR 状态和 Review 的 API 查询仍返回 `Forbidden`。
 
-本轮对已知 HEAD 的 check-runs、workflow runs 和 commit status 查询均返回 `Forbidden`。GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
+GitHub API 仍返回 `Forbidden`，GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
 
-此前，两份交付文档的修正已在本地提交（`6a02c14`、`e3687b0`），当时推送返回 503。本轮同步维护交接文档、开发报告与 PR 正文，提交及远端同步结果见本轮交付回复。
+此前交付文档的推送遇到 503。随后使用 `git -c http.version=HTTP/1.1 push` 推送成功，并核实原分支和 PR HEAD。GitHub 网页正文的同步仍取决于 GitHub API 或网页访问。
 
 人工验收还包括正式美术、配音与音效、素材许可、媒体分层、人工视听和 Safari/iOS/Android 真机体验。后端代码保持在原实现，本轮交付文档修正不计为后端或 Mongo 回归证据。
