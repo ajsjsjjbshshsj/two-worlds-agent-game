@@ -38,7 +38,13 @@ npm run format:check
 
 仍是原创SVG/WAAPI原型；正式美术/音频/媒体分层/素材许可、人工视听验收和Safari/iOS/Android真机仍待独立完成，QA-M01～M07未整体标通过。无历史演出重看、实时同步/WS、可靠事件补送。本轮未开始T11.3.3或T12，未使用子代理，禁止自动合并。
 
-328项是本地验证，GitHub CI应以PR检查页实际记录为准；API当前Forbidden，尚未核实在线检查情况，不能宣称CI通过或没有检查记录。
+## GitHub 交付与 CI
+
+最初 `gh pr create` 返回 `Forbidden`，此后 PR #29 已成功创建。据用户提供的状态，[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已创建，OPEN，尚未合并，等待人工审查。开发分支为 `codex/t11-3-2-cooperative-performances`，目标分支为 `codex/bootstrap`。
+
+已知远端 HEAD 为 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`。本轮 GitHub API 返回 `Forbidden`，Git 远端查询返回 503，PR 最新状态、HEAD、文件列表和 Review 尚待在线核实。
+
+本轮对已知 HEAD 的 check-runs、workflow runs 和 commit status 查询均返回 `Forbidden`。GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
 
 ## 建议阅读顺序
 

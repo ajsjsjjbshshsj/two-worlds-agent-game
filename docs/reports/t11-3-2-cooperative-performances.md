@@ -59,7 +59,7 @@ T11.2音频逻辑完全保留。演出层不导入AudioManager，不生成audio_
 | typecheck/build/format | 通过，构建88 modules |
 | git diff --check | 通过 |
 | 后端/SQLite/Mongo单测 | 后端代码未改，本轮未执行这些回归，不将旧统计当本轮证据 |
-| GitHub CI | 尚未取得在线检查记录，不能将本地通过写成CI通过 |
+| GitHub CI | 在线检查记录及结果未核实，查询结果见下文 GitHub 实际交付 |
 
 frontend目录：
 
@@ -101,18 +101,18 @@ npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-sce
 
 本轮达到每剧本3处合作动效和1段可跳过关键演出的**SVG/WAAPI原型机制目标**，不是正式视听交付。正式美术/音频/媒体分层/来源许可、人工听感/观感、Safari/iOS/Android真机、WS与可靠跨设备事件补送仍未验收，不提前将QA-M01～M07全部标通过。当前关键演出覆盖已确认的结局，首次或跨版本读档不重放历史；没有主动重看历史关键演出功能。
 
-### GitHub实际交付（2026-11-18，PR #29审查收尾）
+### GitHub实际交付（2026-11-18）
 
-实现提交为`e062900dfac5b39ecd66903e3a9e02741809614d`。最初已成功推送任务分支codex/t11-3-2-cooperative-performances，随后提交并推送交付记录`6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`；上轮git ls-remote核实其为远端任务HEAD，codex/bootstrap仍为63245509。没有修改目标分支。
+实现提交为 `e062900dfac5b39ecd66903e3a9e02741809614d`。实现提交和后续交付记录 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1` 均已推送到 `codex/t11-3-2-cooperative-performances`。当时通过 `git ls-remote` 确认了远端任务分支的提交，目标分支为 PR #28 合并提交 `63245509`。
 
-历史经过：最初gh pr create指定base=codex/bootstrap、head=codex/t11-3-2-cooperative-performances、标题feat: extend cooperative causal performances (T11.3.2)，使用[PR正文文件](t11-3-2-pr-description.md)，但GraphQL请求返回Forbidden、退出码1。**这是当时命令失败的事实，不再代表当前PR待创建。** 此后[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29)已成功创建，当前OPEN、尚未合并，等待人工审查与合并；分支和目标如上。本轮不创建第二个PR。
+最初使用 [PR 正文文件](t11-3-2-pr-description.md) 执行 `gh pr create` 时，GitHub GraphQL 返回 `Forbidden`，命令退出码为 1。此后 PR #29 已成功创建。
 
-状态来源与HEAD：PR创建事实、OPEN及尚未合并依据用户本轮明确确认。本轮确已尝试gh pr view 29（GraphQL）与REST pulls/29，均Forbidden；扩大执行权限后GraphQL仍被拒绝。普通及扩大执行权限的git fetch/ls-remote暂遇503 upstream connection timeout，因此不能伪称已在线独立核验最新PR状态或最新HEAD。本轮修正前本地HEAD及上轮最后成功核实的远端HEAD为`6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`；本次文档修正提交SHA及推送结果见本轮完成回复，最新PR提交也可在[提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)人工核对。
+据用户提供的状态，[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已创建，OPEN，尚未合并，等待人工审查。开发分支为 `codex/t11-3-2-cooperative-performances`，目标分支为 `codex/bootstrap`。
 
-CI：本轮对上述6da1ea5提交实际查询check-runs与combined status，两次REST请求同样Forbidden。实际检查记录是否存在、当前状态及结论均未核实；不把查询失败写成“没有CI记录”，不把上一轮328项本地通过写成GitHub CI通过。云环境当前生效的受限策略未包含api.github.com；本轮未擅改网络配置或凭证，也未声称通过不可调用的GitHub插件完成核验。
+已知远端 HEAD 为 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`。本轮 GitHub API 返回 `Forbidden`，Git 远端查询返回 503，PR 最新状态、HEAD、文件列表和 Review 尚待在线核实。
 
-本轮仅修改本报告与开发交接文档，保留上文完整实现、测试和真实浏览器证据。执行文档链接检查与git diff --check，不修改源代码、测试断言、后端、AudioManager或剧本规则，不为文档改动重复运行或虚构新的328项回归。后端未改、未执行Mongo/后端回归、正式素材/版权及Safari/iOS/Android真机未验收等限制保持。
+本轮对已知 HEAD 的 check-runs、workflow runs 和 commit status 查询均返回 `Forbidden`。GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
 
-本轮文档交付结果：修正已在原分支本地提交`6a02c14d8795d37bafc532f16fbbbbe2de73ba0e`，但普通及扩大执行权限的git push均返回503 upstream connection timeout，退出码128，尚未成功更新远端PR #29。随后仅补记本失败结果，最终本地提交SHA见完成回复。文档链接检查覆盖48个现存本地目标（保留原有被忽略的历史聊天链接，不将其当新增有效链接）；代码块与git diff --check通过，且相对修正起点只变更本报告与交接两份文档。
+此前，两份交付文档的修正已在本地提交（`6a02c14`、`e3687b0`），当时推送返回 503。本轮同步维护交接文档、开发报告与 PR 正文，提交及远端同步结果见本轮交付回复。
 
-剩余事项是恢复连接后将本轮文档提交正常推送到原分支、独立核实PR最新HEAD与GitHub CI，以及人工审查/合并；**创建PR不再是未完成项**。没有自动合并，本轮停止等待人工审查，不开始T11.3.3/T12。
+人工验收还包括正式美术、配音与音效、素材许可、媒体分层、人工视听和 Safari/iOS/Android 真机体验。后端代码保持在原实现，本轮交付文档修正不计为后端或 Mongo 回归证据。
