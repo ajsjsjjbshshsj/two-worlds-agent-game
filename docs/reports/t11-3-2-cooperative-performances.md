@@ -4,7 +4,7 @@
 
 ## 基线与范围
 
-开始时工作区干净。先fetch远端，确认codex/bootstrap最新HEAD为`63245509c5dfd15336da27d0becf3995bd1a87e6`（Merge pull request #28），父提交c31aa9e/cfdaea9，核实T11.3.1已实际合并。API读取PR状态仍Forbidden，未声称API查询成功。本地/远端均不存在同名任务分支，随后从该最新目标创建`codex/t11-3-2-cooperative-performances`，没有继续在T11.3.1分支实现，也没有向目标分支提交。
+开始时工作区干净。先fetch远端，确认codex/bootstrap最新HEAD为`63245509c5dfd15336da27d0becf3995bd1a87e6`（Merge pull request #28），父提交c31aa9e/cfdaea9，核实T11.3.1已实际合并。本地/远端均不存在同名任务分支，随后从该最新目标创建`codex/t11-3-2-cooperative-performances`，没有继续在T11.3.1分支实现，也没有向目标分支提交。
 
 先阅读AGENTS、交接、README、04中T11/T11.3.1、05中QA-M01～M07、07及T11.3.1报告。现有个人投影已提供全部所需字段，因此没有修改后端、游戏规则、存档、已发布剧本JSON、AudioManager/audio_events/operation_sfx、字幕生命周期、game Store、类型协议或依赖锁。仅扩展原有CausalPerformance、WAAPI播放器与两个SVG场景，不建设第二套动画引擎。
 
@@ -59,7 +59,7 @@ T11.2音频逻辑完全保留。演出层不导入AudioManager，不生成audio_
 | typecheck/build/format | 通过，构建88 modules |
 | git diff --check | 通过 |
 | 后端/SQLite/Mongo单测 | 后端代码未改，本轮未执行这些回归，不将旧统计当本轮证据 |
-| GitHub CI | 在线检查记录及结果未核实，查询结果见下文 GitHub 实际交付 |
+| GitHub CI | 修订前快照三类检查均为 0，当前没有可报告的 GitHub CI 运行结果，见下文 GitHub 实际交付 |
 
 frontend目录：
 
@@ -103,16 +103,16 @@ npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-sce
 
 ### GitHub实际交付（2026-11-18）
 
-实现提交为 `e062900dfac5b39ecd66903e3a9e02741809614d`。实现提交和后续交付记录 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1` 均已推送到 `codex/t11-3-2-cooperative-performances`。当时通过 `git ls-remote` 确认了远端任务分支的提交，目标分支为 PR #28 合并提交 `63245509`。
+实现提交为 `e062900dfac5b39ecd66903e3a9e02741809614d`，已推送到 `codex/t11-3-2-cooperative-performances`。早期交付记录为 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`。
 
-最初使用 [PR 正文文件](t11-3-2-pr-description.md) 执行 `gh pr create` 时，GitHub GraphQL 返回 `Forbidden`，命令退出码为 1。此后 PR #29 已成功创建。
+历史上首次用 [PR 正文文件](t11-3-2-pr-description.md) 执行 `gh pr create` 时，GitHub GraphQL 返回 `Forbidden`，命令退出码为 1。此后 PR #29 已成功创建。
 
-据用户提供的状态，[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已创建，OPEN，尚未合并，等待人工审查。开发分支为 `codex/t11-3-2-cooperative-performances`，目标分支为 `codex/bootstrap`。
+[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已成功创建，状态为 OPEN，尚未合并，等待人工审查。base 为 `codex/bootstrap`，head 为 `codex/t11-3-2-cooperative-performances`。
 
-Git 推送恢复后，已通过 GitHub 的 Git 引用核实文档提交 `3627febc9fdff000244ba6ee9a0c733c0027a66f` 到达原开发分支和 PR #29。后续 HEAD 见 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)。PR 状态和 Review 的 API 查询仍返回 `Forbidden`。
+此前文档推送遇到 503，之后使用 `git -c http.version=HTTP/1.1 push` 成功推送历史文档提交 `3627febc9fdff000244ba6ee9a0c733c0027a66f`。
 
-GitHub API 仍返回 `Forbidden`，GitHub CI 检查记录及结果未核实。328 项通过来自 T11.3.2 的本地测试。
+本次文档修复前，GitHub 的开发分支和 PR HEAD 均核实为 `a2f79ef65ee844305576d2548d6ad5e2b51951a8`。修复后的 SHA 以推送验证为准，见 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)。
 
-此前交付文档的推送遇到 503。随后使用 `git -c http.version=HTTP/1.1 push` 推送成功，并核实原分支和 PR HEAD。GitHub 网页正文的同步仍取决于 GitHub API 或网页访问。
+按用户提供的修订前 GitHub 检查快照，check-runs：0，workflow-runs：0，commit statuses：0。当前没有可报告的 GitHub CI 运行结果。328 项通过是 T11.3.2 的本地测试结果。
 
 人工验收还包括正式美术、配音与音效、素材许可、媒体分层、人工视听和 Safari/iOS/Android 真机体验。后端代码保持在原实现，本轮交付文档修正不计为后端或 Mongo 回归证据。
