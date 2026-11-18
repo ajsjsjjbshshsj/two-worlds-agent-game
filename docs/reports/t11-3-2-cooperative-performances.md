@@ -101,12 +101,16 @@ npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-sce
 
 本轮达到每剧本3处合作动效和1段可跳过关键演出的**SVG/WAAPI原型机制目标**，不是正式视听交付。正式美术/音频/媒体分层/来源许可、人工听感/观感、Safari/iOS/Android真机、WS与可靠跨设备事件补送仍未验收，不提前将QA-M01～M07全部标通过。当前关键演出覆盖已确认的结局，首次或跨版本读档不重放历史；没有主动重看历史关键演出功能。
 
-### GitHub实际交付（2026-11-18）
+### GitHub实际交付（2026-11-18，PR #29审查收尾）
 
-实现提交为`e062900dfac5b39ecd66903e3a9e02741809614d`，已成功执行git push -u origin codex/t11-3-2-cooperative-performances。随后git ls-remote确认远端任务分支与该实现提交一致，codex/bootstrap仍为63245509，没有修改目标分支；后续只补充本交付状态文档，最终HEAD见任务分支提交页及交付回复。
+实现提交为`e062900dfac5b39ecd66903e3a9e02741809614d`。最初已成功推送任务分支codex/t11-3-2-cooperative-performances，随后提交并推送交付记录`6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`；上轮git ls-remote核实其为远端任务HEAD，codex/bootstrap仍为63245509。没有修改目标分支。
 
-已实际执行gh pr create，指定base=codex/bootstrap、head=codex/t11-3-2-cooperative-performances、标题feat: extend cooperative causal performances (T11.3.2)，使用完整[PR正文文件](t11-3-2-pr-description.md)。命令在GitHub GraphQL请求处返回Forbidden，退出码1，**本轮PR未创建**。当前没有可核实的PR编号或PR链接；[创建入口](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/compare/codex/bootstrap...codex/t11-3-2-cooperative-performances?expand=1)是比较/创建页，不能当作已存在PR。
+历史经过：最初gh pr create指定base=codex/bootstrap、head=codex/t11-3-2-cooperative-performances、标题feat: extend cooperative causal performances (T11.3.2)，使用[PR正文文件](t11-3-2-pr-description.md)，但GraphQL请求返回Forbidden、退出码1。**这是当时命令失败的事实，不再代表当前PR待创建。** 此后[PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29)已成功创建，当前OPEN、尚未合并，等待人工审查与合并；分支和目标如上。本轮不创建第二个PR。
 
-推送后对实现提交实际查询check-runs与combined status，两次REST请求同样Forbidden。GitHub检查记录是否存在、是否通过均未能核实，不把查询失败写成“没有CI记录”，也不把328项本地通过写成CI通过。本轮工具目录没有可调用的GitHub插件API，未声称通过插件完成交付。
+状态来源与HEAD：PR创建事实、OPEN及尚未合并依据用户本轮明确确认。本轮确已尝试gh pr view 29（GraphQL）与REST pulls/29，均Forbidden；扩大执行权限后GraphQL仍被拒绝。普通及扩大执行权限的git fetch/ls-remote暂遇503 upstream connection timeout，因此不能伪称已在线独立核验最新PR状态或最新HEAD。本轮修正前本地HEAD及上轮最后成功核实的远端HEAD为`6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`；本次文档修正提交SHA及推送结果见本轮完成回复，最新PR提交也可在[提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)人工核对。
 
-剩余交付项：网络/API恢复后，用已推送分支和正文创建上述独立PR并核实CI，或由用户在创建入口提交同一PR；先核对是否已由其他人创建，避免重复。此处不谎称GitHub交付已全部完成。没有自动合并；本轮停止等待人工审查，不开始T11.3.3/T12。
+CI：本轮对上述6da1ea5提交实际查询check-runs与combined status，两次REST请求同样Forbidden。实际检查记录是否存在、当前状态及结论均未核实；不把查询失败写成“没有CI记录”，不把上一轮328项本地通过写成GitHub CI通过。云环境当前生效的受限策略未包含api.github.com；本轮未擅改网络配置或凭证，也未声称通过不可调用的GitHub插件完成核验。
+
+本轮仅修改本报告与开发交接文档，保留上文完整实现、测试和真实浏览器证据。执行文档链接检查与git diff --check，不修改源代码、测试断言、后端、AudioManager或剧本规则，不为文档改动重复运行或虚构新的328项回归。后端未改、未执行Mongo/后端回归、正式素材/版权及Safari/iOS/Android真机未验收等限制保持。
+
+剩余事项是人工审查/合并，以及恢复在线访问后独立核实PR最新HEAD与GitHub CI；**创建PR不再是未完成项**。没有自动合并，本轮停止等待人工审查，不开始T11.3.3/T12。
