@@ -15,14 +15,14 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份/房间/目录/存档/命令回执/受保护媒体已实现；WS待后续 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 已实现身份、房间、目录、存档、回执、受保护媒体及 T12.1 的 WS 入口 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService、PairService及SaveService生命周期/命令已实现；对话待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务及 Mongo 单文档 CAS/索引已实现，真库契约通过 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
-| src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
+| src/twoworlds/realtime | 订阅、个人快照和连接协议 | T12.1 首帧鉴权、初始个人快照和心跳 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 身份6项及房间竞争契约通过；后续存档/平台契约待T08等 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
@@ -45,7 +45,7 @@ uv run --project backend --locked ruff check backend/src
 
 第二条命令应打印本项目`backend/src/twoworlds/__init__.py`的绝对路径。`-I`排除当前目录和用户Python路径的干扰；能导入说明本项目确实已安装到所选环境。
 
-`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...])` 已实现，只注册四个身份接口。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。没有模块级app、uvicorn依赖或独立TCP启动/部署入口，不要运行`uvicorn twoworlds.api:app`。
+`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...])` 装配 HTTP 接口和 T12.1 的 WebSocket 入口。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。本地开发使用下方 `python -m twoworlds.dev` 入口。
 
 ## 4. 构建与验证
 
@@ -284,9 +284,9 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017'
 `--basetemp`选新目录。先读tests/save_support.py，再读test_save_isolation.py的完整流程、recap.py的四个星轨里程碑、starline.observations的发现门槛。DialogueTurn仅验证仓储内各存档/角色的记录归属及重开，真实私聊HTTP/NPC未实现。完整命令、双适配器结果、历史失败对比与恢复边界见[本轮报告](../docs/reports/starline-save-isolation.md)。本轮交付后停止等待审查，不自动开始T10。
 
 
-## 17. 开发专用HTTP启动器（T10.2）
+## 17. 开发专用 HTTP 与 WebSocket 启动器
 
-新增 `src/twoworlds/dev.py`。导入没有模块级app、数据库连接或自动启动；显式调用create_dev_app后才创建Repository，既有应用lifespan负责关闭。唯一新增依赖是dev组的精确Uvicorn0.54.0及其click8.5.1，已有依赖版本未升级。它是[开发ASGI服务器](https://uvicorn.dev/settings/)，不是生产部署方案。
+新增 `src/twoworlds/dev.py`。导入没有模块级app、数据库连接或自动启动；显式调用create_dev_app后才创建Repository，既有应用lifespan负责关闭。T10.2 锁定 Uvicorn 0.54.0。T12.1 在 dev 组新增 websockets 16.0，用于回环监听器的 WebSocket Upgrade。它是[开发ASGI服务器](https://uvicorn.dev/settings/)，不是生产部署方案。
 
 先显式选择本地演示SQLite，在工作树backend目录启动：
 
@@ -301,7 +301,7 @@ $env:TWOWORLDS_DEV_PORT='8016'
 .venv/Scripts/python.exe -m twoworlds.dev
 ```
 
-启动后仅监听127.0.0.1:8016。DEV_PORT可省略，默认8000；未开放自定义host、0.0.0.0、代理IP信任或WebSocket。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
+启动后仅监听127.0.0.1:8016。DEV_PORT 可省略，默认 8000。WebSocket 使用同一回环监听器及精确 Origin 配置，客户端消息上限为 4 KiB。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
 
 真实Mongo开发需另选适当的本地数据库，URI只通过当前进程环境注入，不进入源码/日志/Git：
 
@@ -316,7 +316,7 @@ $env:TWOWORLDS_DEV_PORT='8016'
 
 必须同时提供MONGO_URI和MONGO_DATABASE，SQLite路径不能作为Mongo失败回退。只配置精确HTTP/HTTPS Origin，不用通配符和Cookie凭证。前端设置公开VITE_API_BASE_URL并启动5186，见[前端README](../frontend/README.md)。以上python模块启动方式已由独立进程TCP测试分别验证SQLite/Mongo，浏览器流程亦通过同一工厂真实连接；本轮临时服务验收后已关闭。
 
-正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。后端PairService、SaveService、身份、Repository与规则语义未变，未新增业务接口。
+正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。WebSocket 复用 IdentityService 和 SaveService。 当前运行版本使用首帧会话 token，PR #30 设计的 Cookie 握手随 T06.3 后端身份切换接入。接口协议和真库验证见 [T12.1 报告](../docs/reports/t12-1-websocket-auth.md)。
 
 ```powershell
 # 先由本机环境提供 MONGO_URI；Mongo用例会创建并清理随机临时库。
@@ -326,4 +326,4 @@ $env:TWOWORLDS_DEV_PORT='8016'
 uv lock --check --offline
 ```
 
-专项16通过（包括两个真实CLI/TCP子进程）；完整回归、正式空目录与test-only书架、学习顺序见[T10.2报告](../docs/reports/t10-2-identity-room-library.md)。没有声称正式发布、生产部署、WS、游戏场景或真机验收完成。
+T10.2 当时的启动器专项为 16 项通过，其中包含两个真实 CLI/TCP 子进程。后续 T12.1 在同一启动器上验证了回环 WebSocket。参见 [T10.2 报告](../docs/reports/t10-2-identity-room-library.md)和 [T12.1 报告](../docs/reports/t12-1-websocket-auth.md)。

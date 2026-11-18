@@ -14,10 +14,11 @@ from twoworlds.application.pairs import PairService
 from twoworlds.application.saves import SaveService
 from twoworlds.content.publication import PublicationStore
 from twoworlds.ports.repository import Repository
+from twoworlds.realtime.protocol import WebSocketTiming
 
 from .errors import failure, install_handlers
 from .rate_limit import RateLimiter
-from .routers import accounts, pairs, saves, sessions
+from .routers import accounts, pairs, saves, sessions, websocket
 
 MAX_BODY_BYTES = 16 * 1024
 
@@ -141,6 +142,7 @@ def create_app(
     rate_limit=5,
     rate_window=60,
     rate_max_keys=10000,
+    websocket_timing: WebSocketTiming | None = None,
 ):
     origins = list(allowed_origins)
     for origin in origins:
@@ -181,6 +183,8 @@ def create_app(
             repository.close()
 
     app = FastAPI(lifespan=lifespan, redirect_slashes=False)
+    app.state.allowed_origins = frozenset(origins)
+    app.state.websocket_timing = websocket_timing or WebSocketTiming()
     app.state.identity_service = IdentityService(
         repository, **({"clock": identity_clock} if identity_clock is not None else {})
     )
@@ -196,6 +200,7 @@ def create_app(
     app.include_router(sessions.router)
     app.include_router(pairs.router)
     app.include_router(saves.router)
+    app.include_router(websocket.router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,

@@ -1,0 +1,81 @@
+# T12.1 · 服务端 WebSocket 连接与身份鉴权
+
+2026-11-18。实现基线为远端 `codex/bootstrap` 的 `04cb0d3687e8b410948ffb2238b4a07fecd9c425`，即 GitHub 确认的 PR #29 合并提交。开发分支为 `codex/t12-1-websocket-auth`，PR 目标为 `codex/bootstrap`。 交付前远端合入 PR #30，任务分支接到最新 `6641150e2b2cfbb204394b6cce6fac226e29b3c8`。PR #30 仅改文档，后端代码、测试及依赖与原验证基线一致。
+
+## 接口与协议
+
+T12.1 接入当前运行的会话服务，落实本轮首帧协议。[PR #30](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/30) 已定义后续邮箱账号和 Cookie WebSocket 握手，具体切换随 T06.3 后端身份实现完成。
+
+连接路径为 `/api/ws/saves/{save_id}`。服务器在 Upgrade 前要求恰好一个 Origin 且完整匹配应用白名单。未配置白名单、缺失 Origin、不匹配或重复 Origin 均拒绝。本接口禁止 URL 查询参数，HTTP Bearer 头也不能代替首帧。开发启动器仍绑定回环地址，使用同一个存储与 Origin 配置。
+
+| 方向 | 消息 | 含义 |
+| --- | --- | --- |
+| 客户端 → 服务端 | `{"type":"auth","token":"SESSION_TOKEN"}` | 首帧必须为此结构。认证和初次授权读取的默认期限为 10 秒。 |
+| 服务端 → 客户端 | `{"type":"snapshot","save":{...}}` | 认证并获准读取后发送一次，`save` 和相同身份的 HTTP GET 返回相同。 |
+| 服务端 → 客户端 | `{"type":"ping","id":1}` | 每连接从 1 递增。发送前重查会话。 |
+| 客户端 → 服务端 | `{"type":"pong","id":1}` | 回复当前 ping 的整数 ID。 |
+
+协议仅接收 UTF-8 JSON 文本，客户端消息最多 4 KiB。拒绝重复 JSON 字段、额外字段、二进制和不符合当前阶段的消息。`account_id`、`role` 和 `pair_id` 不属于认证帧。
+
+| 情况 | 结果 |
+| --- | --- |
+| Origin 或查询字符串不合规 | Upgrade 前拒绝，TCP 客户端收到 HTTP 403 |
+| 首帧非法、重复认证、超前或错误 pong | `4400` |
+| 认证超时、会话无效、过期或撤销 | `4401` |
+| 缺档或非房间成员 | `4404`，统一关闭且无快照 |
+| 未及时回复 ping | `4408` |
+| 客户端消息超过 4 KiB | `1009` |
+| 认证或存档依赖异常 | `1011`，关闭理由为空 |
+
+服务端不把异常详情、帧原文、token 或恢复密钥写入响应和日志。开发启动器关闭访问日志，关闭传输层压缩及附加 ping，以应用层心跳为准。
+
+## 身份、成员与初始快照
+
+`IdentityService.authenticate` 用会话摘要查询有效会话，检查创建和过期时间，并遵守原有撤销状态。身份验证成功后，才以服务器取得的 `account.id` 调用 `SaveService.read_save`。同步服务在工作线程执行，ASGI 接收循环可在等待期间推进其他连接。
+
+`SaveService.read_save` 按存档 ID 读取已提交记录，再查对应房间成员关系，确定 A 或 B。按存档绑定的剧本 ID 和版本重建个人投影。外人和不存在的档在加载剧本或创建投影前统一拒绝。序列化使用既有 `SaveSnapshot` 模型，不发送完整 GameState、回执、恢复密钥或内部房间成员记录。下一次连接重复完整流程，读取最新已提交版本，不从旧连接复用快照。
+
+集成测试在 SQLite 和真实 MongoDB 分别建立房间，并以 A/B 实际读取同档。两端的 WS 快照分别与对应 HTTP GET 完全相等，线索、观察和装置按角色隔离。两种仓储均验证非成员与缺档得到相同关闭帧，以及 HTTP 提交推进后重连返回新版本。
+
+## 心跳与生命周期
+
+`WebSocketTiming` 集中定义认证 10 秒、心跳间隔 10 秒、pong 超时 5 秒，应用可显式传入配置。发送初始快照或收到正确 pong 后，连接等待下一轮。每轮 ping 前重新调用 `IdentityService.authenticate`。有效会话必须在 5 秒内回复相同 ID。过期、撤销和任何未响应连接按上表关闭。
+
+一个接收循环持有连接和计时器。断开时直接退出该循环，超时上下文退出时清除计时器。T12.1 没有全局订阅表或独立常驻心跳任务。测试分别在等待 auth、下一轮心跳和 pong 时主动关闭客户端，确认 ASGI 处理已退出。超时测试使用缩短的可控期限与可推进的身份时钟，无长时间 sleep。
+
+## 验证与历史失败对比
+
+测试环境为 Linux、CPython 3.12.14、uv 0.13.6、pytest 9.0.2 和 Ruff 0.15.4。真实 MongoDB 8.0.38 使用缓存的 `mongo:8.0` 镜像，绑定回环随机端口。测试按现有夹具使用独立随机库。第一次尝试中 MongoDB 默认文件描述符上限导致进程中止，该次不计为基线。提高临时容器的 `nofile` 至 8192 后，从独立的合并基线工作树和开发分支分别执行全量回归。开发启动器新增锁定的 dev 依赖 `websockets==16.0`，原有包版本保持一致。
+
+| 执行 | 收集 | 通过 | 失败 | 错误 / 跳过 |
+| --- | ---: | ---: | ---: | ---: |
+| 修改前两个 WebSocket 契约 | 2 | 0 | 2 | 0 / 0 |
+| 修改后两个 WebSocket 契约 | 2 | 2 | 0 | 0 / 0 |
+| 新增 WebSocket 专项（SQLite、真实 MongoDB、真实回环 TCP） | 41 | 41 | 0 | 0 / 0 |
+| 修改前全量 `04cb0d3` | 1202 | 1198 | 4 | 0 / 0 |
+| 修改后全量 | 1243 | 1241 | 2 | 0 / 0 |
+
+两项 WebSocket 契约在基线因路由尚未注册而发生 `WebSocketDisconnect`。`test_websocket_uses_auth_frame_and_personal_projection_on_reconnect` 和 `test_outsider_websocket_never_receives_a_snapshot` 的原断言均保留。NPC 测试仍以 HTTP 422 `UNKNOWN_ACTION` 为范围外已知失败。除此之外，本轮基线还复现此前报告过的深层 JSON 失败，`test_json_parser_recursion_failure_is_reported_without_a_raw_traceback` 得到 `CONTENT_INVALID_SCHEMA`，而原断言期待 `CONTENT_INVALID_JSON`。两者均未修改。 两次全量 JUnit 逐项比较，原用例无移除，新增 41 项且新增失败 0。两项旧 WebSocket 失败消失，剩余两项的用例和失败信息均与基线一致。两轮各有一条既有 Starlette/AnyIO 弃用告警。
+
+从项目根目录运行。设置 `MONGO_URI` 指向已有的真实测试实例。若缓存镜像为 `mongo:8.0`，同时设置 `TWOWORLDS_TEST_MONGO_IMAGE=mongo:8.0` 供既有仓储故障测试使用。
+
+```bash
+uv run --project backend --locked python -m pytest backend/tests/contracts/test_platform.py -k websocket -q
+uv run --project backend --locked python -m pytest backend/tests/api/test_websocket.py -q
+uv run --project backend --locked python -m pytest backend/tests -q
+uv run --project backend --locked ruff check backend/src backend/tests
+uv run --project backend --locked ruff format --check backend/src backend/tests
+(cd backend && uv lock --check --offline)
+git diff --check
+```
+
+云环境使用 `UV_CACHE_DIR=/workspace/.cache/uv` 避免默认用户缓存目录只读。真实 TCP 专项启动 `python -m twoworlds.dev`，验证错误 Origin 返回 HTTP 403，正确 Origin Upgrade，认证后读取不存在的档返回 4404。快照相等和角色隔离通过真实 ASGI 应用与两种仓储验证。
+
+## 阅读顺序与下一步
+
+1. [WebSocket 路由](../../backend/src/twoworlds/api/routers/websocket.py) 查看握手限制与关闭映射。
+2. [协议](../../backend/src/twoworlds/realtime/protocol.py) 和 [订阅生命周期](../../backend/src/twoworlds/realtime/subscriptions.py) 查看认证期限、初始快照和 ping/pong。
+3. [身份服务](../../backend/src/twoworlds/application/identity.py) 和 [存档服务](../../backend/src/twoworlds/application/saves.py) 查看会话验证、角色推导和按版本读取。
+4. [集成测试](../../backend/tests/api/test_websocket.py) 查看 A/B 快照、HTTP 对照、心跳、超时及关闭验证。
+
+本轮完成 QA-W01 的服务端范围，以及 QA-W02/W03 的初始个人快照和服务端心跳部分。实时广播、前端自动重连、多端版本防回退、pending 恢复、离线缓存、NPC 和生产反代 WSS 验收均留待后续。建议 T12.2 先接通存档版本变化的服务端通知，对每个连接重新授权并单独投影，再进入客户端恢复。完成本轮后等待人工审查。
