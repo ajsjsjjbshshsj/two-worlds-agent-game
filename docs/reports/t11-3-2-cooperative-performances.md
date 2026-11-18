@@ -59,7 +59,7 @@ T11.2音频逻辑完全保留。演出层不导入AudioManager，不生成audio_
 | typecheck/build/format | 通过，构建88 modules |
 | git diff --check | 通过 |
 | 后端/SQLite/Mongo单测 | 后端代码未改，本轮未执行这些回归，不将旧统计当本轮证据 |
-| GitHub CI | 对上一轮文档提交 `4d5777c` 的 GitHub API 直接查询中，三类检查记录均为 0。详见下文 GitHub 实际交付。 |
+| GitHub CI | 对本轮收尾前实际 HEAD `a27345844d1c26927194f9ff81e6ff85def3e815` 直接查询 GitHub API：check-runs 0、workflow-runs 0、commit statuses 0；没有可报告的 GitHub CI 运行记录，不能表述为 CI 已通过。328 项通过来自本地前端测试。最终文档提交后的最新 HEAD 已另行复查，见本轮交付回复。 |
 
 frontend目录：
 
@@ -97,6 +97,8 @@ npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-sce
 
 灯塔观察光束聚焦可先让B检查海图并选amber，再让A检查记录、切pulse并调整角度；维修前保持tower供电并检查clock_gears。星轨按开闸/声呐电源/扫描/安装顺序观察。进入decision后A先投票，B重新读取再投同一结局；A也在最后一票前读取基线，才能分别看到两端关键演出。若两票间未读而版本跳跃，按设计只显示最终状态。
 
+本轮文档收尾验证：只改动本报告、交接文档和 PR 描述文档，没有修改业务代码或测试代码。对三份文档做了行尾空白、冲突标记和关键信息一致性扫描。当前执行通道没有仓库本地工作树，未声称已运行本地 `git diff --check`；该项仍需在本地仓库复验。
+
 ## 未完成事项与交付检查点
 
 本轮达到每剧本3处合作动效和1段可跳过关键演出的**SVG/WAAPI原型机制目标**，不是正式视听交付。正式美术/音频/媒体分层/来源许可、人工听感/观感、Safari/iOS/Android真机、WS与可靠跨设备事件补送仍未验收，不提前将QA-M01～M07全部标通过。当前关键演出覆盖已确认的结局，首次或跨版本读档不重放历史；没有主动重看历史关键演出功能。
@@ -105,14 +107,14 @@ npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-sce
 
 实现提交为 `e062900dfac5b39ecd66903e3a9e02741809614d`，已推送到 `codex/t11-3-2-cooperative-performances`。早期交付记录为 `6da1ea5d4a5f75f3b44bcb7a86cd81d80aba61d1`。
 
-首次执行 `gh pr create` 时曾返回 `Forbidden`。GitHub API 访问后来恢复，已直接读取 PR #29 和检查记录。
+首次执行 `gh pr create` 时曾返回 `Forbidden`（历史事件，不代表当前 API 状态）。之后 GitHub API 访问已恢复；本轮已直接读取 PR #29、实际 HEAD 及其检查接口，并通过 GitHub API 完成文档提交与 PR 正文同步。
 
 [PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已成功创建，状态为 OPEN，尚未合并，等待人工审查。base 为 `codex/bootstrap`，head 为 `codex/t11-3-2-cooperative-performances`。
 
 此前文档推送遇到 503，之后使用 `git -c http.version=HTTP/1.1 push` 成功推送历史文档提交 `3627febc9fdff000244ba6ee9a0c733c0027a66f`。
 
-上一轮文档修订前的 HEAD 为 `a2f79ef65ee844305576d2548d6ad5e2b51951a8`。该轮修订推送后，GitHub 确认 PR HEAD 为 `4d5777c450aa97ad07237b15bb6f05611459012c`，本轮以此为核对基准。最新提交见 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)。
+历史核对点依次为：`a2f79ef65ee844305576d2548d6ad5e2b51951a8`（更早一轮修订前）、`4d5777c450aa97ad07237b15bb6f05611459012c`（上一轮修订后）、`a27345844d1c26927194f9ff81e6ff85def3e815`（本轮最终文档收尾前 GitHub 实际 PR HEAD）。本轮最终文档提交 SHA 不在文档中自引用，最新 SHA 以 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)顶部记录为准。
 
-直接通过 GitHub API 查询提交 `4d5777c450aa97ad07237b15bb6f05611459012c`，结果为 check-runs 0、workflow-runs 0、commit statuses 0。该提交没有可报告的 GitHub CI 运行结果。328 项通过来自 T11.3.2 的本地前端测试。
+对本轮最终文档收尾前实际 HEAD `a27345844d1c26927194f9ff81e6ff85def3e815` 直接通过 GitHub API 查询：check-runs 0、workflow-runs 0、commit statuses 0。该基准提交没有可报告的 GitHub CI 运行结果；0 条记录不等于 CI 通过。推送本轮最终文档提交后，最新 HEAD 的三类检查已另行复查，最终结果见本轮交付回复及 PR 检查页面。328 项通过来自 T11.3.2 的本地前端测试。
 
 人工验收还包括正式美术、配音与音效、素材许可、媒体分层、人工视听和 Safari/iOS/Android 真机体验。后端代码保持在原实现，本轮交付文档修正不计为后端或 Mongo 回归证据。

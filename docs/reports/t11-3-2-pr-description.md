@@ -40,13 +40,15 @@ npm run format:check
 
 ## GitHub 交付与 CI
 
-首次执行 `gh pr create` 时曾返回 `Forbidden`。GitHub API 访问后来恢复，已直接读取 PR #29 和检查记录。
+首次执行 `gh pr create` 时曾返回 `Forbidden`（历史事件，不代表当前 API 状态）。之后 GitHub API 访问已恢复；本轮已直接读取 PR #29、实际 HEAD 及其检查接口，并通过 GitHub API 完成文档提交与 PR 正文同步。
 
 [PR #29](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29) 已成功创建，状态为 OPEN，尚未合并，等待人工审查。base 为 `codex/bootstrap`，head 为 `codex/t11-3-2-cooperative-performances`。
 
-上一轮文档修订前的 HEAD 为 `a2f79ef65ee844305576d2548d6ad5e2b51951a8`。该轮修订推送后，GitHub 确认 PR HEAD 为 `4d5777c450aa97ad07237b15bb6f05611459012c`，本轮以此为核对基准。最新提交见 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)。
+历史核对点依次为：`a2f79ef65ee844305576d2548d6ad5e2b51951a8`（更早一轮修订前）、`4d5777c450aa97ad07237b15bb6f05611459012c`（上一轮修订后）、`a27345844d1c26927194f9ff81e6ff85def3e815`（本轮最终文档收尾前 GitHub 实际 PR HEAD）。本轮最终文档提交 SHA 不在文档中自引用，最新 SHA 以 [PR 提交页](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/29/commits)顶部记录为准。
 
-直接通过 GitHub API 查询提交 `4d5777c450aa97ad07237b15bb6f05611459012c`，结果为 check-runs 0、workflow-runs 0、commit statuses 0。该提交没有可报告的 GitHub CI 运行结果。328 项通过来自 T11.3.2 的本地前端测试。
+对本轮最终文档收尾前实际 HEAD `a27345844d1c26927194f9ff81e6ff85def3e815` 直接通过 GitHub API 查询：check-runs 0、workflow-runs 0、commit statuses 0。该基准提交没有可报告的 GitHub CI 运行结果；0 条记录不等于 CI 通过。推送本轮最终文档提交后，最新 HEAD 的三类检查已另行复查，最终结果见本轮交付回复及 PR 检查页面。328 项通过来自 T11.3.2 的本地前端测试。
+
+本轮文档收尾验证：只改动本报告、交接文档和 PR 描述文档，没有修改业务代码或测试代码。对三份文档做了行尾空白、冲突标记和关键信息一致性扫描。当前执行通道没有仓库本地工作树，未声称已运行本地 `git diff --check`；该项仍需在本地仓库复验。
 
 ## 建议阅读顺序
 
