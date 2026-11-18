@@ -2,7 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { GameSnapshot } from '../../types/game'
 import { protectedImage } from '../../services/media'
-import { CausalPerformance, type PerformanceState } from '../../services/causal-performance'
+import {
+  CausalPerformance,
+  type PerformanceState,
+  type PerformanceId,
+} from '../../services/causal-performance'
 import { animatePerformance } from '../../services/performance-animation'
 import LighthouseScene from './LighthouseScene.vue'
 import StarlineScene from './StarlineScene.vue'
@@ -10,6 +14,17 @@ const props = defineProps<{ snapshot: GameSnapshot; token?: string }>(),
   emit = defineEmits<{ focusDevice: [id: string] }>()
 const svg = ref<SVGSVGElement | null>(null)
 const performance = ref<PerformanceState>({ active: null, failed: false })
+const performanceLabels: Record<PerformanceId, string> = {
+  'clock-power-on': '电路正在点亮，时钟箱已通电。',
+  'echo-ready': '声呐已具备扫描条件，回声波正在展开。',
+  'beam-focus': '光束已清晰，当前授权落点正在显现。',
+  'clock-repaired': '时钟维修已完成，机械正在恢复运转。',
+  'route-ready': '维修结果已确认，航道已具备确认条件。',
+  'track-scan': '扫描结果已确认，轨道定位正在显现。',
+  'rail-connected': '导轨已连接，接口正在点亮。',
+  'lighthouse-ending': '共同结局已确认，灯塔演出正在播放。',
+  'starline-ending': '共同结局已确认，列车演出正在播放。',
+}
 const query =
   typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -205,12 +220,17 @@ const visual = computed(() =>
       :data-performance="performance.active.id"
       :data-performance-key="performance.active.key"
     >
-      {{
-        performance.active.id === 'clock-power-on'
-          ? '电路正在点亮，时钟箱已通电。'
-          : '声呐已具备扫描条件，回声波正在展开。'
-      }}
+      {{ performanceLabels[performance.active.id] }}
     </p>
+    <div
+      v-if="performance.active?.skippable"
+      class="key-performance"
+      role="group"
+      aria-label="关键演出控制"
+    >
+      <button type="button" @click="coordinator.skip()">跳过演出</button>
+      <p>结局已由服务端确认，可随时跳过并继续查看。跳过不会改变存档。</p>
+    </div>
     <p v-if="performance.failed" class="notice" role="status">
       演出暂不可用，已显示服务端确认的最终状态，仍可继续操作。
     </p>
@@ -221,6 +241,22 @@ const visual = computed(() =>
   </section>
 </template>
 <style scoped>
+.key-performance {
+  padding: 0 1.5rem 1rem;
+}
+.key-performance button {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  background: #142f44;
+  color: #e5edf0;
+  border: 1px solid #bca477;
+  border-radius: 0.5rem;
+  padding: 0.65rem 1rem;
+  min-width: 44px;
+  min-height: 44px;
+}
 .performance-status {
   padding-inline: 1.5rem;
   color: #b7e4d8;

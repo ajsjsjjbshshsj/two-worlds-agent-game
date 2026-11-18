@@ -84,3 +84,9 @@ PR #27审查修复：`presentation.operation_sfx`由服务端标记当前授权�
 场景现在可在相邻确认版本发生授权false→true时播放短反馈：灯塔A时钟箱通电、星轨B声呐就绪。初次读档/刷新只显示最终状态，同版本不重播，跳过多个操作时不补演。后台、切档/角色/凭证、离页或减少动态会取消旧轨道；没有动画支持也能继续看正确状态并操作。声音开关不控制动画，演出不生成任何操作音效，T11.2的audio_events保持原样。
 
 阅读顺序：`services/causal-performance.ts` → `performance-animation.ts` → `SceneRenderer.vue` → `LighthouseScene.vue`/`StarlineScene.vue` → 新增两个performance测试文件。运行`npm run test:unit -- tests/causal-performance.spec.ts tests/performance-scene.spec.ts`学习机制；前端全量251通过，typecheck/build/format通过。[详细报告](../docs/reports/t11-3-1-causal-performance.md)含真实双角色检查和临时TEST-ONLY演示库的观察步骤。正式目录仍空，未发布正式素材，未宣称Safari/iOS/Android真机通过；本轮只完成T11.3.1。
+
+## T11.3.2 · 合作节点与可跳过结局原型
+
+复用CausalPerformance与原WAAPI播放器：灯塔包含光束聚焦、供电、维修/航道就绪；星轨包含声呐就绪、扫描定位、导轨连接，各3处物理合作反馈。两套关键演出只从相邻确认的decision→completed启动，按当前公开结局显示引航/待潮或救援/归站。右下角“跳过演出”支持键盘和触屏，仅取消视觉，不发命令、不改存档/版本，也不停止或重写原旁白字幕。首读、同版本、跳版本或减少动态只保留正确最终状态，仍需手动获取搭档进度。
+
+原251项不变，新增77，全量328通过；typecheck/build/format通过。`npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-scene.spec.ts`可学习新增机制。先读causal-performance.ts的字段与显式转场，再读performance-animation.ts、SceneRenderer的skip和两个SVG的最终状态。[详细报告](../docs/reports/t11-3-2-cooperative-performances.md)含真实SQLite/TCP四结局双角色检查、临时测试库观察方式和限制。正式素材未发布，真机未验收，本轮不表示QA-M01～M07全部完成。

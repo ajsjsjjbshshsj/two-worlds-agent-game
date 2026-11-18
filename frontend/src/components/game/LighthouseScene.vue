@@ -48,6 +48,7 @@ const point = computed(
       <g
         v-if="role === 'b'"
         data-visual="received-beam"
+        data-causal-part="beam-focus"
         :data-quality="visual.beam_quality ?? 'unknown'"
         :data-destination="visual.beam_destination"
         :data-filter="visual.filter_tint"
@@ -67,7 +68,14 @@ const point = computed(
           :y2="point[1]"
           stroke="#ffe0a0"
           stroke-width="8"
-        /><circle v-if="point" :cx="point[0]" :cy="point[1]" r="16" fill="#ffe0a0" />
+        /><circle
+          v-if="point"
+          data-causal-part="beam-destination"
+          :cx="point[0]"
+          :cy="point[1]"
+          r="16"
+          fill="#ffe0a0"
+        />
         <path
           v-else
           d="M270 245q90-90 180 0"
@@ -116,6 +124,18 @@ const point = computed(
           r="12"
           :fill="visual.clock_powered ? '#ffde8a' : '#465b6d'"
         />
+        <g
+          v-if="role === 'a' && visual.clock_repaired === true"
+          data-causal-part="clock-mechanism"
+          class="clock-mechanism"
+        >
+          <circle cx="470" cy="240" r="25" fill="#193747" stroke="#e3bd7a" stroke-width="6" />
+          <path
+            d="M470 209V271M439 240H501M448 218L492 262M448 262L492 218"
+            stroke="#e3bd7a"
+            stroke-width="4"
+          />
+        </g>
       </g>
       <g
         v-if="role === 'b'"
@@ -139,6 +159,8 @@ const point = computed(
         />
         <path
           v-if="visual.route_ready"
+          data-causal-part="route-ready"
+          pathLength="1"
           d="M570 205l25 25 50-60"
           fill="none"
           stroke="#91d4c5"
@@ -156,7 +178,12 @@ const point = computed(
         data-visual="stable-signal"
       />
     </g>
-    <g v-else-if="stage === 'decision' || stage === 'completed'" data-visual="restored-lighthouse">
+    <g
+      v-else-if="stage === 'decision' || stage === 'completed'"
+      data-visual="restored-lighthouse"
+      data-causal-part="lighthouse-ending"
+      :data-ending="ending"
+    >
       <path d="M330 340L355 110H425L450 340Z" fill="#c0cbc8" /><circle
         cx="390"
         cy="120"
@@ -165,12 +192,13 @@ const point = computed(
       />
       <path
         v-if="stage === 'decision' || ending === 'guide_now'"
+        data-causal-part="ending-beam"
         d="M390 120L80 270M390 120L730 260"
         stroke="#f6cf72"
         stroke-width="24"
         opacity=".35"
       />
-      <g v-else data-visual="waiting-tide"
+      <g v-else data-visual="waiting-tide" data-causal-part="ending-tide"
         ><path
           d="M40 350q100-45 200 0t200 0t200 0"
           stroke="#98d2d9"
@@ -183,8 +211,18 @@ const point = computed(
           fill="none"
           stroke-width="3"
       /></g>
+      <text
+        v-if="stage === 'completed' && (ending === 'guide_now' || ending === 'wait_tide')"
+        x="70"
+        y="60"
+        fill="#ffe0a0"
+        font-size="22"
+        data-visual="ending-label"
+        >{{ ending === 'guide_now' ? '共同决定：现在引航' : '共同决定：等待潮汐' }}</text
+      >
     </g>
     <path
+      data-causal-part="ending-sea"
       d="M0 370Q100 350 200 370T400 370T600 370T800 370"
       fill="none"
       stroke="#6f9fae"
@@ -193,6 +231,9 @@ const point = computed(
   </g>
 </template>
 <style scoped>
+.clock-mechanism {
+  transform-origin: 470px 240px;
+}
 .clock-hands {
   transform-origin: 330px 220px;
 }
