@@ -7,6 +7,15 @@ from threading import Barrier, Event
 from fastapi.testclient import TestClient
 import pytest
 
+from tests.identity_support import (
+    ORIGIN_HEADER,
+    RELAXED_POLICIES,
+    TEST_SECRET,
+    FakeEmailSender,
+    auth,
+    login,
+    register,
+)
 from tests.storage.conftest import sqlite_repository_factory  # noqa: F401
 from twoworlds.api.app import create_app
 
@@ -26,8 +35,10 @@ def apps(pair_repository_factory):
             app = create_app(
                 repository=repo,
                 identity_clock=lambda: clock[0],
-                rate_limit=100,
                 allowed_origins=["http://testserver"],
+                email_sender=FakeEmailSender(),
+                verification_secret=TEST_SECRET,
+                rate_policies=RELAXED_POLICIES,
             )
             return stack.enter_context(TestClient(app)), repo, app
 
@@ -35,13 +46,7 @@ def apps(pair_repository_factory):
 
 
 def account(client, name="玩家"):
-    response = client.post("/api/accounts", json={"display_name": name})
-    assert response.status_code == 200
-    return response.json()
-
-
-def auth(who):
-    return {"Authorization": "Bearer " + who["session"]["token"]}
+    return register(client, name=name)
 
 
 def create(client, who):
@@ -103,8 +108,8 @@ def test_create_join_lists_and_secret_whitelists(apps, caplog):
         for secret in (
             made["invite_token"],
             stored.invite_digest,
-            a["recovery_key"],
-            a["session"]["token"],
+            a["password"],
+            a["token"],
         ):
             assert secret not in response.text
     assert client.get("/api/pairs", headers=auth(c)).json() == []
@@ -155,10 +160,10 @@ def test_refresh_permissions_expiry_and_new_invite(apps):
         ("POST", "/api/pairs/unknown/invite"),
     ],
 )
-def test_all_pair_routes_require_bearer(apps, method, path):
+def test_all_pair_routes_require_session_cookie(apps, method, path):
     factory, _ = apps
     client, _, _ = factory()
-    failure(client.request(method, path), 401, "UNAUTHENTICATED")
+    failure(client.request(method, path, headers=ORIGIN_HEADER), 401, "UNAUTHENTICATED")
 
 
 @pytest.mark.parametrize("operation", ["create", "refresh", "join"])
@@ -190,22 +195,19 @@ def test_wrong_credential_namespaces_and_restarted_app(apps):
     client, repo, _ = factory()
     a, b = account(client), account(client)
     made = create(client, a)
-    for value in (a["recovery_key"], a["session"]["token"], "wrong"):
+    for value in (a["password"], a["token"], "wrong"):
         failure(join(client, b, value), 404, "INVITE_INVALID")
     failure(
         client.get(
-            "/api/pairs", headers={"Authorization": "Bearer " + made["invite_token"]}
+            "/api/pairs", headers={"Cookie": "tw_session=" + made["invite_token"]}
         ),
         401,
         "UNAUTHENTICATED",
     )
     repo.close()
     second, _, _ = factory()
-    recovered = second.post(
-        "/api/sessions/recover", json={"recovery_key": a["recovery_key"]}
-    )
-    assert recovered.status_code == 200
-    response = second.get("/api/pairs", headers=auth(recovered.json()))
+    restored = login(second, a)
+    response = second.get("/api/pairs", headers=auth(restored))
     assert response.json() == [{"id": made["id"], "role": "a", "member_count": 1}]
     assert join(second, b, made["invite_token"]).status_code == 200
 

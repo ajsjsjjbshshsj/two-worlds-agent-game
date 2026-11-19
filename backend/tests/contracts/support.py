@@ -36,16 +36,18 @@ def error(response, status, code=None):
 
 @dataclass(frozen=True)
 class Identity:
-    """一个账号的三件套。frozen 防止测试中途改写，否则"旧 token 是否仍有效"类断言不可信。"""
+    """一个账号的凭证组。frozen 防止测试中途改写，否则"旧会话是否仍有效"类断言不可信。"""
 
     account_id: str  # 服务端分配的稳定标识，不是凭证
-    recovery_key: str  # 只在注册时下发一次，用于换新会话
-    token: str  # 短期限会话凭证，放进 Authorization 头
+    email: str  # 规范化后的登录邮箱
+    password: str  # 测试用明文密码，只存在于测试进程
+    token: str  # 会话 Cookie 值，放进 Cookie 头
 
     @property
     def headers(self):
-        # 请求头取自当前Identity；recover()返回新Identity，不修改旧对象。
-        return {"Authorization": f"Bearer {self.token}"}
+        # 显式 Cookie 头覆盖 TestClient cookie jar，一个客户端可扮演多个身份。
+        # Origin 满足状态变更请求的 CSRF 白名单校验。
+        return {"Cookie": f"tw_session={self.token}", "Origin": "http://testserver"}
 
 
 class Platform:
@@ -56,28 +58,51 @@ class Platform:
         self.close = close_app  # 关闭当前应用实例，用于测试"重启后恢复"
 
     def account(self, name="旅人"):
-        """注册即登录：拿到账号、恢复密钥和会话。"""
-        response = self.http.post("/api/accounts", json={"display_name": name})
+        """邮箱验证码注册即登录：拿到账号概要和会话 Cookie。"""
+        from uuid import uuid4
+
+        email = f"contract-{uuid4().hex[:12]}@example.com"
+        sender = self.http.app.state.email_sender
+        codes = self.http.post(
+            "/api/verification-codes",
+            json={"email": email, "purpose": "register"},
+            headers={"Origin": "http://testserver"},
+        )
+        assert codes.status_code == 202, codes.text
+        code = sender.code_for(email, "register")
+        response = self.http.post(
+            "/api/accounts",
+            json={
+                "email": email,
+                "code": code,
+                "password": "correct horse 9",
+                "display_name": name,
+            },
+            headers={"Origin": "http://testserver"},
+        )
         body = ok(response)
         # 含凭证的响应不许被浏览器或中间缓存保存
         assert response.headers["cache-control"] == "no-store"
         assert body["session"]["expires_at"]  # 会话必须有期限
-        return Identity(
-            body["account"]["id"], body["recovery_key"], body["session"]["token"]
-        )
+        # 明文 token 只经 HttpOnly Cookie 下发，绝不进入 JSON 正文
+        assert "token" not in body["session"]
+        token = response.cookies.get("tw_session")
+        assert token
+        return Identity(body["account"]["id"], email, "correct horse 9", token)
 
-    def recover(self, identity):
-        """用恢复密钥换取新会话 token。"""
+    def login(self, identity):
+        """邮箱密码登录，换取新会话 Cookie。"""
         response = self.http.post(
-            "/api/sessions/recover", json={"recovery_key": identity.recovery_key}
+            "/api/sessions",
+            json={"email": identity.email, "password": identity.password},
+            headers={"Origin": "http://testserver"},
         )
         body = ok(response)
         assert response.headers["cache-control"] == "no-store"
-        # 恢复密钥只在注册时下发一次，换 token 时绝不能再回传
-        assert "recovery_key" not in body
-        return Identity(
-            body["account"]["id"], identity.recovery_key, body["session"]["token"]
-        )
+        assert "token" not in body["session"]
+        token = response.cookies.get("tw_session")
+        assert token and token != identity.token
+        return Identity(identity.account_id, identity.email, identity.password, token)
 
     def pair(self, a=None, b=None):
         """A 建房、B 持邀请令牌加入。"""

@@ -17,6 +17,7 @@ import pytest
 from tests.api import test_saves as lifecycle
 from tests.api.test_commands import CommitBarrier
 from tests.contracts.support import Platform, command, error, ok, starline_to_decision
+from tests.identity_support import RELAXED_POLICIES, TEST_SECRET, FakeEmailSender
 from twoworlds.api.app import create_app
 from twoworlds.content import loader
 from twoworlds.ports.repository import RepositoryError
@@ -40,7 +41,10 @@ def games(save_repository_factory, published_story):
                 repository=repo,
                 publication_store=store,
                 identity_clock=lambda: clock,
-                rate_limit=100,
+                allowed_origins=["http://testserver"],
+                email_sender=FakeEmailSender(),
+                verification_secret=TEST_SECRET,
+                rate_policies=RELAXED_POLICIES,
             )
             client = lifetime.enter_context(TestClient(app))
             return Platform(client, lifetime.close), repo
@@ -157,7 +161,7 @@ def test_two_stories_complete_independently_then_restore_after_real_close(
         repo.get_save(lighthouse["id"])
     reopened, new_repo = factory()
     assert new_repo is not repo
-    a2, b2 = reopened.recover(a), reopened.recover(b)
+    a2, b2 = reopened.login(a), reopened.login(b)
     assert (a2.account_id, b2.account_id) == (a.account_id, b.account_id)
     for saved in (lighthouse, starline):
         record = expected[saved["id"]]

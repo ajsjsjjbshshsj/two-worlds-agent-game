@@ -11,7 +11,13 @@ import pytest
 from twoworlds.application.commands import GameCommand
 from twoworlds.content import loader
 from twoworlds.domain.engine import apply_command, create_initial_state
-from twoworlds.domain.persistence import CommandReceipt, DialogueTurn, SaveRecord
+from twoworlds.domain.persistence import (
+    CommandReceipt,
+    DialogueTurn,
+    RateLimitRecord,
+    SaveRecord,
+    VerificationCodeRecord,
+)
 from twoworlds.domain.recap import PublicHistory, append_public_history
 from twoworlds.ports.repository import (
     DuplicateRecord,
@@ -181,20 +187,21 @@ def test_pair_saves_query_is_isolated_ordered_and_validated(
     assert world.list_saves_for_pair(other_pair.id)[0].id == "save_elsewhere"
 
 
-def test_account_creation_digest_lookup_and_uniqueness(
+def test_account_creation_email_lookup_and_uniqueness(
     repository_factory, account_factory
 ):
     repo = repository_factory()
     account = account_factory()
     assert repo.create_account(account) == account
     assert repo.get_account(account.id) == account
-    assert repo.get_account_by_recovery_digest(account.recovery_digest) == account
+    assert repo.get_account_by_email(account.email) == account
     assert repo.get_account("missing") is None
+    assert repo.get_account_by_email("nobody@example.com") is None
     with pytest.raises(DuplicateRecord):
         repo.create_account(account)
     other = account_factory("b")
     for forged in (
-        other.model_copy(update={"recovery_digest": account.recovery_digest}),
+        other.model_copy(update={"email": account.email}),
         other.model_copy(update={"sessions": account.sessions}),
     ):
         with pytest.raises(DuplicateRecord):
@@ -227,7 +234,7 @@ def test_account_session_expiry_and_cas_are_atomic(
     "field,value",
     [
         ("id", "other"),
-        ("recovery_digest", "0" * 64),
+        ("email", "other@example.com"),
         ("version", 2),
     ],
 )
@@ -629,3 +636,215 @@ def test_full_save_stays_readable_but_rejects_new_cas(world, save_record, now):
     with pytest.raises(ReceiptLimitReached):
         world.compare_and_swap_save(full.id, 512, full)
     assert world.get_save(full.id) == full
+
+
+def code_record(now, **changes):
+    base = VerificationCodeRecord(
+        id="code_" + "a" * 59,
+        email="player-a@example.com",
+        purpose="register",
+        issue_id="a" * 32,
+        digest="d" * 64,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        attempts=0,
+        consumed_at=None,
+        version=0,
+        updated_at=now,
+    )
+    return base.model_copy(update=changes) if changes else base
+
+
+def rate_record(now, **changes):
+    base = RateLimitRecord(
+        id="rate_" + "b" * 59,
+        count=1,
+        window_start=now,
+        expires_at=now + timedelta(seconds=60),
+        version=0,
+        updated_at=now,
+    )
+    return base.model_copy(update=changes) if changes else base
+
+
+def test_verification_code_unique_per_email_purpose_and_round_trip(
+    repository_factory, now
+):
+    repo = repository_factory()
+    record = code_record(now)
+    assert repo.create_verification_code(record) == record
+    assert repo.get_verification_code(record.id) == record
+    assert repo.get_verification_code("code_missing") is None
+    with pytest.raises(DuplicateRecord):
+        repo.create_verification_code(record)
+    # Same email with a different purpose is a separate live code.
+    other = code_record(now, id="code_" + "c" * 59, purpose="reset")
+    assert repo.create_verification_code(other) == other
+    # Same email+purpose under a new id still collides on the unique pair.
+    with pytest.raises(DuplicateRecord):
+        repo.create_verification_code(code_record(now, id="code_" + "e" * 59))
+
+
+def test_verification_code_cas_consumes_once_under_competition(repository_factory, now):
+    barrier = Barrier(2)
+
+    class Aligned:
+        def __init__(self, repo):
+            self._repo = repo
+            self._first = True
+
+        def __getattr__(self, name):
+            return getattr(self._repo, name)
+
+        def compare_and_swap_verification_code(self, *args):
+            # 只对齐双方的第一次CAS；重试时对方可能已返回，不能再次等待屏障。
+            if self._first:
+                self._first = False
+                barrier.wait(timeout=15)
+            return self._repo.compare_and_swap_verification_code(*args)
+
+    first, second = repository_factory(), repository_factory()
+    assert first is not second
+    first.create_verification_code(code_record(now))
+    consumed = code_record(now, version=1, consumed_at=now, updated_at=now)
+    with ThreadPoolExecutor(2) as pool:
+        futures = [
+            pool.submit(
+                repo.compare_and_swap_verification_code, consumed.id, 0, consumed
+            )
+            for repo in (Aligned(first), Aligned(second))
+        ]
+        results = [f.result(timeout=25) for f in futures]
+    assert sorted(results) == [False, True]
+    assert first.get_verification_code(consumed.id) == consumed
+
+
+def test_verification_code_attempts_advance_atomically(repository_factory, now):
+    barrier = Barrier(2)
+
+    class Aligned:
+        def __init__(self, repo):
+            self._repo = repo
+            self._first = True
+
+        def __getattr__(self, name):
+            return getattr(self._repo, name)
+
+        def compare_and_swap_verification_code(self, *args):
+            # 只对齐双方的第一次CAS；重试时对方可能已返回，不能再次等待屏障。
+            if self._first:
+                self._first = False
+                barrier.wait(timeout=15)
+            return self._repo.compare_and_swap_verification_code(*args)
+
+    repos = [repository_factory(), repository_factory()]
+    repos[0].create_verification_code(code_record(now))
+
+    def bump(repo):
+        for _ in range(8):
+            current = repo.get_verification_code("code_" + "a" * 59)
+            candidate = current.model_copy(
+                update={
+                    "attempts": current.attempts + 1,
+                    "version": current.version + 1,
+                    "updated_at": now,
+                }
+            )
+            if repo.compare_and_swap_verification_code(
+                current.id, current.version, candidate
+            ):
+                return
+
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(bump, [Aligned(repo) for repo in repos]))
+    stored = repos[0].get_verification_code("code_" + "a" * 59)
+    assert stored.attempts == 2 and stored.version == 2
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("id", "code_" + "f" * 59),
+        ("email", "other@example.com"),
+        ("purpose", "reset"),
+        ("version", 2),
+    ],
+)
+def test_verification_code_cas_rejects_invalid_candidate(
+    repository_factory, now, field, value
+):
+    repo = repository_factory()
+    record = repo.create_verification_code(code_record(now))
+    candidate = record.model_copy(update={"version": 1, field: value})
+    with pytest.raises(InvalidRepositoryTransition):
+        repo.compare_and_swap_verification_code(record.id, 0, candidate)
+    assert repo.get_verification_code(record.id) == record
+
+
+def test_expired_verification_codes_cleanup(repository_factory, now):
+    repo = repository_factory()
+    live = repo.create_verification_code(code_record(now))
+    expired = repo.create_verification_code(
+        code_record(
+            now,
+            id="code_" + "d" * 59,
+            purpose="reset",
+            expires_at=now + timedelta(seconds=1),
+        )
+    )
+    assert repo.delete_expired_verification_codes(now) == 0
+    later = now + timedelta(seconds=2)
+    assert repo.delete_expired_verification_codes(later) == 1
+    assert repo.get_verification_code(expired.id) is None
+    assert repo.get_verification_code(live.id) == live
+
+
+def test_rate_limit_counter_atomic_competition(repository_factory, now):
+    repos = [repository_factory() for _ in range(4)]
+    repos[0].create_rate_limit(rate_record(now))
+
+    def bump(repo):
+        for _ in range(16):
+            current = repo.get_rate_limit("rate_" + "b" * 59)
+            candidate = current.model_copy(
+                update={
+                    "count": current.count + 1,
+                    "version": current.version + 1,
+                    "updated_at": now,
+                }
+            )
+            if repo.compare_and_swap_rate_limit(current.id, current.version, candidate):
+                return
+        raise AssertionError("CAS never accepted")
+
+    with ThreadPoolExecutor(4) as pool:
+        list(pool.map(bump, repos))
+    stored = repos[0].get_rate_limit("rate_" + "b" * 59)
+    assert stored.count == 5 and stored.version == 4
+    assert repos[0].count_rate_limits() == 1
+
+
+def test_rate_limit_create_uniqueness_cas_and_cleanup(repository_factory, now):
+    repo = repository_factory()
+    record = repo.create_rate_limit(rate_record(now))
+    assert repo.get_rate_limit(record.id) == record
+    assert repo.get_rate_limit("rate_missing") is None
+    with pytest.raises(DuplicateRecord):
+        repo.create_rate_limit(record)
+    candidate = record.model_copy(update={"version": 2, "count": 9})
+    with pytest.raises(InvalidRepositoryTransition):
+        repo.compare_and_swap_rate_limit(record.id, 0, candidate)
+    reset = record.model_copy(
+        update={
+            "version": 1,
+            "count": 1,
+            "window_start": now + timedelta(seconds=61),
+            "expires_at": now + timedelta(seconds=121),
+            "updated_at": now + timedelta(seconds=61),
+        }
+    )
+    assert repo.compare_and_swap_rate_limit(record.id, 0, reset)
+    assert not repo.compare_and_swap_rate_limit(record.id, 0, reset)
+    assert repo.delete_expired_rate_limits(now + timedelta(seconds=60)) == 0
+    assert repo.delete_expired_rate_limits(now + timedelta(seconds=121)) == 1
+    assert repo.count_rate_limits() == 0

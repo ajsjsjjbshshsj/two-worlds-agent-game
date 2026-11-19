@@ -1,111 +1,338 @@
-from concurrent.futures import ThreadPoolExecutor
+"""HTTP rate limiting backed by shared database counters (no per-process budget)."""
 
-import pytest
+from datetime import timedelta
+
+from fastapi.testclient import TestClient
+
+from tests.identity_support import (
+    ORIGIN,
+    ORIGIN_HEADER,
+    PASSWORD,
+    RELAXED_POLICIES,
+    register,
+    request_code,
+    unique_email,
+)
 
 
-def test_separate_ip_route_buckets_and_expiry(clients, clocks):
-    _, clock = clocks
-    client, _, _ = clients(rate_clock=lambda: clock[0])
-    for _ in range(5):
-        assert (
-            client.post("/api/accounts", json={"display_name": "旅人"}).status_code
-            == 200
-        )
-    blocked = client.post(
-        "/api/accounts",
-        json={"display_name": "旅人"},
-        headers={"X-Forwarded-For": "different"},
-    )
-    assert blocked.status_code == 429 and blocked.headers["cache-control"] == "no-store"
-    assert blocked.json()["error"] == {
+def policies(**overrides):
+    return RELAXED_POLICIES | overrides
+
+
+def peer_client(app, ip):
+    # The limiter trusts only the socket peer, so tests change the ASGI client
+    # address instead of sending forgeable X-Forwarded-For headers. Lifespan is
+    # answered locally: the owning TestClient must keep the shared app open.
+    async def peer_scope(scope, receive, send):
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+            return
+        if scope["type"] == "http":
+            scope = dict(scope, client=(ip, 40000))
+        await app(scope, receive, send)
+
+    return TestClient(peer_scope)
+
+
+def code_body(email, purpose="register"):
+    return {"email": email, "purpose": purpose}
+
+
+def assert_limited(response, retry_after):
+    assert response.status_code == 429, response.text
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["retry-after"] == str(retry_after)
+    assert response.json()["error"] == {
         "code": "RATE_LIMITED",
         "message": "请求过于频繁，请稍后重试。",
         "retryable": True,
     }
-    assert blocked.headers["retry-after"] == "60"
-    for _ in range(5):
+
+
+def test_code_requests_per_email_minute_and_window(clients, clocks):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    clock, _ = clocks
+    client, _, _ = clients(
+        identity_clock=lambda: clock[0],
+        rate_policies=policies(code_email_minute=RateLimitPolicy(1, 60)),
+    )
+    email = unique_email()
+    request_code(client, email)
+    blocked = client.post(
+        "/api/verification-codes", json=code_body(email), headers=ORIGIN_HEADER
+    )
+    assert_limited(blocked, 60)
+    # A different email has its own budget.
+    request_code(client, unique_email("other"))
+    clock[0] += timedelta(seconds=59)
+    blocked = client.post(
+        "/api/verification-codes", json=code_body(email), headers=ORIGIN_HEADER
+    )
+    assert_limited(blocked, 1)
+    clock[0] += timedelta(seconds=1)
+    request_code(client, email)
+
+
+def test_code_requests_per_email_hour(clients, clocks):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    clock, _ = clocks
+    client, _, _ = clients(
+        identity_clock=lambda: clock[0],
+        rate_policies=policies(
+            code_email_minute=RateLimitPolicy(100, 60),
+            code_email_hour=RateLimitPolicy(2, 3600),
+        ),
+    )
+    email = unique_email()
+    request_code(client, email)
+    clock[0] += timedelta(seconds=61)
+    request_code(client, email)
+    clock[0] += timedelta(seconds=61)
+    blocked = client.post(
+        "/api/verification-codes", json=code_body(email), headers=ORIGIN_HEADER
+    )
+    assert_limited(blocked, 3600 - 122)
+
+
+def test_code_requests_per_ip_hour(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, app, _ = clients(
+        rate_policies=policies(code_ip_hour=RateLimitPolicy(2, 3600))
+    )
+    request_code(client, unique_email("one"))
+    request_code(client, unique_email("two"))
+    blocked = client.post(
+        "/api/verification-codes",
+        json=code_body(unique_email("three")),
+        headers=ORIGIN_HEADER,
+    )
+    assert_limited(blocked, 3600)
+    with peer_client(app, "203.0.113.7") as other:
+        request_code(other, unique_email("three"))
+    # Forwarded headers are never trusted as a budget escape hatch.
+    blocked = client.post(
+        "/api/verification-codes",
+        json=code_body(unique_email("four")),
+        headers=ORIGIN_HEADER | {"X-Forwarded-For": "203.0.113.99"},
+    )
+    assert_limited(blocked, 3600)
+
+
+def test_login_per_ip_email_combo(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, app, _ = clients(
+        rate_policies=policies(login_minute=RateLimitPolicy(2, 60))
+    )
+    who = register(client)
+    email = who["account"]["email"]
+    body = {"email": email, "password": PASSWORD + "!"}
+    for _ in range(2):
+        assert (
+            client.post("/api/sessions", json=body, headers=ORIGIN_HEADER).status_code
+            == 401
+        )
+    blocked = client.post("/api/sessions", json=body, headers=ORIGIN_HEADER)
+    assert_limited(blocked, 60)
+    # Another email from the same IP keeps its own budget.
+    assert (
+        client.post(
+            "/api/sessions",
+            json={"email": unique_email("other"), "password": PASSWORD},
+            headers=ORIGIN_HEADER,
+        ).status_code
+        == 401
+    )
+    # The same email from another IP is a different combo key.
+    with peer_client(app, "203.0.113.7") as other:
+        assert (
+            other.post("/api/sessions", json=body, headers=ORIGIN_HEADER).status_code
+            == 401
+        )
+    # Even the correct password cannot bypass the exhausted budget.
+    blocked = client.post(
+        "/api/sessions",
+        json={"email": email, "password": PASSWORD},
+        headers=ORIGIN_HEADER,
+    )
+    assert_limited(blocked, 60)
+
+
+def test_login_ip_ceiling_blocks_rotating_emails(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, app, _ = clients(
+        rate_policies=policies(login_ip_minute=RateLimitPolicy(3, 60))
+    )
+    who = register(client)
+    email = who["account"]["email"]
+    # A normal login still works well below the ceiling.
+    assert (
+        client.post(
+            "/api/sessions",
+            json={"email": email, "password": PASSWORD},
+            headers=ORIGIN_HEADER,
+        ).status_code
+        == 200
+    )
+    # Fresh emails each time still consume the per-IP budget, so rotating
+    # addresses cannot buy unbounded Argon2 work from one peer.
+    for _ in range(2):
         assert (
             client.post(
-                "/api/sessions/recover", json={"recovery_key": "wrong"}
+                "/api/sessions",
+                json={"email": unique_email(), "password": PASSWORD},
+                headers=ORIGIN_HEADER,
             ).status_code
             == 401
         )
+    blocked = client.post(
+        "/api/sessions",
+        json={"email": unique_email(), "password": PASSWORD},
+        headers=ORIGIN_HEADER,
+    )
+    assert_limited(blocked, 60)
+    # Even the right password from this IP is refused until the window resets.
+    blocked = client.post(
+        "/api/sessions",
+        json={"email": email, "password": PASSWORD},
+        headers=ORIGIN_HEADER,
+    )
+    assert_limited(blocked, 60)
+    # Another peer has its own budget and can still log in.
+    with peer_client(app, "203.0.113.9") as other:
+        assert (
+            other.post(
+                "/api/sessions",
+                json={"email": email, "password": PASSWORD},
+                headers=ORIGIN_HEADER,
+            ).status_code
+            == 200
+        )
+
+
+def test_two_app_instances_share_one_budget(clients, tmp_path):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    path = tmp_path / "shared.sqlite"
+    tight = policies(login_minute=RateLimitPolicy(2, 60))
+    first, _, _ = clients(path=path, rate_policies=tight)
+    second, _, _ = clients(path=path, rate_policies=tight)
+    who = register(first)
+    body = {"email": who["account"]["email"], "password": PASSWORD}
+    assert (
+        first.post("/api/sessions", json=body, headers=ORIGIN_HEADER).status_code == 200
+    )
+    assert (
+        second.post("/api/sessions", json=body, headers=ORIGIN_HEADER).status_code
+        == 200
+    )
+    assert_limited(first.post("/api/sessions", json=body, headers=ORIGIN_HEADER), 60)
+    assert_limited(second.post("/api/sessions", json=body, headers=ORIGIN_HEADER), 60)
+
+
+def test_counters_survive_app_restart(clients, tmp_path):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    path = tmp_path / "restart.sqlite"
+    tight = policies(code_email_minute=RateLimitPolicy(1, 60))
+    email = unique_email()
+    first, _, _ = clients(path=path, rate_policies=tight)
+    request_code(first, email)
+    first.close()
+    second, _, _ = clients(path=path, rate_policies=tight)
+    assert_limited(
+        second.post(
+            "/api/verification-codes", json=code_body(email), headers=ORIGIN_HEADER
+        ),
+        60,
+    )
+
+
+def test_schema_validation_precedes_budget_consumption(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, _, _ = clients(rate_policies=policies(login_minute=RateLimitPolicy(1, 60)))
+    # A body without a usable email cannot be keyed, so it is refused by the
+    # schema without spending the combo budget.
     assert (
         client.post(
-            "/api/sessions/recover", json={"recovery_key": "different"}
+            "/api/sessions", json={"email": 123}, headers=ORIGIN_HEADER
         ).status_code
-        == 429
+        == 422
     )
-    clock[0] = 59.1
+    body = {"email": unique_email(), "password": PASSWORD}
     assert (
-        client.post("/api/accounts", json={"display_name": "旅人"}).headers[
-            "retry-after"
-        ]
-        == "1"
+        client.post("/api/sessions", json=body, headers=ORIGIN_HEADER).status_code
+        == 401
     )
-    clock[0] = 60
+    assert_limited(client.post("/api/sessions", json=body, headers=ORIGIN_HEADER), 60)
+
+
+def test_rate_limit_retry_after_cors(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, _, _ = clients(
+        rate_policies=policies(code_email_minute=RateLimitPolicy(1, 60))
+    )
+    email = unique_email()
     assert (
-        client.post("/api/accounts", json={"display_name": "旅人"}).status_code == 200
+        client.post(
+            "/api/verification-codes", json=code_body(email), headers=ORIGIN_HEADER
+        ).status_code
+        == 202
     )
-
-
-def test_limiter_thread_safety_memory_and_fail_closed():
-    from twoworlds.api.rate_limit import RateLimiter
-
-    clock = [0.0]
-    limiter = RateLimiter(limit=5, window=60, max_keys=2, clock=lambda: clock[0])
-    with ThreadPoolExecutor(12) as pool:
-        values = list(pool.map(lambda _: limiter.check("create", "same-ip"), range(20)))
-    assert values.count(None) == 5
-    assert limiter.check("recover", "other-ip") is None
-    assert limiter.check("create", "new-ip") == 60
-    assert limiter.size == 2
-    clock[0] = 60
-    assert limiter.check("create", "new-ip") is None
-    assert limiter.size == 1
-
-
-def test_invalid_body_counts_before_business_and_instance_scope(clients):
-    client, _, _ = clients(rate_limit=1)
-    assert client.post("/api/accounts", json={"display_name": 123}).status_code == 422
-    assert (
-        client.post("/api/accounts", json={"display_name": "旅人"}).status_code == 429
+    response = client.post(
+        "/api/verification-codes", json=code_body(email), headers=ORIGIN_HEADER
     )
-    other, _, _ = clients(rate_limit=1)
-    assert other.post("/api/accounts", json={"display_name": "旅人"}).status_code == 200
-
-
-@pytest.mark.parametrize(
-    "path,body,first_status",
-    [
-        ("/api/accounts", {"display_name": "旅人"}, 200),
-        ("/api/sessions/recover", {"recovery_key": "wrong"}, 401),
-    ],
-)
-@pytest.mark.parametrize("origin", ["http://testserver", "https://evil.invalid", None])
-def test_rate_limit_retry_after_cors(clients, path, body, first_status, origin):
-    client, _, _ = clients(rate_limit=1)
-    headers = {"Origin": origin} if origin else {}
-    assert client.post(path, json=body, headers=headers).status_code == first_status
-    response = client.post(path, json=body, headers=headers)
     assert response.status_code == 429
     assert response.headers["retry-after"] == "60"
     assert response.headers["cache-control"] == "no-store"
-    assert response.json()["error"]["code"] == "RATE_LIMITED"
-    if origin == "http://testserver":
-        assert response.headers["access-control-allow-origin"] == origin
-        assert response.headers["access-control-expose-headers"] == "Retry-After"
-        assert response.headers["vary"] == "Origin"
-    else:
+    assert response.headers["access-control-allow-origin"] == ORIGIN
+    assert response.headers["access-control-expose-headers"] == "Retry-After"
+    assert response.headers["vary"] == "Origin"
+
+
+def test_foreign_origin_is_csrf_before_any_budget(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, _, _ = clients(
+        rate_policies=policies(code_email_minute=RateLimitPolicy(1, 60))
+    )
+    email = unique_email()
+    for _ in range(3):
+        response = client.post(
+            "/api/verification-codes",
+            json=code_body(email),
+            headers={"Origin": "https://evil.invalid"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "CSRF_REJECTED"
         assert "access-control-allow-origin" not in response.headers
-        assert "access-control-expose-headers" not in response.headers
-    assert "access-control-allow-credentials" not in response.headers
+    # The refused requests never touched the counter for this email.
+    request_code(client, email)
+
+
+def test_missing_origin_is_csrf_before_rate_limit(clients):
+    client, _, _ = clients()
+    response = client.post("/api/verification-codes", json=code_body(unique_email()))
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "CSRF_REJECTED"
 
 
 def test_inner_cors_middleware_exposes_retry_after(clients):
     client, _, _ = clients()
-    response = client.get("/api/me", headers={"Origin": "http://testserver"})
+    response = client.get("/api/me", headers={"Origin": ORIGIN})
     assert response.status_code == 401
-    assert response.headers["access-control-allow-origin"] == "http://testserver"
+    assert response.headers["access-control-allow-origin"] == ORIGIN
     assert response.headers["access-control-expose-headers"] == "Retry-After"
-    assert "access-control-allow-credentials" not in response.headers
+    assert response.headers["access-control-allow-credentials"] == "true"

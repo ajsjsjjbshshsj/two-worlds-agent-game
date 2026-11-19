@@ -40,15 +40,25 @@ def test_indexes_are_named_exact_and_idempotent(mongo_database, repository_facto
     assert first._client is not second._client
     before = {
         name: database[name].index_information()
-        for name in ("accounts", "pairs", "saves")
+        for name in ("accounts", "verification_codes", "rate_limits", "pairs", "saves")
     }
     ensure_indexes(database)
     ensure_indexes(database)
     assert before == {name: database[name].index_information() for name in before}
     expected = {
         "accounts": {
-            "accounts_recovery_unique": ([("recovery_digest", 1)], True),
+            "accounts_email_unique": ([("email", 1)], True),
             "accounts_session_unique": ([("sessions.token_digest", 1)], True),
+        },
+        "verification_codes": {
+            "verification_email_purpose_unique": (
+                [("email", 1), ("purpose", 1)],
+                True,
+            ),
+            "verification_expiry": ([("expires_at", 1)], False),
+        },
+        "rate_limits": {
+            "rate_expiry": ([("expires_at", 1)], False),
         },
         "pairs": {
             "pairs_invite_unique": ([("invite_digest", 1)], True),
@@ -75,10 +85,10 @@ def test_conflicting_index_fails_without_deleting_it(mongo_database):
     from twoworlds.storage.mongo import MongoRepository
 
     database, uri = mongo_database
-    database.accounts.create_index("recovery_digest", name="accounts_recovery_unique")
+    database.accounts.create_index("email", name="accounts_email_unique")
     with pytest.raises(RepositoryError):
         MongoRepository(uri, database.name)
-    assert not database.accounts.index_information()["accounts_recovery_unique"].get(
+    assert not database.accounts.index_information()["accounts_email_unique"].get(
         "unique", False
     )
 
@@ -172,6 +182,8 @@ def test_microseconds_utc_and_chinese_roundtrip(
     a = account_factory().model_copy(
         update={
             "created_at": precise,
+            # 不变量：邮箱验证时间不得早于账号创建时间，三者一起改成精确值。
+            "email_verified_at": precise,
             "updated_at": precise,
             "sessions": (
                 account_factory()

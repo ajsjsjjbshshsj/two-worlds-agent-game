@@ -341,7 +341,7 @@ def test_action_fields_and_parameter_choices_are_explicitly_whitelisted():
         "effects",
         "error_codes",
         "discovery_conditions",
-        "recovery_digest",
+        "password_hash",
         "receipts",
         "facts",
         "world_state",

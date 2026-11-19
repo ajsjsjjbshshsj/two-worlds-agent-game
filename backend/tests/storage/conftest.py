@@ -94,8 +94,10 @@ def account_factory(now):
         index = {"a": "1", "b": "2", "c": "3", "d": "4"}[name]
         return AccountRecord(
             id="account_" + name,
+            email=f"player-{name}@example.com",
+            email_verified_at=now,
+            password_hash="$argon2id$v=19$m=65536,t=3,p=4$" + index * 40,
             display_name="玩家" + name,
-            recovery_digest=index * 64,
             sessions=(
                 SessionRecord(
                     token_digest=hex(int(index) + 5)[2:] * 64,

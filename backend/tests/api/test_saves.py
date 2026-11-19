@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from tests.api.test_pairs import account, auth, create, failure, join
+from tests.identity_support import RELAXED_POLICIES, TEST_SECRET, FakeEmailSender
 from tests.storage.conftest import sqlite_repository_factory  # noqa: F401
 from twoworlds.api.app import create_app
 
@@ -30,7 +31,10 @@ def save_apps(save_repository_factory, published_story):
                 repository=repo,
                 publication_store=store,
                 identity_clock=lambda: clock,
-                rate_limit=100,
+                allowed_origins=["http://testserver"],
+                email_sender=FakeEmailSender(),
+                verification_secret=TEST_SECRET,
+                rate_policies=RELAXED_POLICIES,
             )
             return stack.enter_context(TestClient(app)), repo
 
@@ -175,6 +179,7 @@ def test_all_save_endpoints_require_identity(save_apps):
         client.post(
             "/api/saves",
             json={"pair_id": "x", "script_id": "lighthouse", "script_version": "1.0.0"},
+            headers={"Origin": "http://testserver"},
         ),
     ):
         failure(response, 401, "UNAUTHENTICATED")
@@ -242,7 +247,11 @@ def test_default_packaged_catalog_is_empty_not_draft(tmp_path):
     from twoworlds.storage.sqlite import SQLiteRepository
 
     with TestClient(
-        create_app(repository=SQLiteRepository(tmp_path / "empty.db"))
+        create_app(
+            repository=SQLiteRepository(tmp_path / "empty.db"),
+            email_sender=FakeEmailSender(),
+            verification_secret=TEST_SECRET,
+        )
     ) as client:
         assert client.get("/api/scripts").json() == []
 
@@ -264,7 +273,10 @@ def test_progressed_private_shared_projection_survives_closed_app(
             repository=repo,
             publication_store=store,
             identity_clock=lambda: now,
-            rate_limit=100,
+            allowed_origins=["http://testserver"],
+            email_sender=FakeEmailSender(),
+            verification_secret=TEST_SECRET,
+            rate_policies=RELAXED_POLICIES,
         )
 
     repo = save_repository_factory()
