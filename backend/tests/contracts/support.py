@@ -69,6 +69,7 @@ class Platform:
             headers={"Origin": "http://testserver"},
         )
         assert codes.status_code == 202, codes.text
+        assert self.http.app.state.verification_service.wait_for_delivery(10)
         code = sender.code_for(email, "register")
         response = self.http.post(
             "/api/accounts",

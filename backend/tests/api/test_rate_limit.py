@@ -127,11 +127,13 @@ def test_code_requests_per_ip_hour(clients):
     assert_limited(blocked, 3600)
 
 
-def test_login_per_ip_email_combo(clients):
+def test_login_per_ip_email_combo(clients, clocks):
     from twoworlds.application.rate_limit import RateLimitPolicy
 
+    clock, _ = clocks
     client, app, _ = clients(
-        rate_policies=policies(login_minute=RateLimitPolicy(2, 60))
+        identity_clock=lambda: clock[0],
+        rate_policies=policies(login_minute=RateLimitPolicy(2, 60)),
     )
     who = register(client)
     email = who["account"]["email"]
@@ -167,11 +169,13 @@ def test_login_per_ip_email_combo(clients):
     assert_limited(blocked, 60)
 
 
-def test_login_ip_ceiling_blocks_rotating_emails(clients):
+def test_login_ip_ceiling_blocks_rotating_emails(clients, clocks):
     from twoworlds.application.rate_limit import RateLimitPolicy
 
+    clock, _ = clocks
     client, app, _ = clients(
-        rate_policies=policies(login_ip_minute=RateLimitPolicy(3, 60))
+        identity_clock=lambda: clock[0],
+        rate_policies=policies(login_ip_minute=RateLimitPolicy(3, 60)),
     )
     who = register(client)
     email = who["account"]["email"]
@@ -220,13 +224,18 @@ def test_login_ip_ceiling_blocks_rotating_emails(clients):
         )
 
 
-def test_two_app_instances_share_one_budget(clients, tmp_path):
+def test_two_app_instances_share_one_budget(clients, tmp_path, clocks):
     from twoworlds.application.rate_limit import RateLimitPolicy
 
     path = tmp_path / "shared.sqlite"
     tight = policies(login_minute=RateLimitPolicy(2, 60))
-    first, _, _ = clients(path=path, rate_policies=tight)
-    second, _, _ = clients(path=path, rate_policies=tight)
+    clock, _ = clocks
+    first, _, _ = clients(
+        path=path, rate_policies=tight, identity_clock=lambda: clock[0]
+    )
+    second, _, _ = clients(
+        path=path, rate_policies=tight, identity_clock=lambda: clock[0]
+    )
     who = register(first)
     body = {"email": who["account"]["email"], "password": PASSWORD}
     assert (

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from fastapi import Request
+from starlette.requests import HTTPConnection
 
 from twoworlds.application.identity import IdentityError
 from twoworlds.domain.persistence import AccountRecord
@@ -17,10 +18,10 @@ class Authenticated:
     expires_at: datetime
 
 
-def session_token(request: Request) -> str:
+def session_token(connection: HTTPConnection) -> str:
     # Cookie-only authentication; Authorization headers are deliberately ignored.
     values = []
-    for header in request.headers.getlist("cookie"):
+    for header in connection.headers.getlist("cookie"):
         for part in header.split(";"):
             name, _, value = part.strip().partition("=")
             if name == SESSION_COOKIE:

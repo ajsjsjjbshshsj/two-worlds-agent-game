@@ -16,9 +16,18 @@ from twoworlds.application.verification import VerificationCodeService
 from twoworlds.content.publication import PublicationStore
 from twoworlds.ports.email import EmailCodeSender
 from twoworlds.ports.repository import Repository
+from twoworlds.realtime.protocol import WebSocketTiming
 
 from .errors import failure, install_handlers
-from .routers import accounts, pairs, password_resets, saves, sessions, verification
+from .routers import (
+    accounts,
+    pairs,
+    password_resets,
+    saves,
+    sessions,
+    verification,
+    websocket,
+)
 
 MAX_BODY_BYTES = 16 * 1024
 _STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -143,6 +152,7 @@ def create_app(
     cookie_secure: bool = False,
     rate_policies=None,
     rate_max_keys=10000,
+    websocket_timing: WebSocketTiming | None = None,
 ):
     origins = list(allowed_origins)
     for origin in origins:
@@ -194,6 +204,8 @@ def create_app(
             repository.close()
 
     app = FastAPI(lifespan=lifespan, redirect_slashes=False)
+    app.state.allowed_origins = frozenset(origins)
+    app.state.websocket_timing = websocket_timing or WebSocketTiming()
     app.state.email_sender = email_sender
     app.state.identity_service = IdentityService(
         repository, **({"clock": identity_clock} if identity_clock is not None else {})
@@ -222,6 +234,7 @@ def create_app(
     app.include_router(password_resets.router)
     app.include_router(pairs.router)
     app.include_router(saves.router)
+    app.include_router(websocket.router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,

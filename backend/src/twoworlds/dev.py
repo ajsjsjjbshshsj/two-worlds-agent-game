@@ -1,4 +1,4 @@
-"""Explicit loopback-only HTTP launcher for local development, not deployment."""
+"""Explicit loopback-only HTTP/WebSocket launcher for local development."""
 
 from collections.abc import Mapping
 import os
@@ -76,6 +76,8 @@ def create_dev_app(environ: Mapping[str, str] | None = None, *, publication_stor
 
 
 def main() -> int:
+    from twoworlds.realtime.protocol import MAX_CLIENT_MESSAGE_BYTES
+
     try:
         port = int(os.environ.get("TWOWORLDS_DEV_PORT", "8000"))
         if not 1 <= port <= 65535:
@@ -91,12 +93,15 @@ def main() -> int:
             proxy_headers=False,
             log_level="critical",
             server_header=False,
-            ws="none",
+            ws="websockets-sansio",
+            ws_max_size=MAX_CLIENT_MESSAGE_BYTES,
+            ws_ping_interval=None,
+            ws_per_message_deflate=False,
         )
         return 0
     except Exception:
         print(
-            "Development HTTP startup failed. Check storage, origins and port settings.",
+            "Development server startup failed. Check storage, email, origins and port settings.",
             file=sys.stderr,
         )
         return 1

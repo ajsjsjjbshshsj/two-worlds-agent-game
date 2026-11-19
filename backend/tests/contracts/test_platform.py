@@ -295,8 +295,8 @@ def test_restart_restores_identity_save_and_receipt(client_factory, tmp_path):
     assert retry["save"] == accepted["save"]
 
 
-def test_websocket_uses_auth_frame_and_personal_projection_on_reconnect(client_factory):
-    """WS 通道的同等隔离：鉴权走首帧，快照仍是本人视角。
+def test_websocket_uses_cookie_and_personal_projection_on_reconnect(client_factory):
+    """WS 通道的同等隔离：鉴权走握手 Cookie，快照仍是本人视角。
 
     HTTP 与 WS 是两套代码，隔离契约必须两条通道分别验证。
     """
@@ -305,11 +305,7 @@ def test_websocket_uses_auth_frame_and_personal_projection_on_reconnect(client_f
     save = game.save(a, pair)
     save = game.accept(a, save, "inspect", {"target": "maintenance_log"})
     url = f"/api/ws/saves/{save['id']}"
-    # 连接本身不带凭证：先连上，再在首帧里 auth
-    with game.http.websocket_connect(
-        url, headers={"Origin": "http://testserver"}
-    ) as ws:
-        ws.send_json({"type": "auth", "token": b.token})
+    with game.http.websocket_connect(url, headers=b.headers) as ws:
         snapshot = ws.receive_json()
         # 快照必须与 B 走 HTTP 读到的一模一样（同样走角色投影）
         assert snapshot == {"type": "snapshot", "save": game.read(b, save)}
@@ -317,10 +313,7 @@ def test_websocket_uses_auth_frame_and_personal_projection_on_reconnect(client_f
             assert clue["text"] not in json.dumps(snapshot, ensure_ascii=False)
     save = game.accept(b, save, "inspect", {"target": "sea_chart"})
     # 重连场景：世界已推进（v1→v2），A 重连拿到的必须是新状态的投影
-    with game.http.websocket_connect(
-        url, headers={"Origin": "http://testserver"}
-    ) as ws:
-        ws.send_json({"type": "auth", "token": a.token})
+    with game.http.websocket_connect(url, headers=a.headers) as ws:
         assert ws.receive_json() == {"type": "snapshot", "save": game.read(a, save)}
 
 
@@ -335,9 +328,8 @@ def test_outsider_websocket_never_receives_a_snapshot(client_factory):
     save = game.save(a, pair)
     outsider = game.account()
     with game.http.websocket_connect(
-        f"/api/ws/saves/{save['id']}", headers={"Origin": "http://testserver"}
+        f"/api/ws/saves/{save['id']}", headers=outsider.headers
     ) as ws:
-        ws.send_json({"type": "auth", "token": outsider.token})
         message = ws.receive()
         # 实现可以先发一条 error 再关闭；快照绝不允许出现在任何一帧
         if message["type"] == "websocket.send":

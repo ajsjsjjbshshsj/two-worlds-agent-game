@@ -22,7 +22,7 @@
 | src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 与 EmailCodeSender 已定义；文本/语音适配接口待实现 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务及 Mongo 单文档 CAS/索引已实现，真库契约通过 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
-| src/twoworlds/realtime | 订阅、个人快照和连接协议 | 仅模块边界 |
+| src/twoworlds/realtime | 连接生命周期和消息协议 | T12.1 个人存档连接心跳和会话续验 |
 | tests/contracts | 已迁移的身份、命令与平台行为要求 | 邮箱身份7项及房间竞争契约通过；后续存档/平台契约待T08等 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
@@ -45,7 +45,7 @@ uv run --project backend --locked ruff check backend/src
 
 第二条命令应打印本项目`backend/src/twoworlds/__init__.py`的绝对路径。`-I`排除当前目录和用户Python路径的干扰；能导入说明本项目确实已安装到所选环境。
 
-`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...], email_sender=..., verification_secret=...)` 已实现，注册邮箱身份、房间、目录、存档、命令回执与受保护媒体接口。T06.3.2起`email_sender`与`verification_secret`必填，没有默认邮件适配器或内置验证码密钥。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。没有模块级app，不要运行`uvicorn twoworlds.api:app`；开发专用TCP入口见第17节。
+`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...], email_sender=..., verification_secret=...)` 已实现，注册邮箱身份、房间、目录、存档、命令回执、受保护媒体和 WebSocket 接口。T06.3.2起`email_sender`与`verification_secret`必填，没有默认邮件适配器或内置验证码密钥。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。没有模块级app，不要运行`uvicorn twoworlds.api:app`；开发专用TCP入口见第17节。
 
 ## 4. 构建与验证
 
@@ -304,7 +304,7 @@ $env:TWOWORLDS_DEV_PORT='8016'
 .venv/Scripts/python.exe -m twoworlds.dev
 ```
 
-启动后仅监听127.0.0.1:8016。DEV_PORT可省略，默认8000；未开放自定义host、0.0.0.0、代理IP信任或WebSocket。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
+启动后仅监听127.0.0.1:8016。DEV_PORT可省略，默认8000；WebSocket 与 HTTP 共用该回环监听器和精确 Origin 白名单。WebSocket 客户端消息上限为 4 KiB。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
 
 T06.3.2起邮件模式必须显式选择：`TWOWORLDS_EMAIL_MODE=console`只用于本地开发，把验证码打印到开发控制台；`smtp`需要`SMTP_HOST/SMTP_PORT/SMTP_USERNAME/SMTP_PASSWORD/SMTP_FROM`环境变量，缺失即启动失败。`TWOWORLDS_VERIFICATION_SECRET`可注入持久验证码密钥；省略时开发入口生成一次性临时密钥，重启后未使用的验证码作废。生产HTTPS设`TWOWORLDS_COOKIE_SECURE=1`给会话Cookie加Secure。
 
@@ -322,7 +322,7 @@ $env:TWOWORLDS_DEV_PORT='8016'
 
 必须同时提供MONGO_URI和MONGO_DATABASE，SQLite路径不能作为Mongo失败回退。只配置精确HTTP/HTTPS Origin，不用通配符；T06.3.2起对精确白名单Origin启用`Access-Control-Allow-Credentials: true`以携带会话Cookie。前端设置公开VITE_API_BASE_URL并启动5186，见[前端README](../frontend/README.md)。以上python模块启动方式已由独立进程TCP测试分别验证SQLite/Mongo，浏览器流程亦通过同一工厂真实连接；本轮临时服务验收后已关闭。
 
-正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。后端PairService、SaveService、身份、Repository与规则语义未变，未新增业务接口。
+正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。WebSocket 复用既有邮箱会话和存档个人投影，协议见第 19 节。
 
 ```powershell
 # 先由本机环境提供 MONGO_URI；Mongo用例会创建并清理随机临时库。
@@ -362,4 +362,11 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .venv/Scripts/python.exe -m pytest tests/api/test_identity.py tests/api/test_rate_limit.py tests/api/test_request_limits.py tests/api/test_dev_launcher.py tests/contracts/test_identity.py -q -p no:cacheprovider --basetemp=work/t0632-http
 ```
 
-应用层身份56、验证码48、限频26项通过；HTTP身份/限频/正文83项、开发启动器19项、身份契约7项通过，均含真实Mongo参数组。完整回归：改动前3 failed/1199 passed，安全审查修复后3 failed/1327 passed（失败ID相同，均为既有WS/NPC用例）；后台投递、issue作废、登录IP上限、防枚举与未验证项见[T06.3.2报告](../docs/reports/t06-3-2-email-auth-backend.md)。前端登录页替换（T06.3.3）与浏览器产品验收（T06.3.4）未开始；WS仍只有设计契约。本轮完成后停止等待审查。
+应用层身份56、验证码48、限频26项通过；HTTP身份/限频/正文83项、开发启动器19项、身份契约7项通过，均含真实Mongo参数组。完整回归：改动前3 failed/1199 passed，安全审查修复后3 failed/1327 passed（失败ID相同，均为既有WS/NPC用例）；后台投递、issue作废、登录IP上限、防枚举与未验证项见[T06.3.2报告](../docs/reports/t06-3-2-email-auth-backend.md)。前端登录页替换（T06.3.3）与浏览器产品验收（T06.3.4）留待后续。
+
+
+## 19. 个人存档 WebSocket（T12.1）
+
+PR #32 合并后，`/api/ws/saves/{save_id}` 使用同一 `tw_session` HttpOnly Cookie。浏览器先通过邮箱认证，随后建立 WebSocket。连接需要唯一且精确命中白名单的 Origin，URL 不能带查询参数。鉴权和成员检查完成后，服务端发送与同账号 HTTP GET 一致的个人快照。非成员或缺档以 `4404` 关闭。无效会话在握手前拒绝（实际 TCP 为 HTTP 403），已连会话失效时在心跳中以 `4401` 关闭。
+
+客户端在收到 `{"type":"ping","id":1}` 后回复 `{"type":"pong","id":1}`，以实际收到的整数 ID 为准。T12.1 提供初始快照与心跳，HTTP 写入后的新版本可在重连时取得。专项命令和验收记录见 [T12.1 报告](../docs/reports/t12-1-websocket-auth.md)。
