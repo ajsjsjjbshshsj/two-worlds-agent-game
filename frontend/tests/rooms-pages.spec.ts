@@ -5,8 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 import { createAppRouter } from '../src/router'
 import { usePairsStore } from '../src/stores/pairs'
-import { SESSION_KEY } from '../src/stores/identity'
-import { json, me, recovered } from './fixtures'
+import { fail, json, me, password } from './fixtures'
 import { invitation, pairA, script, summary, snapshot } from './resource-fixtures'
 const wrappers: ReturnType<typeof mount>[] = []
 beforeEach(() => {
@@ -25,9 +24,13 @@ function responses({
   member_count = 2,
   joinError = '',
 }: { catalog?: unknown[]; saves?: unknown[]; member_count?: number; joinError?: string } = {}) {
+  let loggedIn = true
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url === '/api/me') return json(me)
-    if (url === '/api/sessions/recover') return json(recovered)
+    if (url === '/api/me') return loggedIn ? json(me) : fail(401)
+    if (url === '/api/sessions') {
+      loggedIn = true
+      return json(me)
+    }
     if (url === '/api/pairs/join')
       return joinError
         ? json(
@@ -45,10 +48,13 @@ function responses({
     throw Error('Unexpected test request')
   })
   vi.stubGlobal('fetch', fetch)
-  return fetch
+  return Object.assign(fetch, {
+    setAuthenticated: (value: boolean) => {
+      loggedIn = value
+    },
+  })
 }
-async function page(path: string, authenticated = true) {
-  if (authenticated) sessionStorage.setItem(SESSION_KEY, 'SESSION_TEST')
+async function page(path: string) {
   const pinia = createPinia(),
     router = createAppRouter(createMemoryHistory(), pinia)
   const wrapper = mount(App, { global: { plugins: [pinia, router] } })
@@ -60,13 +66,14 @@ async function page(path: string, authenticated = true) {
 }
 it('protects rooms, library and save entry without issuing private requests', async () => {
   const fetch = responses()
-  const { router } = await page('/pairs', false)
+  fetch.setAuthenticated(false)
+  const { router } = await page('/pairs')
   expect(router.currentRoute.value.path).toBe('/')
   for (const path of ['/pairs/pair_one', '/pairs/pair_one/library', '/saves/save_one']) {
     await router.push(path)
     expect(router.currentRoute.value.path).toBe('/')
   }
-  expect(fetch).not.toHaveBeenCalled()
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/me'])
 })
 it('creates a room and copies a fragment invitation without putting it in the address bar', async () => {
   const fetch = responses({ member_count: 1 }),
@@ -85,17 +92,18 @@ it('creates a room and copies a fragment invitation without putting it in the ad
     fetch.mock.calls.filter(([url, opts]) => url === '/api/pairs' && opts?.method === 'POST'),
   ).toHaveLength(1)
 })
-it('requires explicit join after identity recovery and removes fragment before joining', async () => {
+it('requires explicit join after email login and removes fragment before joining', async () => {
   const fetch = responses()
   window.history.replaceState({}, '', '/#invite=tw_invite_TEST_ONLY')
-  const { wrapper, router, pinia } = await page('/', false)
+  fetch.setAuthenticated(false)
+  const { wrapper, router, pinia } = await page('/')
   usePairsStore(pinia).captureInvite()
   await flushPromises()
   expect(window.location.hash).toBe('')
   expect(wrapper.text()).toContain('邀请')
-  await wrapper.get('[data-test=restore-tab]').trigger('click')
-  await wrapper.get('#recovery-key').setValue('tw_recovery_TEST_ONLY')
-  await wrapper.get('[data-test=recover-form]').trigger('submit')
+  await wrapper.get('#email').setValue(me.account.email)
+  await wrapper.get('#password').setValue(password)
+  await wrapper.get('form').trigger('submit')
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/pairs')
   expect(fetch.mock.calls.some(([url]) => url === '/api/pairs/join')).toBe(false)

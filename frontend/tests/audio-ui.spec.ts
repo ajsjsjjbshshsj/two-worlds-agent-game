@@ -96,7 +96,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 function panel() {
-  const w = mount(AudioControls, { props: { snapshot: snapshots(), token: 'TEST' } })
+  const w = mount(AudioControls, { props: { snapshot: snapshots(), sessionGeneration: 1 } })
   wrappers.push(w)
   return w
 }
@@ -164,7 +164,7 @@ it.each(['unmount', 'logout', 'save'])('%s releases current media', async (chang
     w.unmount()
     wrappers = []
   }
-  if (change === 'logout') await w.setProps({ token: '' })
+  if (change === 'logout') await w.setProps({ sessionGeneration: undefined })
   if (change === 'save') await w.setProps({ snapshot: { ...snapshots(), id: 'other_save' } })
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:TEST')
   expect(useAudioStore().state.enabled).toBe(false)
@@ -209,13 +209,13 @@ it('audio failure does not disable independent device controls', async () => {
 it('only confirmed game-store response adds an audio cue; unknown/failed commands leave prior cues', async () => {
   const identity = useIdentityStore()
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(me)))
-  identity.token = 'TEST'
+  identity.sessionGeneration = 1
   identity.account = me.account
   identity.initialized = true
   const store = useGameStore()
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(snapshots())))
   await store.load('save_one')
-  const w = mount(AudioControls, { props: { snapshot: store.snapshot!, token: 'TEST' } })
+  const w = mount(AudioControls, { props: { snapshot: store.snapshot!, sessionGeneration: 1 } })
   wrappers.push(w)
   vi.stubGlobal(
     'fetch',
@@ -251,4 +251,11 @@ it('only confirmed game-store response adds an audio cue; unknown/failed command
   await w.setProps({ snapshot: store.snapshot! })
   await flushPromises()
   expect(play).toHaveBeenCalledTimes(before + 1)
+})
+
+it('a private audio 401 signals expiry for the requesting generation', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 401 })))
+  const w = panel()
+  await button(w, '启用声音')
+  expect(w.emitted('sessionExpired')).toEqual([[1]])
 })

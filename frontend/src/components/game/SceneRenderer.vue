@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { GameSnapshot } from '../../types/game'
+import { ApiError } from '../../services/http'
 import { protectedImage } from '../../services/media'
 import {
   CausalPerformance,
@@ -10,8 +11,8 @@ import {
 import { animatePerformance } from '../../services/performance-animation'
 import LighthouseScene from './LighthouseScene.vue'
 import StarlineScene from './StarlineScene.vue'
-const props = defineProps<{ snapshot: GameSnapshot; token?: string }>(),
-  emit = defineEmits<{ focusDevice: [id: string] }>()
+const props = defineProps<{ snapshot: GameSnapshot; sessionGeneration?: number }>(),
+  emit = defineEmits<{ focusDevice: [id: string]; sessionExpired: [generation: number] }>()
 const svg = ref<SVGSVGElement | null>(null)
 const performance = ref<PerformanceState>({ active: null, failed: false })
 const performanceLabels: Record<PerformanceId, string> = {
@@ -48,8 +49,8 @@ function pageHidden() {
 }
 motionPreference()
 watch(
-  () => [props.snapshot, props.token],
-  () => coordinator.update(props.snapshot, props.token),
+  () => [props.snapshot, props.sessionGeneration],
+  () => coordinator.update(props.snapshot, props.sessionGeneration),
   { immediate: true, flush: 'sync' },
 )
 onMounted(() => {
@@ -76,13 +77,14 @@ function clear() {
   images.value = []
 }
 watch(
-  () => [props.snapshot, props.token],
+  () => [props.snapshot, props.sessionGeneration],
   async () => {
     clear()
     failed.value = false
     const current = generation
     controller = new AbortController()
-    if (!props.token) return
+    const sessionGeneration = props.sessionGeneration
+    if (sessionGeneration === undefined) return
     const background = props.snapshot.presentation.background
     const refs = [
       ...(background?.kind === 'image' ? [{ asset: background, layer: null }] : []),
@@ -96,12 +98,7 @@ watch(
     for (const asset of new Map(refs.map((r) => [r.asset.asset_id, r.asset])).values()) {
       if (current !== generation) return
       try {
-        const image = await protectedImage(
-          props.token,
-          props.snapshot.id,
-          asset.asset_id,
-          controller.signal,
-        )
+        const image = await protectedImage(props.snapshot.id, asset.asset_id, controller.signal)
         if (current !== generation) {
           image.dispose()
           return
@@ -114,8 +111,13 @@ watch(
             alt: placement.asset.alt_text,
             layer: placement.layer,
           })
-      } catch {
-        if (current === generation) failed.value = true
+      } catch (cause) {
+        if (current !== generation) return
+        if (cause instanceof ApiError && cause.status === 401) {
+          emit('sessionExpired', sessionGeneration)
+          return
+        }
+        failed.value = true
       }
     }
   },

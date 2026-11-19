@@ -297,8 +297,7 @@ button.primary:hover:enabled {
   min-height: 740px;
   padding: 64px 0 72px;
 }
-.eyebrow,
-.panel-kicker {
+.eyebrow {
   color: var(--gold);
   font-size: 12px;
   letter-spacing: 0.18em;
@@ -396,35 +395,16 @@ p {
   box-shadow: 0 24px 50px #0003;
   overflow-wrap: anywhere;
 }
-.panel-kicker {
-  margin-bottom: 18px;
-  font-size: 11px;
-}
 h2 {
   font-size: 27px;
   line-height: 1.5;
   margin: 0 0 12px;
-}
-.panel-intro {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 0 0 24px;
 }
 .mode-switch {
   display: flex;
   gap: 4px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 26px;
-}
-.mode-switch button {
-  flex: 1;
-  color: var(--muted);
-  border: 0;
-  border-radius: 0;
-  border-bottom: 2px solid transparent;
-  padding: 12px 4px;
-  background: transparent;
-  font-size: 13px;
 }
 .mode-switch button[aria-pressed='true'] {
   color: var(--gold);
@@ -482,12 +462,6 @@ input[aria-invalid='true'] {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
-.secret {
-  font-family: Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
-}
 .notice {
   color: #f1d49e;
   font-size: 13px;
@@ -497,14 +471,6 @@ input[aria-invalid='true'] {
   border-left: 2px solid #ffb9ac;
   padding-left: 12px;
   font-size: 13px;
-}
-.panel-foot {
-  border-top: 1px solid var(--line);
-  margin-top: 28px;
-  padding-top: 18px;
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.8;
 }
 .verified {
   color: var(--gold);
@@ -741,4 +707,40 @@ dd {
     animation: none !important;
     transition: none !important;
   }
+}
+
+.identity-form fieldset {
+  display: grid;
+  gap: 1rem;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  margin: 0;
+}
+.code-field,
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.code-field button,
+.password-field button {
+  width: auto;
+  min-height: 48px;
+  margin: 0;
+  padding-inline: 0.6rem;
+}
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+.account-actions button {
+  min-height: 44px;
+}
+#identity-feedback:empty {
+  display: none;
 }

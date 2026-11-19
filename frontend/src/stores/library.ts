@@ -34,7 +34,7 @@ export const useLibraryStore = defineStore('library', () => {
     busy.value = false
     error.value = null
   }
-  watch(() => identity.token, reset, { flush: 'sync' })
+  watch(() => identity.sessionGeneration, reset, { flush: 'sync' })
   function fail(cause: unknown) {
     const problem = cause instanceof ApiError ? cause : new ApiError(0, 'NETWORK_ERROR', true)
     if (problem.status === 401) identity.expireSession()
@@ -43,15 +43,11 @@ export const useLibraryStore = defineStore('library', () => {
   async function load(id: string) {
     reset()
     pairId.value = id
-    const token = identity.token
-    if (!token || !identity.authenticated) return
+    if (!identity.authenticated) return
     const current = epoch
     loading.value = true
     try {
-      const [catalog, progress] = await Promise.all([
-        libraryApi.catalog(),
-        libraryApi.saves(token, id),
-      ])
+      const [catalog, progress] = await Promise.all([libraryApi.catalog(), libraryApi.saves(id)])
       if (current !== epoch) return
       if (
         progress.some((s) => s.pair_id !== id) ||
@@ -73,9 +69,8 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
   async function open(scriptId: string) {
-    const token = identity.token,
-      id = pairId.value
-    if (!token || !identity.authenticated || !id || busy.value || loading.value) return null
+    const id = pairId.value
+    if (!identity.authenticated || !id || busy.value || loading.value) return null
     const old = saves.value.find((s) => s.script_id === scriptId),
       metadata = scripts.value.find((s) => s.id === scriptId)
     if (!old && pairs.pairs.find((p) => p.id === id)?.member_count !== 2) {
@@ -89,8 +84,8 @@ export const useLibraryStore = defineStore('library', () => {
     entry.value = null
     try {
       const result = old
-        ? await libraryApi.read(token, old.id)
-        : await libraryApi.create(token, id, scriptId, metadata!.content_version)
+        ? await libraryApi.read(old.id)
+        : await libraryApi.create(id, scriptId, metadata!.content_version)
       if (current !== epoch) return null
       if (
         result.pair_id !== id ||
@@ -112,15 +107,14 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
   async function read(id: string) {
-    const token = identity.token
-    if (!token || !identity.authenticated) return
+    if (!identity.authenticated) return
     const current = ++reading,
       context = epoch
     entry.value = null
     loading.value = true
     error.value = null
     try {
-      const result = await libraryApi.read(token, id)
+      const result = await libraryApi.read(id)
       if (current === reading && context === epoch) {
         if (result.id !== id) invalidResponse()
         entry.value = result

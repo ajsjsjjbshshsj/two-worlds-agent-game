@@ -163,7 +163,7 @@ it('reduced motion skips playback, and changing the preference cancels active tr
 })
 it('audio off and even a denied image load cannot block animation or synthesize operation SFX', async () => {
   const w = mountScene()
-  const audio = mount(AudioControls, { props: { snapshot: snapshot(), token: 'TEST' } })
+  const audio = mount(AudioControls, { props: { snapshot: snapshot(), sessionGeneration: 1 } })
   wrappers.push(audio)
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(Error('image unavailable')))
   const next = snapshot('lighthouse', 'a', 11, true)
@@ -173,7 +173,7 @@ it('audio off and even a denied image load cannot block animation or synthesize 
     alt_text: 'TEST-ONLY',
     transcript: null,
   }
-  await w.setProps({ snapshot: next, token: 'TEST' })
+  await w.setProps({ snapshot: next, sessionGeneration: 1 })
   await flushPromises()
   // Credential change is a new lifecycle, not a transition. Use the next adjacent rise.
   await w.setProps({ snapshot: snapshot('lighthouse', 'a', 12, false) })
@@ -234,7 +234,7 @@ it.each([
 })
 it('late HTTP read is discarded by the game store before it can overwrite a newer performance', async () => {
   const identity = useIdentityStore()
-  identity.token = 'TEST'
+  identity.sessionGeneration = 1
   identity.account = me.account
   identity.initialized = true
   const store = useGameStore()
@@ -292,7 +292,7 @@ it('confirmed echo readiness animates with audio enabled without inventing an op
     },
   ]
   const scene = mountScene(first),
-    audio = mount(AudioControls, { props: { snapshot: first, token: 'TEST' } })
+    audio = mount(AudioControls, { props: { snapshot: first, sessionGeneration: 1 } })
   wrappers.push(audio)
   await audio.get('button').trigger('click')
   await flushPromises()

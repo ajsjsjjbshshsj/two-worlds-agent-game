@@ -215,7 +215,7 @@ it.each(['reduce', 'hidden', 'pagehide', 'unmount', 'save', 'role', 'script', 'c
     if (change === 'role') await w.setProps({ snapshot: { ...next, role: 'a' } })
     if (change === 'script')
       await w.setProps({ snapshot: finalState('lighthouse', 'b', 'wait_tide') })
-    if (change === 'credential') await w.setProps({ token: 'OTHER' })
+    if (change === 'credential') await w.setProps({ sessionGeneration: 2 })
     await flushPromises()
     expect(tracks.every((t) => t.cancel.mock.calls.length > 0)).toBe(true)
     if (change !== 'unmount') {
@@ -243,7 +243,7 @@ it.each([false, true])(
   async (enabled) => {
     const initial = snapshot('lighthouse', 'a', 10, 'decision'),
       w = mountScene(initial),
-      audio = mount(AudioControls, { props: { snapshot: initial, token: 'TEST' } })
+      audio = mount(AudioControls, { props: { snapshot: initial, sessionGeneration: 1 } })
     wrappers.push(audio)
     if (enabled) {
       await audio.get('button').trigger('click')
@@ -262,7 +262,7 @@ it.each([false, true])(
 )
 it('opaque/missing media failure is independent of the confirmed ending and local skip', async () => {
   const w = mountScene(snapshot('lighthouse', 'a', 10, 'decision'))
-  await w.setProps({ token: 'TEST' })
+  await w.setProps({ sessionGeneration: 1 })
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(Error('missing media')))
   const next = finalState('lighthouse', 'a', 'wait_tide')
   next.presentation.background = {

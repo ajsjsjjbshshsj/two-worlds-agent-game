@@ -10,6 +10,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 describe('HTTP boundary', () => {
   it.each([
     '/api/me',
+    '/api/verification-codes',
+    '/api/password-resets',
     '/api/pairs/pair_123/invite',
     '/api/saves/save_123',
     '/api/sessions/current',
@@ -46,10 +48,10 @@ describe('HTTP boundary', () => {
     })
     expect(fetch).not.toHaveBeenCalled()
   })
-  it('GET sends Bearer only in headers, omits cookies and disables cache', async () => {
+  it('GET lets the browser send cookies and disables cache', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ account: 'ok' }))
     vi.stubGlobal('fetch', fetch)
-    expect(await createHttpClient().request('/api/me', { token: 'private-token' })).toEqual({
+    expect(await createHttpClient().request('/api/me')).toEqual({
       account: 'ok',
     })
     const [url, options] = fetch.mock.calls[0]!
@@ -57,10 +59,12 @@ describe('HTTP boundary', () => {
     expect(options).toMatchObject({
       method: 'GET',
       cache: 'no-store',
-      credentials: 'omit',
+      credentials: 'include',
       redirect: 'error',
     })
-    expect(new Headers(options.headers).get('authorization')).toBe('Bearer private-token')
+    expect(new Headers(options.headers).has('Authorization')).toBe(false)
+    expect(new Headers(options.headers).has('Origin')).toBe(false)
+    expect(new Headers(options.headers).has('Cookie')).toBe(false)
   })
   it('POST encodes JSON and configured base URL', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ ok: true }))
@@ -170,3 +174,43 @@ describe('HTTP boundary', () => {
     expect(await result).toMatchObject({ status: 0, code: 'TIMEOUT' })
   })
 })
+
+it.each([
+  ['60', 60],
+  ['0', 0],
+  ['0007', 7],
+  ['-1', undefined],
+  ['1.5', undefined],
+  ['1e3', undefined],
+  ['9007199254740992', undefined],
+  ['Wed, 21 Oct 2015 07:28:00 GMT', undefined],
+] as const)(
+  'accepts Retry-After %s only as safe nonnegative integer seconds',
+  async (value, expected) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('unusable error envelope', {
+          status: 429,
+          headers: { 'Retry-After': value },
+        }),
+      ),
+    )
+    await expect(createHttpClient().request('/api/me')).rejects.toMatchObject({
+      status: 429,
+      retryAfter: expected,
+    })
+  },
+)
+
+it.each(['/api/verification-codes/extra', '/api/password-resets?grant=unsafe'])(
+  'rejects non-exact static credential route %s',
+  async (path) => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    await expect(createHttpClient().request(path)).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  },
+)

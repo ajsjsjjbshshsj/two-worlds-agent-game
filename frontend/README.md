@@ -1,73 +1,44 @@
-# TwoWorlds 前端 · T11.1
+# TwoWorlds 前端
 
-当前/saves/:saveId已接入Game场景与通用装置/行动，复用个人投影与命令API。只有服务端确认才更新设备；失败保留旧快照，未知结果仅可手动确认同请求，搭档变化暂用手动刷新。图片带Bearer读取并在切档/登出/卸载清理；不播放音频。
-
-本轮146项通过（原125未改），类型/构建/格式通过；真实SQLite/Mongo在隔离测试内容中通过两剧本UI通关。正式目录仍为空，不自动发布。原型SVG/CSS不是正式美术，完整Cue/音频/WS留后续。运行命令沿用下方T10.2步骤，新增阅读见[T11.1报告](../docs/reports/t11-1-scene-device.md)。
-
-以下为T10.2运行与架构说明，存档入口展示部分已由Game替代，其历史测试数以当前146项为准。
-
-# TwoWorlds 前端 · T10.2
-
-已实现身份创建/恢复、一次性密钥保护、房间创建/加入/邀请刷新、成员状态、正式剧本书架和本人存档入口。游戏操作、场景/音频、WebSocket、PWA与AI尚未实现，存档入口明确说明T11后续范围。
+T06.3.3 接入邮箱注册、登录与密码找回。房间、书架、游戏与受保护媒体使用相同的 HttpOnly 会话。T10.1 与 T10.2 报告中的匿名账号、恢复密钥与提醒是历史设计，现行流程见 [T06.3.3 报告](../docs/reports/t06-3-3-frontend-email-auth.md)。
 
 ## 本地运行
 
-使用Node20.19.0/npm10.8.2或package.json支持的Node版本。前端依赖及package-lock本轮未改。先按[后端说明](../backend/README.md#17-开发专用http启动器t102)在另一个终端启动后端：
+使用 `package.json` 支持的 Node 版本。先按 [后端开发说明](../backend/README.md#17-开发专用http启动器t102)启动显式 SQLite 或 MongoDB 后端，独立本地验证可用 `TWOWORLDS_EMAIL_MODE=console` 从后端开发控制台查看验证码。
 
-```powershell
-cd F:/two-worlds-agent-game/work/pr-t01-1-schema/frontend
-npm.cmd ci --engine-strict --registry=https://registry.npmjs.org
-$env:VITE_API_BASE_URL='http://127.0.0.1:8016'
-npm.cmd run dev -- --port 5186 --strictPort
+在 `frontend` 目录：
+
+```bash
+npm ci
+VITE_API_BASE_URL=http://127.0.0.1:8016 npm run dev -- --port 5186 --strictPort
 ```
 
-本轮真实SQLite/Mongo浏览器验收使用这两个回环端口，验收后本轮服务已关闭。启动后的页面地址为http://127.0.0.1:5186；后端Origin须精确匹配。VITE变量是公开配置，禁止放凭证。Vite不自动启动/切换数据库，无内置代理或线上部署。
+在 PowerShell 中先执行 `$env:VITE_API_BASE_URL='http://127.0.0.1:8016'`，再运行 `npm.cmd run dev -- --port 5186 --strictPort`。浏览器打开 `http://127.0.0.1:5186`。后端 `TWOWORLDS_ALLOWED_ORIGINS` 须精确包含该来源。前后端端口可不同，本地联调用同一主机名与协议，避免将 `localhost` 与 `127.0.0.1` 混用。Vite 环境变量是公开配置。
 
-## 页面与流程
+## 页面与会话
 
-| 路由 | 能做什么 |
+| 路由 | 行为 |
 | --- | --- |
-| / | 创建、恢复、一次性密钥确认、各身份提醒、登出 |
-| /pairs | 创建/列出本人房间、明确接受邀请 |
-| /pairs/:pairId | 角色和服务端成员数；未满员A生成/刷新邀请 |
-| /pairs/:pairId/library | 正式元数据+本房间存档概要，开始或继续 |
-| /saves/:saveId | 从已有个人投影提取本人角色/场景/版本/完成状态 |
+| / | 邮箱登录、验证码注册、密码找回、当前账号和登出 |
+| /pairs | 查看自己的房间、创建房间或确认加入 |
+| /pairs/:pairId | 查看成员和角色，未满员的 A 生成或刷新邀请 |
+| /pairs/:pairId/library | 列出已发布剧本和本人存档，按绑定版本开始或继续 |
+| /saves/:saveId | 展示个人快照和可用操作，按授权读取图片、音频和字幕 |
 
-受保护路由先验证身份，401清会话及私人列表并返回身份页，不清Pending。角色最终由后端认证确定。人数不是在线状态，搭档加入后手动刷新。
+首次加载通过 `GET /api/me` 验证 Cookie。接口 401 表示会话无效，保护页面返回登录，私人数据清理。网络异常和 503 在启动时显示验证重试入口，业务请求失败时保留上次确认的会话。注册或登录结果未知时只尝试安全的 `GET /api/me`，密码不会自动重发。登出超时会明确提示撤销尚未确认。
 
-创建身份后先保存密钥。有邀请时，确认保存后进入房间页，再明确点击加入。邀请链接仅用URL Fragment；启动时先读入内存、立即replaceState清理地址，不自动加入。复制失败有手动备用。刷新/关闭会丢失邀请，需重新打开原链接；满员后清除已发出的无用内存邀请。
+账号变化、确认为登出、会话失效或密码重置会推进会话代次。房间、书架和游戏利用代次丢弃迟到结果，场景与音频停止旧加载并释放对象 URL。邀请只经 URL Fragment 传递，读取后即从地址栏清除，保留到明确确认加入或离开当前会话。
 
-**正式目录当前为空。** 真实GET /api/scripts返回空数组时显示正常空状态，不能硬编码灯塔/星轨卡片。非空书架测试使用独立test-only发布库，不代表素材授权或正式上线。
+HTTP 和媒体均使用 `credentials: 'include'`、`cache: 'no-store'`、`redirect: 'error'`。前端不读或存 Cookie，也不读取历史认证键。历史键和演示库清理由 T06.3.4 单独执行。
 
-## 状态、安全与版本
+**正式目录当前为空。** 非空书架依靠已发布内容。开发验证用隔离发布库和测试素材，详细结果和阅读路径见 [T06.3.3 报告](../docs/reports/t06-3-3-frontend-email-auth.md)。
 
-- token仅在内存/sessionStorage的twoworlds.session.token，只通过Bearer头发送。Recovery Key仅在页面局部内存，不进Pinia、storage、URL或日志。
-- Pending仅保存twoworlds.recovery.pending.v1.<account_id>的四字段元数据：account_id、display_name、created_at、pending:true。恢复B只清B，确认/二次放弃一项不影响其他身份，登出保留全部提醒。
-- read/write/remove/invalid独立跟踪；对应成功操作只清自己的瞬时问题。invalid保守保留到新页面重新检查，不识别的原记录不改写/删除。故障保留内存提醒，浏览器存储不等于密钥备份或跨设备同步，清理/禁用存储时不能保证重开保留。
-- SPA离开实际展示密钥的页面时明确确认；取消或后续guard失败均保留密钥，真正卸载才清密钥但不清Pending。保存确认后不再拦截。beforeunload仍保护刷新/关闭，但[浏览器限制](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event)下不能保证系统强制终止时提示。
-- 旧版无归属全局标记保留独立警告，不猜测迁移；未实现跨标签页实时同步。
-- 邀请只留内存与明确分享界面，不进storage/query/path/日志。创建/刷新结果不明时先刷新列表，不自动重试。
-- HTTP保留no-store、omit、拒绝重定向、超时、安全本地错误与原路径白名单。只有GET /api/saves可通过独立query选项增加合法Identifier的pair_id，原始路径里的query/fragment仍拒绝。
-- 每剧本卡片取数值最新的目录元数据，按ID稳定排序；存档按pair_id+script_id关联。旧档只GET原save_id，仍用原script_version，目录介绍不同版本会标注；下架故事的既有档也保留原入口。
-- 新档只在服务端确认两人加入后创建，用真实content_version并校验返回版本。身份/房间切换、读档请求代次和页面卸载阻断迟到响应，不串入另一身份或房间。
-- 网络错误保留可恢复的会话；登出204或401才清本机会话。服务端验证过期，本地时间不作为认证依据。
-
-## 验证与学习
-
-```powershell
-npm.cmd run typecheck
-npm.cmd run test:unit
-npm.cmd run build
-npm.cmd run format:check
+```bash
+npm run typecheck
+npm run test:unit
+npm run build
+npm run format:check
 ```
-
-当前125通过、0失败/跳过；原82测试文件与fixture完全未改。新增43：告警/路由10、资源HTTP8、房间书架Store17、页面路由8。严格类型、构建和格式均通过。单元测试使用响应桩；另分别用真实SQLite/Mongo TCP、三个独立Edge上下文完成房间/书架验收。390px模拟不是手机真机；正式空目录与test-only非空目录分开验证。
-
-前端锁未改，历史审计生产依赖0/开发4项moderate为T10.1证据，本轮未重审或声称消除。完整结果与限制见[T10.2报告](../docs/reports/t10-2-identity-room-library.md)，历史身份实现见[T10.1报告](../docs/reports/frontend-identity.md)。
-
-阅读顺序：identity Store独立告警 → Identity路由离开保护 → types/resources白名单 → pairs/library服务和Store → Router/页面 → 测试。例如旧档1.0.0、目录2.0.0：继续只读取原save_id，不POST新档或替换版本。
-
-本轮交付后停止等待审查，下一阶段T11只介绍，不自动执行。
 
 ## T11.2 · 基础音频与字幕
 
@@ -89,4 +60,4 @@ PR #27审查修复：`presentation.operation_sfx`由服务端标记当前授权�
 
 复用CausalPerformance与原WAAPI播放器：灯塔包含光束聚焦、供电、维修/航道就绪；星轨包含声呐就绪、扫描定位、导轨连接，各3处物理合作反馈。两套关键演出只从相邻确认的decision→completed启动，按当前公开结局显示引航/待潮或救援/归站。右下角“跳过演出”支持键盘和触屏，仅取消视觉，不发命令、不改存档/版本，也不停止或重写原旁白字幕。首读、同版本、跳版本或减少动态只保留正确最终状态，仍需手动获取搭档进度。
 
-原251项不变，新增77，全量328通过；typecheck/build/format通过。`npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-scene.spec.ts`可学习新增机制。先读causal-performance.ts的字段与显式转场，再读performance-animation.ts、SceneRenderer的skip和两个SVG的最终状态。[详细报告](../docs/reports/t11-3-2-cooperative-performances.md)含真实SQLite/TCP四结局双角色检查、临时测试库观察方式和限制。正式素材未发布，真机未验收，本轮不表示QA-M01～M07全部完成。
+该阶段原251项保留，新增77，历史全量328通过；typecheck/build/format通过。`npm run test:unit -- tests/cooperative-performance.spec.ts tests/cooperative-scene.spec.ts`可学习新增机制。先读causal-performance.ts的字段与显式转场，再读performance-animation.ts、SceneRenderer的skip和两个SVG的最终状态。[详细报告](../docs/reports/t11-3-2-cooperative-performances.md)含真实SQLite/TCP四结局双角色检查、临时测试库观察方式和限制。正式素材未发布，真机未验收，本轮不表示QA-M01～M07全部完成。

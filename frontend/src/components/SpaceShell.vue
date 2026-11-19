@@ -1,15 +1,7 @@
 <script setup lang="ts">
-import { watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import { useIdentityStore } from '../stores/identity'
-const identity = useIdentityStore(),
-  router = useRouter()
-watch(
-  () => identity.authenticated,
-  (value) => {
-    if (!value) void router.replace('/')
-  },
-)
+const identity = useIdentityStore()
 </script>
 <template>
   <div class="space-shell">
@@ -19,7 +11,7 @@ watch(
         ><span>TwoWorlds<small>两个人 · 两个世界</small></span></RouterLink
       >
       <nav aria-label="主要导航">
-        <RouterLink to="/pairs">我的房间</RouterLink><RouterLink to="/">身份与恢复</RouterLink>
+        <RouterLink to="/pairs">我的房间</RouterLink><RouterLink to="/">我的账号</RouterLink>
       </nav>
       <p class="help">{{ identity.account?.display_name }}</p>
     </header>

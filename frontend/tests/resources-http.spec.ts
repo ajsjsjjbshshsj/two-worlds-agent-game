@@ -5,7 +5,7 @@ import { libraryApi } from '../src/services/library'
 import { json } from './fixtures'
 import { pairA, invitation, script, summary, snapshot } from './resource-fixtures'
 afterEach(() => vi.unstubAllGlobals())
-it('uses the eight existing endpoints with exact bodies and header-only Bearer', async () => {
+it('uses the eight existing endpoints with exact bodies and Cookie credentials', async () => {
   const fetch = vi
     .fn()
     .mockResolvedValueOnce(json(invitation))
@@ -17,14 +17,14 @@ it('uses the eight existing endpoints with exact bodies and header-only Bearer',
     .mockResolvedValueOnce(json(snapshot))
     .mockResolvedValueOnce(json(snapshot))
   vi.stubGlobal('fetch', fetch)
-  await pairApi.create('SESSION_TEST')
-  await pairApi.list('SESSION_TEST')
-  await pairApi.join('SESSION_TEST', invitation.invite_token)
-  await pairApi.refresh('SESSION_TEST', pairA.id)
+  await pairApi.create()
+  await pairApi.list()
+  await pairApi.join(invitation.invite_token)
+  await pairApi.refresh(pairA.id)
   await libraryApi.catalog()
-  await libraryApi.saves('SESSION_TEST', pairA.id)
-  await libraryApi.create('SESSION_TEST', pairA.id, script.id, '2.0.0')
-  await libraryApi.read('SESSION_TEST', summary.id)
+  await libraryApi.saves(pairA.id)
+  await libraryApi.create(pairA.id, script.id, '2.0.0')
+  await libraryApi.read(summary.id)
   expect(fetch.mock.calls.map((call) => call[0])).toEqual([
     '/api/pairs',
     '/api/pairs',
@@ -44,9 +44,10 @@ it('uses the eight existing endpoints with exact bodies and header-only Bearer',
     script_version: '2.0.0',
   })
   for (const [url, options] of fetch.mock.calls) {
-    expect(url).not.toContain('SESSION_TEST')
+    expect(url).not.toMatch(/[?&](?:token|session)=/i)
     expect(options.cache).toBe('no-store')
-    expect(options.credentials).toBe('omit')
+    expect(options.credentials).toBe('include')
+    expect(new Headers(options.headers).has('Authorization')).toBe(false)
   }
 })
 it.each(['../pair', 'pair?token=x', 'pair#secret', 'PAIR', 'pair_one\n'])(
@@ -81,8 +82,6 @@ it('rejects incomplete responses and drops internal fields from metadata and sav
       .mockResolvedValueOnce(json([{ id: 'pair_one', role: 'c', member_count: 3 }])),
   )
   expect(JSON.stringify(await libraryApi.catalog())).not.toContain('SECRET')
-  expect(JSON.stringify(await libraryApi.read('SESSION_TEST', 'save_one'))).not.toContain(
-    'OTHER_SECRET',
-  )
-  await expect(pairApi.list('SESSION_TEST')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  expect(JSON.stringify(await libraryApi.read('save_one'))).not.toContain('OTHER_SECRET')
+  await expect(pairApi.list()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
 })

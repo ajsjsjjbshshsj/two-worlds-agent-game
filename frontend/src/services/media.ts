@@ -1,7 +1,7 @@
 import { ApiError, createHttpClient } from './http'
+import { privateSessionLease } from './session-sync'
 import { identifier } from '../types/resources'
 async function protectedMedia(
-  token: string,
   saveId: string,
   assetId: string,
   signal: AbortSignal,
@@ -9,13 +9,18 @@ async function protectedMedia(
 ) {
   createHttpClient() // Reuse the configured origin validation; binary parsing stays here.
   const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+  const current = privateSessionLease()
+  const ensureSession = () => {
+    if (!current()) throw new ApiError(0, 'SESSION_UNCONFIRMED', false)
+  }
+  ensureSession()
   const r = await fetch(`${base}/api/saves/${identifier(saveId)}/media/${identifier(assetId)}`, {
-    headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
-    credentials: 'omit',
+    credentials: 'include',
     redirect: 'error',
     signal,
   })
+  ensureSession()
   if (!r.ok) throw new ApiError(r.status, 'MEDIA_UNAVAILABLE', false)
   if (!types.includes(r.headers.get('Content-Type')?.split(';')[0] ?? ''))
     throw new ApiError(200, 'INVALID_RESPONSE', false)
@@ -36,26 +41,13 @@ async function protectedMedia(
     await reader.cancel()
   }
   if (signal.aborted) throw new ApiError(0, 'MEDIA_UNAVAILABLE', false)
+  ensureSession()
   const blob = new Blob(chunks, { type: r.headers.get('Content-Type')! })
   const url = URL.createObjectURL(blob)
   return { url, dispose: () => URL.revokeObjectURL(url) }
 }
 
-export const protectedImage = (
-  token: string,
-  saveId: string,
-  assetId: string,
-  signal: AbortSignal,
-) => protectedMedia(token, saveId, assetId, signal, ['image/png', 'image/jpeg', 'image/webp'])
-export const protectedAudio = (
-  token: string,
-  saveId: string,
-  assetId: string,
-  signal: AbortSignal,
-) =>
-  protectedMedia(token, saveId, assetId, signal, [
-    'audio/mpeg',
-    'audio/ogg',
-    'audio/wav',
-    'audio/mp4',
-  ])
+export const protectedImage = (saveId: string, assetId: string, signal: AbortSignal) =>
+  protectedMedia(saveId, assetId, signal, ['image/png', 'image/jpeg', 'image/webp'])
+export const protectedAudio = (saveId: string, assetId: string, signal: AbortSignal) =>
+  protectedMedia(saveId, assetId, signal, ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp4'])

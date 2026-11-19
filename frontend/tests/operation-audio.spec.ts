@@ -58,38 +58,38 @@ it('inspect only authorizes media; consecutive confirmed device changes play and
   const { audio, played } = setup()
   const initial = snapshot(0)
   initial.presentation.cues = []
-  audio.update(initial, 'TEST')
+  audio.update(initial, 1)
   audio.enable()
-  audio.update(snapshot(1), 'TEST')
+  audio.update(snapshot(1), 1)
   await flushPromises()
   expect(played).not.toHaveBeenCalled()
   const first = { ...snapshot(2), audio_events: [event(2)] }
-  audio.update(first, 'TEST')
+  audio.update(first, 1)
   await flushPromises()
   expect(played).toHaveBeenCalledTimes(1)
-  audio.update(first, 'TEST')
+  audio.update(first, 1)
   await flushPromises()
   expect(played).toHaveBeenCalledTimes(1)
-  audio.update({ ...snapshot(3), audio_events: [event(3)] }, 'TEST')
+  audio.update({ ...snapshot(3), audio_events: [event(3)] }, 1)
   await flushPromises()
   expect(played).toHaveBeenCalledTimes(2)
-  audio.update(snapshot(4), 'TEST')
+  audio.update(snapshot(4), 1)
   await flushPromises()
   expect(played).toHaveBeenCalledTimes(2)
 })
 it('initial restoration consumes any historical events without playing', async () => {
   const { audio, played } = setup()
-  audio.update({ ...snapshot(8), audio_events: [event(8)] }, 'TEST')
+  audio.update({ ...snapshot(8), audio_events: [event(8)] }, 1)
   audio.enable()
   await flushPromises()
   expect(played).not.toHaveBeenCalled()
 })
 it('disabled operation events are consumed without delayed playback', async () => {
   const { audio, played } = setup()
-  audio.update(snapshot(1), 'TEST')
-  audio.update({ ...snapshot(2), audio_events: [event(2)] }, 'TEST')
+  audio.update(snapshot(1), 1)
+  audio.update({ ...snapshot(2), audio_events: [event(2)] }, 1)
   audio.enable()
-  audio.update({ ...snapshot(2), audio_events: [event(2)] }, 'TEST')
+  audio.update({ ...snapshot(2), audio_events: [event(2)] }, 1)
   await flushPromises()
   expect(played).not.toHaveBeenCalled()
 })
@@ -98,7 +98,7 @@ it('read response cannot smuggle historical command events', async () => {
     'fetch',
     vi.fn().mockResolvedValue(json({ ...snapshot(2), audio_events: [event(2)] })),
   )
-  expect(await gameApi.read('TEST', 'save_one')).not.toHaveProperty('audio_events')
+  expect(await gameApi.read('save_one')).not.toHaveProperty('audio_events')
 })
 it.each(['outside-cue', 'unauthorized-asset', 'wrong-version', 'duplicate', 'repeated-event'])(
   'rejects %s operation metadata before updating game state',
@@ -124,7 +124,7 @@ it.each(['outside-cue', 'unauthorized-asset', 'wrong-version', 'duplicate', 'rep
       ),
     )
     await expect(
-      gameApi.submit('TEST', 'save_one', {
+      gameApi.submit('save_one', {
         request_id: 'TEST',
         expected_version: 1,
         kind: 'set_emitter',
@@ -146,7 +146,7 @@ it('successful envelope retains authorized events while an idempotent retry has 
     kind: 'set_emitter',
     args: { angle: 90 },
   }
-  expect((await gameApi.submit('TEST', 'save_one', command)).audio_events).toEqual([event(2)])
+  expect((await gameApi.submit('save_one', command)).audio_events).toEqual([event(2)])
   vi.stubGlobal(
     'fetch',
     vi
@@ -155,7 +155,7 @@ it('successful envelope retains authorized events while an idempotent retry has 
         json({ ...envelope, receipt: { ...envelope.receipt, duplicate: true }, audio_events: [] }),
       ),
   )
-  expect((await gameApi.submit('TEST', 'save_one', command)).audio_events ?? []).toEqual([])
+  expect((await gameApi.submit('save_one', command)).audio_events ?? []).toEqual([])
 })
 it('rejected requests cannot produce a success event', async () => {
   vi.stubGlobal(
@@ -167,7 +167,7 @@ it('rejected requests cannot produce a success event', async () => {
       ),
   )
   await expect(
-    gameApi.submit('TEST', 'save_one', {
+    gameApi.submit('save_one', {
       request_id: 'TEST',
       expected_version: 1,
       kind: 'set_emitter',

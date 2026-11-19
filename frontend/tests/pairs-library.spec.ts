@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { useIdentityStore, SESSION_KEY } from '../src/stores/identity'
+import { useIdentityStore } from '../src/stores/identity'
 import { usePairsStore } from '../src/stores/pairs'
 import { useLibraryStore } from '../src/stores/library'
 import { json, me } from './fixtures'
@@ -13,7 +13,6 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 async function authenticate() {
-  sessionStorage.setItem(SESSION_KEY, 'SESSION_TEST')
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(me)))
   await useIdentityStore().initialize()
 }
@@ -52,28 +51,16 @@ it('create and refresh invitation keep secrets in memory and never invent member
   expect(pairs.notice).toContain('旧')
   expect(JSON.stringify(localStorage) + JSON.stringify(sessionStorage)).not.toContain('tw_invite')
 })
-it('explicit join refreshes server room list; pending new key blocks joining', async () => {
+it('explicit join refreshes server room list without a legacy key gate', async () => {
   await authenticate()
   window.history.replaceState({}, '', '/#invite=tw_invite_TEST_ONLY')
   const pairs = usePairsStore()
   pairs.captureInvite()
-  const identity = useIdentityStore()
-  identity.pendingRecoveries = [
-    {
-      account_id: me.account.id,
-      display_name: '旅人',
-      created_at: new Date().toISOString(),
-      pending: true,
-    },
-  ]
   const fetch = vi
     .fn()
     .mockResolvedValueOnce(json({ id: pairA.id, role: 'b' }))
     .mockResolvedValueOnce(json([pairB]))
   vi.stubGlobal('fetch', fetch)
-  expect(await pairs.join()).toBeNull()
-  expect(fetch).not.toHaveBeenCalled()
-  identity.confirmRecoveryKeySaved(me.account.id)
   expect(await pairs.join()).toBe(pairA.id)
   expect(pairs.pairs).toEqual([pairB])
   expect(pairs.hasIncomingInvite).toBe(false)
@@ -243,17 +230,11 @@ it('switching room rejects late catalog/save responses and clears previous entry
   expect(library.cards).toEqual([])
   expect(library.entry).toBeNull()
 })
-it('401 removes session and private lists while preserving recovery reminders', async () => {
+it('401 removes session and private lists while leaving legacy storage alone', async () => {
   await authenticate()
   const identity = useIdentityStore()
-  identity.pendingRecoveries = [
-    {
-      account_id: 'account_other',
-      display_name: '其他',
-      created_at: new Date().toISOString(),
-      pending: true,
-    },
-  ]
+  const key = 'twoworlds.recovery.pending.v1.account_other'
+  localStorage.setItem(key, '{"pending":true}')
   const pairs = usePairsStore()
   pairs.pairs = [pairA]
   vi.stubGlobal(
@@ -267,7 +248,7 @@ it('401 removes session and private lists while preserving recovery reminders', 
   await pairs.load()
   expect(identity.authenticated).toBe(false)
   expect(pairs.pairs).toEqual([])
-  expect(identity.pendingRecoveries).toHaveLength(1)
+  expect(localStorage.getItem(key)).toBe('{"pending":true}')
 })
 it('rejects a create response with a different pinned content version', async () => {
   await authenticate()

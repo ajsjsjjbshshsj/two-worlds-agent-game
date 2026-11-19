@@ -65,7 +65,7 @@ function baseline(s: GameSnapshot): Baseline {
 // Receives only accepted personal snapshots. It has no rule/command/audio tools.
 export class CausalPerformance {
   private previous: Baseline | null = null
-  private credential = ''
+  private sessionGeneration: number | undefined
   private generation = 0
   private seen = new Set<string>()
   private current: AbortController | null = null
@@ -75,12 +75,12 @@ export class CausalPerformance {
     private play: PerformancePlayer,
     private changed: (s: PerformanceState) => void = () => {},
   ) {}
-  update(snapshot: GameSnapshot, credential = '') {
+  update(snapshot: GameSnapshot, sessionGeneration?: number) {
     const next = baseline(snapshot),
       old = this.previous
-    if (!old || next.scope !== old.scope || credential !== this.credential) {
+    if (!old || next.scope !== old.scope || sessionGeneration !== this.sessionGeneration) {
       this.reset()
-      this.credential = credential
+      this.sessionGeneration = sessionGeneration
       this.previous = next
       return // First read restores the final image, including an already-true flag.
     }
@@ -194,7 +194,7 @@ export class CausalPerformance {
     this.cancel()
     this.generation++
     this.previous = null
-    this.credential = ''
+    this.sessionGeneration = undefined
     this.seen.clear()
   }
 }

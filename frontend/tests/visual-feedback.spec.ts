@@ -225,21 +225,19 @@ it('background and cue images occupy separate layers; image decode errors preser
       ],
     },
   })
-  const w = mount(SceneRenderer, { props: { snapshot, token: 'SESSION_TEST' } })
+  const w = mount(SceneRenderer, { props: { snapshot, sessionGeneration: 1 } })
   await flushPromises()
   expect(w.find('.scene-stage > .scene-background').exists()).toBe(true)
   expect(w.get('.scene-stage > .scene-overlay').attributes('data-cue')).toBe('cue_one')
   expect(w.find('figure').exists()).toBe(false)
   expect(fetch).toHaveBeenCalledTimes(2)
-  expect(new Headers(fetch.mock.calls[0]![1].headers).get('Authorization')).toBe(
-    'Bearer SESSION_TEST',
-  )
+  expect(new Headers(fetch.mock.calls[0]![1].headers).get('Authorization')).toBeNull()
   await w.get('.scene-background').trigger('error')
   expect(w.find('.scene-background').exists()).toBe(false)
   expect(w.find('svg').exists()).toBe(true)
   await w.get('.device-hotspot').trigger('click')
   expect(w.emitted('focusDevice')).toEqual([['emitter']])
-  await w.setProps({ token: undefined })
+  await w.setProps({ sessionGeneration: undefined })
   expect(w.find('img').exists()).toBe(false)
   expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2)
   w.unmount()
@@ -277,7 +275,7 @@ it('a rejected HTTP command keeps the rendered confirmed snapshot and device eff
   setActivePinia(createPinia())
   const identity = useIdentityStore()
   identity.account = me.account
-  identity.token = 'SESSION_TEST'
+  identity.sessionGeneration = 1
   identity.initialized = true
   const initial = scene('lighthouse', 'calibration', 'a', {
     emitter_angle: 0,
@@ -299,7 +297,7 @@ it('a rejected HTTP command keeps the rendered confirmed snapshot and device eff
       return { snapshot: computed(() => store.snapshot), store }
     },
     template:
-      '<SceneRenderer v-if="snapshot" :snapshot="snapshot" token="SESSION_TEST"/><ActionPanel v-if="snapshot" :actions="snapshot.available_actions" :disabled="false" @command="store.submit" />',
+      '<SceneRenderer v-if="snapshot" :snapshot="snapshot" :session-generation="1"/><ActionPanel v-if="snapshot" :actions="snapshot.available_actions" :disabled="false" @command="store.submit" />',
   })
   const w = mount(Host)
   await flushPromises()

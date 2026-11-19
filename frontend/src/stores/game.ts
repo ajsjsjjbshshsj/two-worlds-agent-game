@@ -22,7 +22,7 @@ export const useGameStore = defineStore('game', () => {
     loading.value = false
     error.value = ''
   }
-  watch(() => identity.token, reset, { flush: 'sync' })
+  watch(() => identity.sessionGeneration, reset, { flush: 'sync' })
   function failure(cause: unknown) {
     const p = cause instanceof ApiError ? cause : new ApiError(0, 'NETWORK_ERROR', true)
     if (p.status === 401) identity.expireSession()
@@ -44,8 +44,7 @@ export const useGameStore = defineStore('game', () => {
     return p
   }
   async function load(id: string) {
-    const token = identity.token
-    if (!token || !identity.authenticated) return
+    if (!identity.authenticated) return
     const old = snapshot.value
     if (old && old.id !== id) reset()
     else if (busy.value) return
@@ -54,7 +53,7 @@ export const useGameStore = defineStore('game', () => {
     loading.value = true
     error.value = ''
     try {
-      const next = await gameApi.read(token, id)
+      const next = await gameApi.read(id)
       if (g !== generation || n !== readNumber) return
       if (
         next.id !== id ||
@@ -75,9 +74,8 @@ export const useGameStore = defineStore('game', () => {
     }
   }
   async function submit(actionId: string, args: Record<string, unknown>) {
-    const s = snapshot.value,
-      token = identity.token
-    if (!s || !token || busy.value || loading.value || pending.value) return
+    const s = snapshot.value
+    if (!s || !identity.authenticated || busy.value || loading.value || pending.value) return
     const action = s.available_actions.find((a) => a.id === actionId)
     if (
       !action ||
@@ -97,14 +95,13 @@ export const useGameStore = defineStore('game', () => {
   }
   async function send() {
     const s = snapshot.value,
-      command = pending.value,
-      token = identity.token
-    if (!s || !command || !token || busy.value || loading.value) return
+      command = pending.value
+    if (!s || !command || !identity.authenticated || busy.value || loading.value) return
     const g = generation
     busy.value = true
     error.value = ''
     try {
-      const next = await gameApi.submit(token, s.id, command)
+      const next = await gameApi.submit(s.id, command)
       if (g !== generation) return
       if (
         next.id !== s.id ||

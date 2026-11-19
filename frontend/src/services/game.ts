@@ -9,14 +9,14 @@ export interface Command {
 }
 const http = createHttpClient()
 export const gameApi = {
-  async read(token: string, id: string) {
-    return parseGame(await http.request(`/api/saves/${identifier(id)}`, { token }))
+  async read(id: string) {
+    return parseGame(await http.request(`/api/saves/${identifier(id)}`, { privateSession: true }))
   },
-  async submit(token: string, id: string, command: Command) {
+  async submit(id: string, command: Command) {
     const r = object(
         await http.request(`/api/saves/${identifier(id)}/commands`, {
           method: 'POST',
-          token,
+          privateSession: true,
           body: command,
         }),
       ),

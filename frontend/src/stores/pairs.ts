@@ -19,10 +19,11 @@ export const usePairsStore = defineStore('pairs', () => {
     loading = ref(false),
     busy = ref(false)
   let epoch = 0,
-    listRequest = 0
+    listRequest = 0,
+    sessionAccount = identity.account?.id
   watch(
-    () => identity.token,
-    (next, previous) => {
+    () => identity.sessionGeneration,
+    () => {
       epoch++
       listRequest++
       pairs.value = []
@@ -31,7 +32,11 @@ export const usePairsStore = defineStore('pairs', () => {
       notice.value = ''
       loading.value = false
       busy.value = false
-      if (!next && previous) incoming.value = ''
+      if (sessionAccount) {
+        incoming.value = ''
+        inviteHint.value = '请重新打开搭档发来的原邀请链接。'
+      }
+      sessionAccount = identity.account?.id
     },
     { flush: 'sync' },
   )
@@ -57,14 +62,13 @@ export const usePairsStore = defineStore('pairs', () => {
     error.value = { code: problem.code, message: problem.message }
   }
   async function load() {
-    const token = identity.token
-    if (!token || !identity.authenticated) return
+    if (!identity.authenticated) return
     const current = epoch,
       request = ++listRequest
     loading.value = true
     error.value = null
     try {
-      const result = await pairApi.list(token)
+      const result = await pairApi.list()
       if (current === epoch && request === listRequest) {
         pairs.value = result
         if (
@@ -83,8 +87,7 @@ export const usePairsStore = defineStore('pairs', () => {
     }
   }
   async function issue(id?: string) {
-    const token = identity.token
-    if (!token || !identity.authenticated || busy.value) return null
+    if (!identity.authenticated || busy.value) return null
     const current = epoch
     busy.value = true
     error.value = null
@@ -92,7 +95,7 @@ export const usePairsStore = defineStore('pairs', () => {
     // A refresh result may be unknown; discard the old displayed capability now.
     if (id) invitation.value = null
     try {
-      const result = id ? await pairApi.refresh(token, id) : await pairApi.create(token)
+      const result = id ? await pairApi.refresh(id) : await pairApi.create()
       if (current !== epoch) return null
       invitation.value = result
       notice.value = id ? '新邀请已生成，旧链接已失效。' : '房间已创建，请把邀请链接交给搭档。'
@@ -111,16 +114,12 @@ export const usePairsStore = defineStore('pairs', () => {
     }
   }
   async function join() {
-    if (!identity.authenticated || !identity.token || busy.value || !incoming.value) return null
-    if (identity.currentRecoveryKeyPending) {
-      fail(new ApiError(0, 'KEY_NOT_CONFIRMED', false))
-      return null
-    }
+    if (!identity.authenticated || busy.value || !incoming.value) return null
     const current = epoch
     busy.value = true
     error.value = null
     try {
-      const result = await pairApi.join(identity.token, incoming.value)
+      const result = await pairApi.join(incoming.value)
       if (current !== epoch) return null
       incoming.value = ''
       await load()

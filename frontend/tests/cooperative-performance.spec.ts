@@ -143,8 +143,8 @@ it.each(['save', 'pair', 'role', 'script', 'version', 'credential', 'unmount', '
   'critical %s switch cancels old work and ignores late completion',
   async (change) => {
     const { c, play, pending, states } = setup()
-    c.update(snapshot('lighthouse', 'a', 10, 'decision'), 'TEST')
-    c.update(snapshot('lighthouse', 'a', 11, 'completed', {}, 'guide_now'), 'TEST')
+    c.update(snapshot('lighthouse', 'a', 10, 'decision'), 1)
+    c.update(snapshot('lighthouse', 'a', 11, 'completed', {}, 'guide_now'), 1)
     const next = {
       ...snapshot('lighthouse', 'a', 12, 'completed', {}, 'guide_now'),
       ...(change === 'save' ? { id: 'save_other' } : {}),
@@ -155,7 +155,7 @@ it.each(['save', 'pair', 'role', 'script', 'version', 'credential', 'unmount', '
     }
     if (change === 'unmount') c.reset()
     else if (change === 'hidden') c.setMotionAllowed(false)
-    else c.update(next, change === 'credential' ? 'OTHER' : 'TEST')
+    else c.update(next, change === 'credential' ? 2 : 1)
     expect(pending[0]!.signal.aborted).toBe(true)
     pending[0]!.resolve()
     await flushPromises()

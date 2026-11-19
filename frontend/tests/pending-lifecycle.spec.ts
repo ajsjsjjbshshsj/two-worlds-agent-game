@@ -1,156 +1,109 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { useIdentityStore, SESSION_KEY } from '../src/stores/identity'
-import {
-  json,
-  pendingA as a,
-  pendingB as b,
-  pendingC as c,
-  pendingMetadata as record,
-} from './fixtures'
+import { useIdentityStore } from '../src/stores/identity'
+import { useGameStore } from '../src/stores/game'
+import { usePairsStore } from '../src/stores/pairs'
+import { useLibraryStore } from '../src/stores/library'
+import { deferred, fail, json, loginInput, me, noContent, other, resetInput } from './fixtures'
+import { pairA, invitation, summary, script } from './resource-fixtures'
+import { game as gameSnapshot } from './game-fixture'
 
-const prefix = 'twoworlds.recovery.pending.v1.'
-beforeEach(() => {
-  setActivePinia(createPinia())
-  sessionStorage.clear()
-  localStorage.clear()
-})
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
+beforeEach(() => setActivePinia(createPinia()))
+afterEach(() => vi.unstubAllGlobals())
 
-it('creation stores only per-account whitelisted metadata, never credentials', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(a)))
-  const store = useIdentityStore()
-  expect(await store.create(a.account.display_name)).toBe(a.recovery_key)
-  const raw = JSON.parse(localStorage.getItem(prefix + a.account.id) ?? 'null')
-  expect(raw).toEqual({
-    account_id: a.account.id,
-    display_name: a.account.display_name,
-    created_at: expect.any(String),
-    pending: true,
-  })
-  expect(Number.isFinite(Date.parse(raw.created_at))).toBe(true)
-  expect(store.$state).toMatchObject({ pendingRecoveries: [raw] })
-  for (const secret of [a.recovery_key, a.session.token])
-    expect(JSON.stringify(localStorage)).not.toContain(secret)
-  expect(JSON.stringify(sessionStorage)).not.toContain(a.recovery_key)
-  expect(sessionStorage.getItem(SESSION_KEY)).toBe(a.session.token)
-})
-it('recovering B does not clear A, and recovering A clears only A', async () => {
-  localStorage.setItem(prefix + a.account.id, JSON.stringify(record(a.account)))
-  localStorage.setItem(prefix + b.account.id, JSON.stringify(record(b.account)))
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json(b)).mockResolvedValueOnce(json(a)))
-  const store = useIdentityStore()
-  await store.recover(b.recovery_key)
-  expect(localStorage.getItem(prefix + a.account.id)).toBe(JSON.stringify(record(a.account)))
-  expect(localStorage.getItem(prefix + b.account.id)).toBeNull()
-  expect(store.$state).toMatchObject({ pendingRecoveries: [record(a.account)] })
-  localStorage.setItem(prefix + c.account.id, JSON.stringify(record(c.account)))
-  await store.recover(a.recovery_key)
-  expect(localStorage.getItem(prefix + a.account.id)).toBeNull()
-  expect(localStorage.getItem(prefix + c.account.id)).toBe(JSON.stringify(record(c.account)))
-})
-it('creating A B C then confirming C preserves A and B; confirming B affects only B', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi
-      .fn()
-      .mockResolvedValueOnce(json(a))
-      .mockResolvedValueOnce(json(b))
-      .mockResolvedValueOnce(json(c)),
-  )
-  const store = useIdentityStore()
-  for (const item of [a, b, c]) await store.create(item.account.display_name)
-  store.confirmRecoveryKeySaved(c.account.id)
-  expect(localStorage.getItem(prefix + a.account.id)).not.toBeNull()
-  expect(localStorage.getItem(prefix + b.account.id)).not.toBeNull()
-  expect(localStorage.getItem(prefix + c.account.id)).toBeNull()
-  store.confirmRecoveryKeySaved(b.account.id)
-  expect(localStorage.getItem(prefix + a.account.id)).not.toBeNull()
-  expect(localStorage.getItem(prefix + b.account.id)).toBeNull()
-})
-it('logout preserves pending across a new store with no session', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi
-      .fn()
-      .mockResolvedValueOnce(json(a))
-      .mockResolvedValueOnce(new Response(null, { status: 204 })),
-  )
-  const store = useIdentityStore()
-  await store.create(a.account.display_name)
-  await store.logout()
-  expect(store.account).toBeNull()
-  expect(sessionStorage.getItem(SESSION_KEY)).toBeNull()
-  const raw = localStorage.getItem(prefix + a.account.id)
-  expect(raw).not.toBeNull()
-  setActivePinia(createPinia())
-  const reopened = useIdentityStore()
-  await reopened.initialize()
-  expect(reopened.$state).toMatchObject({ pendingRecoveries: [JSON.parse(raw!)] })
-})
-it('blocked localStorage keeps the record in memory and explicitly warns', async () => {
-  const original = Storage.prototype.setItem
-  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
-    this: Storage,
-    key: string,
-    value: string,
-  ) {
-    if (this === localStorage) throw new Error('blocked')
-    original.call(this, key, value)
-  })
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(a)))
-  const store = useIdentityStore()
-  await store.create(a.account.display_name)
-  expect(store.$state).toMatchObject({
-    pendingRecoveries: [expect.objectContaining({ account_id: a.account.id })],
-  })
-  expect(store.pendingStorageWarning).toBeTruthy()
-})
-it('rejects malformed or credential-bearing metadata without deleting stored data', async () => {
-  localStorage.setItem(
-    prefix + a.account.id,
-    JSON.stringify({ ...record(), recovery_key: 'PRIVATE_SECRET' }),
-  )
-  localStorage.setItem(prefix + b.account.id, JSON.stringify({ ...record(a.account) }))
-  localStorage.setItem(prefix + c.account.id, '{bad json')
-  const store = useIdentityStore()
-  await store.initialize()
-  expect(store.$state).toMatchObject({ pendingRecoveries: [] })
-  expect(JSON.stringify(store.$state)).not.toContain('PRIVATE_SECRET')
-  expect(store.pendingStorageWarning).toBeTruthy()
-  expect(localStorage.length).toBe(3)
-})
-it('localStorage read failure does not erase already-created memory reminders', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json(a)).mockResolvedValueOnce(json(b)))
-  const store = useIdentityStore()
-  await store.create(a.account.display_name)
-  vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
-    throw new Error('blocked')
-  })
-  await store.create(b.account.display_name)
-  expect(store.pendingRecoveries.map((record) => record.account_id)).toEqual([
-    a.account.id,
-    b.account.id,
-  ])
-  expect(store.pendingStorageWarning).toBeTruthy()
-})
-it('failed removal warns without erasing other identities or touching their persisted records', async () => {
-  for (const item of [a, b])
-    localStorage.setItem(prefix + item.account.id, JSON.stringify(record(item.account)))
-  const store = useIdentityStore()
-  await store.initialize()
-  const original = Storage.prototype.removeItem
-  vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
-    this: Storage,
-    key: string,
-  ) {
-    if (this === localStorage) throw new Error('blocked')
-    original.call(this, key)
-  })
-  store.confirmRecoveryKeySaved(a.account.id)
-  expect(store.pendingRecoveries).toEqual([record(b.account)])
-  expect(store.pendingStorageWarning).toContain('重开后可能再次出现')
-  expect(localStorage.getItem(prefix + b.account.id)).toBe(JSON.stringify(record(b.account)))
+async function setup() {
+  const fetch = vi.fn().mockResolvedValueOnce(json(me))
+  vi.stubGlobal('fetch', fetch)
+  const identity = useIdentityStore()
+  const game = useGameStore()
+  const pairs = usePairsStore()
+  const library = useLibraryStore()
+  await identity.initialize()
+  return { fetch, identity, game, pairs, library }
+}
+const gameResult = gameSnapshot()
+
+it.each(['logout', 'reset', 'expire'] as const)(
+  '%s clears private state and discards late results from every store',
+  async (event) => {
+    const { fetch, identity, game, pairs, library } = await setup()
+    fetch
+      .mockResolvedValueOnce(json(gameResult))
+      .mockResolvedValueOnce(json(invitation))
+      .mockResolvedValueOnce(json([pairA]))
+      .mockResolvedValueOnce(json([script]))
+      .mockResolvedValueOnce(json([summary]))
+    await game.load('save_one')
+    await pairs.create()
+    await library.load(pairA.id)
+    expect(game.snapshot).toBeTruthy()
+    expect(pairs.invitation).toBeTruthy()
+    expect(library.saves).toHaveLength(1)
+    const staleGame = deferred<Response>()
+    const stalePairs = deferred<Response>()
+    const staleLibrary = deferred<Response>()
+    fetch
+      .mockReturnValueOnce(staleGame.promise)
+      .mockReturnValueOnce(stalePairs.promise)
+      .mockReturnValueOnce(staleLibrary.promise)
+    const inflight = [game.load('save_one'), pairs.load(), library.read('save_one')]
+    if (event === 'expire') identity.expireSession()
+    else {
+      fetch.mockResolvedValueOnce(noContent())
+      expect(
+        await (event === 'logout' ? identity.logout() : identity.resetPassword(resetInput)),
+      ).toBe(true)
+    }
+    staleGame.resolve(json(gameResult))
+    stalePairs.resolve(json([pairA]))
+    staleLibrary.resolve(json(gameResult))
+    await Promise.all(inflight)
+    expect(identity.authenticated).toBe(false)
+    expect(game.snapshot).toBeNull()
+    expect(library.entry).toBeNull()
+    expect(library.saves).toEqual([])
+    expect(pairs.pairs).toEqual([])
+    expect(pairs.invitation).toBeNull()
+  },
+)
+
+it.each([200, 401] as const)(
+  'late game response %i cannot replace or expire a new account',
+  async (status) => {
+    const { fetch, identity, game } = await setup()
+    const response = deferred<Response>()
+    fetch.mockReturnValueOnce(response.promise).mockResolvedValueOnce(json(other))
+    const old = game.load('save_one')
+    expect(await identity.login({ ...loginInput, email: other.account.email })).toBe(true)
+    fetch.mockResolvedValueOnce(json({ ...gameResult, role: 'b' }))
+    await game.load('save_one')
+    response.resolve(status === 200 ? json(gameResult) : fail(401))
+    await old
+    expect(game.snapshot?.role).toBe('b')
+    expect(identity.account).toEqual(other.account)
+  },
+)
+
+it.each([503, 0] as const)(
+  'private resource failure %i preserves the verified account and snapshot',
+  async (status) => {
+    const { fetch, identity, game } = await setup()
+    fetch.mockResolvedValueOnce(json(gameResult))
+    await game.load('save_one')
+    if (status) fetch.mockResolvedValueOnce(fail(status))
+    else fetch.mockRejectedValueOnce(new TypeError('PRIVATE'))
+    await game.load('save_one')
+    expect(identity.account).toEqual(me.account)
+    expect(game.snapshot?.id).toBe('save_one')
+    expect(game.error).not.toContain('PRIVATE')
+  },
+)
+
+it('a current game 401 clears the authenticated snapshot', async () => {
+  const { fetch, identity, game } = await setup()
+  fetch.mockResolvedValueOnce(json(gameResult)).mockResolvedValueOnce(fail(401))
+  await game.load('save_one')
+  await game.load('save_one')
+  expect(identity.authenticated).toBe(false)
+  expect(game.snapshot).toBeNull()
 })
