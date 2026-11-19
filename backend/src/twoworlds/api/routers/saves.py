@@ -4,7 +4,12 @@ from twoworlds.api.auth import Authenticated, current_identity
 from twoworlds.api.schemas.saves import CreateSave
 from twoworlds.api.schemas.commands import SubmitCommand
 from twoworlds.application.commands import RequestId, ReceiptFound, ReceiptMissing
-from twoworlds.application.saves import CommandResponse, SaveSnapshot, SaveSummary
+from twoworlds.application.saves import (
+    CommandResponse,
+    SaveSnapshot,
+    SaveSummary,
+    VoiceStatus,
+)
 from twoworlds.content.schema import ScriptMetadata
 
 router = APIRouter()
@@ -73,6 +78,13 @@ def submit_command(
     return request.app.state.save_service.submit_command(
         identity.account.id, save_id, body
     )
+
+
+@router.get("/api/saves/{save_id}/voice", response_model=VoiceStatus)
+def voice_status(
+    save_id: str, request: Request, identity: Authenticated = Depends(current_identity)
+):
+    return request.app.state.save_service.voice_status(identity.account.id, save_id)
 
 
 @router.get(

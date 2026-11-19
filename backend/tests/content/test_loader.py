@@ -171,6 +171,64 @@ def test_json_parser_recursion_failure_is_reported_without_a_raw_traceback(libra
     expect_error("CONTENT_INVALID_JSON", library)
 
 
+@pytest.mark.parametrize("depth", [65, 200, 800, 1400, 3000, 10000])
+def test_deep_nesting_is_json_error_regardless_of_platform_recursion_limit(
+    library, depth
+):
+    # 解析器递归上限随平台/解释器不同：深层嵌套必须统一落在解析阶段拒绝，
+    # 不能因为某平台恰好解析成功就漂移到Schema分类（PR #34云端失败根因）。
+    (library / "schema_example/1.0.0.json").write_bytes(
+        ("[" * depth + "0" + "]" * depth).encode("utf-8")
+    )
+    expect_error("CONTENT_INVALID_JSON", library)
+
+
+def test_deep_object_nesting_is_json_error(library):
+    depth = 3000
+    (library / "schema_example/1.0.0.json").write_text(
+        '{"a":' * depth + "0" + "}" * depth, encoding="utf-8"
+    )
+    expect_error("CONTENT_INVALID_JSON", library)
+
+
+def test_nesting_at_parse_limit_still_reaches_schema_stage(library):
+    # 深度恰在解析边界内：顶层数组语法有效，不满足内容模型属于Schema阶段失败，
+    # 证明分类按实际失败阶段而不是按深度一刀切。
+    api = loader_api()
+    (library / "schema_example/1.0.0.json").write_bytes(
+        ("[" * api.MAX_JSON_DEPTH + "0" + "]" * api.MAX_JSON_DEPTH).encode("utf-8")
+    )
+    expect_error("CONTENT_INVALID_SCHEMA", library)
+
+
+def test_nesting_just_over_parse_limit_is_json_error(library):
+    api = loader_api()
+    depth = api.MAX_JSON_DEPTH + 1
+    (library / "schema_example/1.0.0.json").write_bytes(
+        ("[" * depth + "0" + "]" * depth).encode("utf-8")
+    )
+    expect_error("CONTENT_INVALID_JSON", library)
+
+
+def test_schema_stage_recursion_error_is_contained(library, monkeypatch):
+    api = loader_api()
+
+    def explode(*args, **kwargs):
+        raise RecursionError("PRIVATE_RECURSION_DETAIL")
+
+    monkeypatch.setattr(api.ScriptVersion, "model_validate", explode)
+    error = expect_error("CONTENT_INVALID_SCHEMA", library)
+    assert "PRIVATE_RECURSION_DETAIL" not in str(error)
+    assert error.__suppress_context__ is True
+
+
+def test_brackets_inside_strings_do_not_count_as_nesting(library, document):
+    document["metadata"]["title"] = "[" * 900 + "{" * 900
+    write_version(library, document)
+    script = loader_api().ScriptLoader(library).load("schema_example", "1.0.0")
+    assert script.metadata.title == "[" * 900 + "{" * 900
+
+
 def test_directory_is_not_a_script_file(tmp_path):
     root = tmp_path / "scripts"
     (root / "schema_example/1.0.0.json").mkdir(parents=True)

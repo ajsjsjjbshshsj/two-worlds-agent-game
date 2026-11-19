@@ -9,6 +9,10 @@ from pydantic import TypeAdapter, ValidationError
 from .schema import Identifier, ScriptVersion, Version
 
 MAX_SCRIPT_BYTES = 1024 * 1024
+# 解析器递归上限随平台/解释器不同；没有显式深度边界时，同一份深层嵌套在
+# 有的平台解析失败（JSON类），有的平台解析成功后落进Schema校验（Schema类）。
+# 深度与重复键、非标准常量一样属于解析阶段输入约束，统一在此拒绝。
+MAX_JSON_DEPTH = 64
 _REFERENCE = TypeAdapter(tuple[Identifier, Version])
 _MESSAGES = {
     "CONTENT_INVALID_ROOT": "剧本根目录必须是现有目录。",
@@ -17,7 +21,7 @@ _MESSAGES = {
     "CONTENT_PATH_FORBIDDEN": "剧本路径无法安全解析或超出内容根目录。",
     "CONTENT_READ_FAILED": "剧本版本不是普通文件或无法读取。",
     "CONTENT_TOO_LARGE": "剧本文件超过允许的大小。",
-    "CONTENT_INVALID_JSON": "剧本必须是无重复键的有效UTF-8 JSON。",
+    "CONTENT_INVALID_JSON": f"剧本必须是无重复键、嵌套不超过{MAX_JSON_DEPTH}层的有效UTF-8 JSON。",
     "CONTENT_INVALID_SCHEMA": "剧本未通过内容结构或引用校验。",
     "CONTENT_IDENTITY_MISMATCH": "文件内的剧本ID或版本与请求不匹配。",
 }
@@ -44,6 +48,30 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _reject_constant(value: str) -> None:
     # Python的JSON解析器默认接受NaN/Infinity，但它们不是标准JSON常量。
     raise ValueError("non-finite JSON constant")
+
+
+def _check_nesting_depth(text: str) -> None:
+    # 字符串内的括号不计深度；转义引号不结束字符串。超限按解析阶段输入拒绝。
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise ValueError("JSON nesting too deep")
+        elif char in "]}":
+            depth -= 1
 
 
 class ScriptLoader:
@@ -93,8 +121,10 @@ class ScriptLoader:
             raise ScriptLoadError("CONTENT_TOO_LARGE")
 
         try:
+            text = raw.decode("utf-8")
+            _check_nesting_depth(text)
             data = json.loads(
-                raw.decode("utf-8"),
+                text,
                 object_pairs_hook=_unique_object,
                 parse_constant=_reject_constant,
             )
@@ -102,8 +132,9 @@ class ScriptLoader:
             raise ScriptLoadError("CONTENT_INVALID_JSON") from None
         try:
             script = ScriptVersion.model_validate(data)
-        except ValidationError:
-            # 不把Pydantic的原始input/错误上下文带入默认异常和普通日志。
+        except (ValidationError, RecursionError):
+            # 不把Pydantic的原始input/错误上下文带入默认异常和普通日志；
+            # Schema阶段的递归失败同样不允许裸露RecursionError。
             raise ScriptLoadError("CONTENT_INVALID_SCHEMA") from None
         if (
             script.metadata.id != script_id
