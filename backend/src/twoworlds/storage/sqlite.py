@@ -13,8 +13,10 @@ from twoworlds.domain.persistence import (
     CommandReceipt,
     Digest,
     PairRecord,
+    RateLimitRecord,
     SaveRecord,
     UTCDateTime,
+    VerificationCodeRecord,
 )
 from twoworlds.ports.repository import (
     CorruptRecord,
@@ -31,7 +33,7 @@ _TIME = TypeAdapter(UTCDateTime)
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
     account_id TEXT PRIMARY KEY NOT NULL,
-    recovery_digest TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
     version INTEGER NOT NULL CHECK(version >= 0),
     document TEXT NOT NULL
 );
@@ -40,6 +42,21 @@ CREATE TABLE IF NOT EXISTS account_sessions (
     account_id TEXT NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS sessions_account ON account_sessions(account_id);
+CREATE TABLE IF NOT EXISTS verification_codes (
+    code_id TEXT PRIMARY KEY NOT NULL,
+    email TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK(version >= 0),
+    expires_at REAL NOT NULL,
+    document TEXT NOT NULL,
+    UNIQUE(email, purpose)
+);
+CREATE TABLE IF NOT EXISTS rate_limits (
+    rate_id TEXT PRIMARY KEY NOT NULL,
+    version INTEGER NOT NULL CHECK(version >= 0),
+    expires_at REAL NOT NULL,
+    document TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pairs (
     pair_id TEXT PRIMARY KEY NOT NULL,
     invite_digest TEXT UNIQUE NOT NULL,
@@ -64,7 +81,17 @@ CREATE TABLE IF NOT EXISTS saves (
 _INDEX_FIELDS = {
     AccountRecord: {
         "account_id": "id",
-        "recovery_digest": "recovery_digest",
+        "email": "email",
+        "version": "version",
+    },
+    VerificationCodeRecord: {
+        "code_id": "id",
+        "email": "email",
+        "purpose": "purpose",
+        "version": "version",
+    },
+    RateLimitRecord: {
+        "rate_id": "id",
         "version": "version",
     },
     PairRecord: {
@@ -148,7 +175,7 @@ class SQLiteRepository:
         )
         try:
             if self._uri:
-                self._keeper = self._connect()
+                self._keeper = self._connect(keeper=True)
             with self._transaction(write=True) as connection:
                 for statement in _SCHEMA.split(";"):
                     if statement.strip():
@@ -157,9 +184,14 @@ class SQLiteRepository:
             self.close()
             raise
 
-    def _connect(self):
+    def _connect(self, *, keeper=False):
         connection = sqlite3.connect(
-            self._path, uri=self._uri, isolation_level=None, timeout=5
+            self._path,
+            uri=self._uri,
+            isolation_level=None,
+            timeout=5,
+            # The shared-cache keeper may be closed from another thread (ASGI lifespan).
+            check_same_thread=not keeper,
         )
         try:
             connection.row_factory = sqlite3.Row
@@ -232,8 +264,8 @@ class SQLiteRepository:
         account = _candidate(account, AccountRecord)
         with self._transaction(write=True) as connection:
             connection.execute(
-                "INSERT INTO accounts(account_id,recovery_digest,version,document) VALUES (?,?,?,?)",
-                (account.id, account.recovery_digest, account.version, dumps(account)),
+                "INSERT INTO accounts(account_id,email,version,document) VALUES (?,?,?,?)",
+                (account.id, account.email, account.version, dumps(account)),
             )
             self._sessions(connection, account)
         return account
@@ -247,12 +279,12 @@ class SQLiteRepository:
                 ).fetchone(),
             )
 
-    def get_account_by_recovery_digest(self, digest: Digest) -> AccountRecord | None:
+    def get_account_by_email(self, email: str) -> AccountRecord | None:
         with self._transaction() as connection:
             return self._account(
                 connection,
                 connection.execute(
-                    "SELECT * FROM accounts WHERE recovery_digest=?", (digest,)
+                    "SELECT * FROM accounts WHERE email=?", (email,)
                 ).fetchone(),
             )
 
@@ -290,7 +322,7 @@ class SQLiteRepository:
             if current is None or current.version != expected_version:
                 return False
             candidate = _candidate(candidate, AccountRecord)
-            _transition(current, candidate, ("id", "recovery_digest", "created_at"))
+            _transition(current, candidate, ("id", "email", "created_at"))
             changed = connection.execute(
                 "UPDATE accounts SET version=?,document=? WHERE account_id=? AND version=?",
                 (candidate.version, dumps(candidate), account_id, expected_version),
@@ -299,6 +331,131 @@ class SQLiteRepository:
                 return False
             self._sessions(connection, candidate)
             return True
+
+    def create_verification_code(
+        self, record: VerificationCodeRecord
+    ) -> VerificationCodeRecord:
+        record = _candidate(record, VerificationCodeRecord)
+        with self._transaction(write=True) as connection:
+            connection.execute(
+                "INSERT INTO verification_codes(code_id,email,purpose,version,expires_at,document) VALUES (?,?,?,?,?,?)",
+                (
+                    record.id,
+                    record.email,
+                    record.purpose,
+                    record.version,
+                    record.expires_at.timestamp(),
+                    dumps(record),
+                ),
+            )
+        return record
+
+    def get_verification_code(self, code_id: str) -> VerificationCodeRecord | None:
+        with self._transaction() as connection:
+            return _decode(
+                connection.execute(
+                    "SELECT * FROM verification_codes WHERE code_id=?", (code_id,)
+                ).fetchone(),
+                VerificationCodeRecord,
+            )
+
+    def compare_and_swap_verification_code(
+        self, code_id: str, expected_version: int, candidate: VerificationCodeRecord
+    ) -> bool:
+        _expected(expected_version)
+        with self._transaction(write=True) as connection:
+            current = _decode(
+                connection.execute(
+                    "SELECT * FROM verification_codes WHERE code_id=?", (code_id,)
+                ).fetchone(),
+                VerificationCodeRecord,
+            )
+            if current is None or current.version != expected_version:
+                return False
+            candidate = _candidate(candidate, VerificationCodeRecord)
+            _transition(current, candidate, ("id", "email", "purpose"))
+            return bool(
+                connection.execute(
+                    "UPDATE verification_codes SET version=?,expires_at=?,document=? WHERE code_id=? AND version=?",
+                    (
+                        candidate.version,
+                        candidate.expires_at.timestamp(),
+                        dumps(candidate),
+                        code_id,
+                        expected_version,
+                    ),
+                ).rowcount
+            )
+
+    def delete_expired_verification_codes(self, now: datetime) -> int:
+        now = _now(now)
+        with self._transaction(write=True) as connection:
+            return connection.execute(
+                "DELETE FROM verification_codes WHERE expires_at<=?",
+                (now.timestamp(),),
+            ).rowcount
+
+    def create_rate_limit(self, record: RateLimitRecord) -> RateLimitRecord:
+        record = _candidate(record, RateLimitRecord)
+        with self._transaction(write=True) as connection:
+            connection.execute(
+                "INSERT INTO rate_limits(rate_id,version,expires_at,document) VALUES (?,?,?,?)",
+                (
+                    record.id,
+                    record.version,
+                    record.expires_at.timestamp(),
+                    dumps(record),
+                ),
+            )
+        return record
+
+    def get_rate_limit(self, rate_id: str) -> RateLimitRecord | None:
+        with self._transaction() as connection:
+            return _decode(
+                connection.execute(
+                    "SELECT * FROM rate_limits WHERE rate_id=?", (rate_id,)
+                ).fetchone(),
+                RateLimitRecord,
+            )
+
+    def compare_and_swap_rate_limit(
+        self, rate_id: str, expected_version: int, candidate: RateLimitRecord
+    ) -> bool:
+        _expected(expected_version)
+        with self._transaction(write=True) as connection:
+            current = _decode(
+                connection.execute(
+                    "SELECT * FROM rate_limits WHERE rate_id=?", (rate_id,)
+                ).fetchone(),
+                RateLimitRecord,
+            )
+            if current is None or current.version != expected_version:
+                return False
+            candidate = _candidate(candidate, RateLimitRecord)
+            _transition(current, candidate, ("id",))
+            return bool(
+                connection.execute(
+                    "UPDATE rate_limits SET version=?,expires_at=?,document=? WHERE rate_id=? AND version=?",
+                    (
+                        candidate.version,
+                        candidate.expires_at.timestamp(),
+                        dumps(candidate),
+                        rate_id,
+                        expected_version,
+                    ),
+                ).rowcount
+            )
+
+    def delete_expired_rate_limits(self, now: datetime) -> int:
+        now = _now(now)
+        with self._transaction(write=True) as connection:
+            return connection.execute(
+                "DELETE FROM rate_limits WHERE expires_at<=?", (now.timestamp(),)
+            ).rowcount
+
+    def count_rate_limits(self) -> int:
+        with self._transaction() as connection:
+            return connection.execute("SELECT COUNT(*) FROM rate_limits").fetchone()[0]
 
     def create_pair(self, pair: PairRecord) -> PairRecord:
         pair = _candidate(pair, PairRecord)

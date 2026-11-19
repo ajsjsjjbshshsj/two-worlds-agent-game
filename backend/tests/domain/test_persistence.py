@@ -151,13 +151,16 @@ def test_account_sessions_are_bounded_unique_and_timezone_aware(now):
     )
     account = AccountRecord(
         id="account_a",
+        email="traveler@example.com",
+        email_verified_at=now,
+        password_hash="$argon2id$v=19$m=65536,t=3,p=4$" + "a" * 40,
         display_name="旅人",
-        recovery_digest=digest("f"),
         sessions=sessions,
         created_at=now,
         updated_at=now,
     )
     assert loads(dumps(account), AccountRecord) == account
+    assert "password_hash" not in repr(account)
     with pytest.raises(ValidationError):
         AccountRecord.model_validate(
             {**account.model_dump(), "sessions": sessions + (sessions[0],)}
@@ -354,11 +357,42 @@ def test_account_revalidates_unchecked_session_instances(now):
     with pytest.raises(ValidationError):
         AccountRecord(
             id="account_a",
+            email="traveler@example.com",
+            email_verified_at=now,
+            password_hash="$argon2id$v=19$m=65536,t=3,p=4$" + "b" * 40,
             display_name="旅人",
-            recovery_digest=digest("b"),
             sessions=(forged,),
             created_at=now,
             updated_at=now,
+        )
+
+
+def test_account_email_normalizes_and_password_hash_is_bounded(now):
+    base = {
+        "id": "account_a",
+        "email_verified_at": now,
+        "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$" + "c" * 40,
+        "display_name": "旅人",
+        "created_at": now,
+        "updated_at": now,
+    }
+    account = AccountRecord.model_validate(base | {"email": "  Traveler@Example.COM "})
+    assert account.email == "traveler@example.com"
+    for email in ("no-at-sign", "a@b", "x" * 250 + "@example.com", "空格@example.com"):
+        with pytest.raises(ValidationError):
+            AccountRecord.model_validate(base | {"email": email})
+    for password_hash in ("short", "x" * 513):
+        with pytest.raises(ValidationError):
+            AccountRecord.model_validate(
+                base | {"email": "t@example.com", "password_hash": password_hash}
+            )
+    with pytest.raises(ValidationError):
+        AccountRecord.model_validate(
+            base
+            | {
+                "email": "t@example.com",
+                "email_verified_at": now - timedelta(seconds=1),
+            }
         )
 
 

@@ -11,12 +11,11 @@ MAX_CLIENT_MESSAGE_BYTES = 4096
 
 @dataclass(frozen=True)
 class WebSocketTiming:
-    auth_timeout: float = 10
     heartbeat_interval: float = 10
     pong_timeout: float = 5
 
     def __post_init__(self):
-        for value in (self.auth_timeout, self.heartbeat_interval, self.pong_timeout):
+        for value in (self.heartbeat_interval, self.pong_timeout):
             if not isfinite(value) or value <= 0:
                 raise ValueError("WebSocket deadlines must be finite and positive")
 
@@ -58,18 +57,6 @@ def _read_object(text: str) -> dict:
     if not isinstance(message, dict):
         raise ConnectionRejected(CloseCode.INVALID_MESSAGE)
     return message
-
-
-def auth_token(text: str) -> str:
-    message = _read_object(text)
-    if (
-        message.keys() != {"type", "token"}
-        or message["type"] != "auth"
-        or type(message["token"]) is not str
-        or not message["token"]
-    ):
-        raise ConnectionRejected(CloseCode.INVALID_MESSAGE)
-    return message["token"]
 
 
 def require_pong(text: str, ping_id: int) -> None:

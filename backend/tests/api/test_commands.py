@@ -11,6 +11,7 @@ import pytest
 
 from tests.api import test_saves as lifecycle
 from tests.contracts.support import Platform, command, error, ok
+from tests.identity_support import RELAXED_POLICIES, TEST_SECRET, FakeEmailSender
 from twoworlds.api.app import create_app
 
 save_apps = lifecycle.save_apps
@@ -255,9 +256,20 @@ def test_noop_invalid_configuration_stale_and_unauthorized(world):
         404,
         "SAVE_NOT_FOUND",
     )
-    error(game.http.post(f"/api/saves/{current['id']}/commands", json=payload), 401)
+    # 显式非会话Cookie覆盖cookie jar，证明"无凭证"而非"最近登录者"。
     error(
-        game.http.get(f"/api/saves/{current['id']}/receipts/{payload['request_id']}"),
+        game.http.post(
+            f"/api/saves/{current['id']}/commands",
+            json=payload,
+            headers={"Origin": "http://testserver", "Cookie": "other=none"},
+        ),
+        401,
+    )
+    error(
+        game.http.get(
+            f"/api/saves/{current['id']}/receipts/{payload['request_id']}",
+            headers={"Cookie": "other=none"},
+        ),
         401,
     )
     error(
@@ -432,7 +444,10 @@ def test_closed_app_restores_identity_receipts_and_old_request(
             repository=repository,
             publication_store=store,
             identity_clock=lambda: now,
-            rate_limit=100,
+            allowed_origins=["http://testserver"],
+            email_sender=FakeEmailSender(),
+            verification_secret=TEST_SECRET,
+            rate_policies=RELAXED_POLICIES,
         )
 
     original_repo = save_repository_factory()
@@ -459,7 +474,7 @@ def test_closed_app_restores_identity_receipts_and_old_request(
     assert reopened_repo is not original_repo
     with TestClient(app(reopened_repo)) as client:
         game = Platform(client, lambda: None)
-        restored = game.recover(a)
+        restored = game.login(a)
         assert restored.account_id == a.account_id and restored.token != a.token
         assert game.read(restored, save) == expected
         assert (

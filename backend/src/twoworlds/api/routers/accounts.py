@@ -1,20 +1,26 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
+from twoworlds.api.cookies import set_session_cookie
 from twoworlds.api.schemas.identity import (
-    CreateAccount,
-    CreatedIdentity,
-    SessionCredential,
+    IdentityView,
+    RegisterAccount,
+    SessionView,
     account_view,
 )
 
 router = APIRouter()
 
 
-@router.post("/api/accounts", response_model=CreatedIdentity)
-def create_account(body: CreateAccount, request: Request):
-    result = request.app.state.identity_service.create_account(body.display_name)
-    return CreatedIdentity(
+@router.post("/api/accounts", response_model=IdentityView)
+def register(body: RegisterAccount, request: Request, response: Response):
+    state = request.app.state
+    # Consume first: a duplicate-email 409 may only follow a valid code.
+    state.verification_service.consume(body.email, "register", body.code)
+    result = state.identity_service.register(
+        body.email, body.password, body.display_name
+    )
+    set_session_cookie(response, result.token, secure=state.cookie_secure)
+    return IdentityView(
         account=account_view(result.account),
-        recovery_key=result.recovery_key,
-        session=SessionCredential(token=result.token, expires_at=result.expires_at),
+        session=SessionView(expires_at=result.expires_at),
     )

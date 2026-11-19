@@ -2,7 +2,6 @@
 
 from contextlib import asynccontextmanager, ExitStack
 from importlib import resources
-import time
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI
@@ -11,16 +10,38 @@ from starlette.middleware.cors import CORSMiddleware
 
 from twoworlds.application.identity import IdentityService
 from twoworlds.application.pairs import PairService
+from twoworlds.application.rate_limit import RateLimitPolicy, SharedRateLimiter
 from twoworlds.application.saves import SaveService
+from twoworlds.application.verification import VerificationCodeService
 from twoworlds.content.publication import PublicationStore
+from twoworlds.ports.email import EmailCodeSender
 from twoworlds.ports.repository import Repository
 from twoworlds.realtime.protocol import WebSocketTiming
 
 from .errors import failure, install_handlers
-from .rate_limit import RateLimiter
-from .routers import accounts, pairs, saves, sessions, websocket
+from .routers import (
+    accounts,
+    pairs,
+    password_resets,
+    saves,
+    sessions,
+    verification,
+    websocket,
+)
 
 MAX_BODY_BYTES = 16 * 1024
+_STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
+
+DEFAULT_RATE_POLICIES = {
+    "code_email_minute": RateLimitPolicy(1, 60),
+    "code_email_hour": RateLimitPolicy(5, 3600),
+    "code_ip_hour": RateLimitPolicy(10, 3600),
+    "login_minute": RateLimitPolicy(5, 60),
+    "login_hour": RateLimitPolicy(20, 3600),
+    # Per-IP ceiling so rotating the email cannot bypass Argon2 work unbounded.
+    "login_ip_minute": RateLimitPolicy(30, 60),
+    "login_ip_hour": RateLimitPolicy(300, 3600),
+}
 
 
 def _declared_body_too_large(headers):
@@ -42,8 +63,8 @@ def _declared_body_too_large(headers):
 
 
 class IdentitySafety:
-    def __init__(self, app, *, limiter, origins):
-        self.app, self.limiter, self.origins = app, limiter, origins
+    def __init__(self, app, *, origins):
+        self.app, self.origins = app, origins
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -69,26 +90,14 @@ class IdentitySafety:
             await response(scope, receive, no_store)
 
         try:
-            if scope["method"] == "POST" and scope["path"] in {
-                "/api/accounts",
-                "/api/sessions/recover",
-            }:
-                # Read only the peer address, never forwarded IPs or request bodies.
-                peer = scope.get("client")
-                retry = self.limiter.check(
-                    scope["path"], peer[0] if peer else "unknown"
-                )
-                if retry is not None:
-                    return await reject(
-                        failure(
-                            429,
-                            "RATE_LIMITED",
-                            "请求过于频繁，请稍后重试。",
-                            True,
-                            {"Retry-After": str(retry)},
-                        )
-                    )
             headers = MutableHeaders(raw=list(scope.get("headers", [])))
+            if scope["method"] in _STATE_CHANGING and scope["path"].startswith("/api/"):
+                # SameSite=Lax alone is not enough: require one exact Origin.
+                values = headers.getlist("origin")
+                if len(values) != 1 or values[0] not in self.origins:
+                    return await reject(
+                        failure(403, "CSRF_REJECTED", "请求来源未被允许。")
+                    )
             if _declared_body_too_large(headers):
                 return await reject(
                     failure(413, "REQUEST_TOO_LARGE", "请求正文超过允许的大小。")
@@ -138,9 +147,10 @@ def create_app(
     pair_clock=None,
     publication_store: PublicationStore | None = None,
     save_clock=None,
-    rate_clock=time.monotonic,
-    rate_limit=5,
-    rate_window=60,
+    email_sender: EmailCodeSender,
+    verification_secret: str,
+    cookie_secure: bool = False,
+    rate_policies=None,
     rate_max_keys=10000,
     websocket_timing: WebSocketTiming | None = None,
 ):
@@ -158,6 +168,14 @@ def create_app(
             or parsed.fragment
         ):
             raise ValueError("CORS origins must be exact HTTP origins")
+    if type(cookie_secure) is not bool:
+        raise ValueError("cookie_secure must be a boolean")
+    policies = dict(DEFAULT_RATE_POLICIES)
+    if rate_policies is not None:
+        for name, policy in rate_policies.items():
+            if name not in policies or not isinstance(policy, RateLimitPolicy):
+                raise ValueError("Unknown or invalid rate policy")
+            policies[name] = policy
 
     @asynccontextmanager
     async def lifespan(app):
@@ -180,34 +198,50 @@ def create_app(
                 )
                 yield
         finally:
+            # Drain background sends first: their failure invalidation still
+            # needs the repository.
+            app.state.verification_service.close()
             repository.close()
 
     app = FastAPI(lifespan=lifespan, redirect_slashes=False)
     app.state.allowed_origins = frozenset(origins)
     app.state.websocket_timing = websocket_timing or WebSocketTiming()
+    app.state.email_sender = email_sender
     app.state.identity_service = IdentityService(
         repository, **({"clock": identity_clock} if identity_clock is not None else {})
     )
+    app.state.verification_service = VerificationCodeService(
+        repository,
+        email_sender,
+        secret=verification_secret,
+        **({"clock": identity_clock} if identity_clock is not None else {}),
+    )
+    app.state.rate_limiter = SharedRateLimiter(
+        repository,
+        max_keys=rate_max_keys,
+        **({"clock": identity_clock} if identity_clock is not None else {}),
+    )
+    app.state.rate_policies = policies
+    app.state.cookie_secure = cookie_secure
     clock = pair_clock if pair_clock is not None else identity_clock
     app.state.pair_service = PairService(
         repository, **({"clock": clock} if clock is not None else {})
     )
-    limiter = RateLimiter(
-        limit=rate_limit, window=rate_window, max_keys=rate_max_keys, clock=rate_clock
-    )
     install_handlers(app)
     app.include_router(accounts.router)
     app.include_router(sessions.router)
+    app.include_router(verification.router)
+    app.include_router(password_resets.router)
     app.include_router(pairs.router)
     app.include_router(saves.router)
     app.include_router(websocket.router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Content-Type"],
         expose_headers=["Retry-After"],
     )
-    app.add_middleware(IdentitySafety, limiter=limiter, origins=origins)
+    app.add_middleware(IdentitySafety, origins=origins)
     return app

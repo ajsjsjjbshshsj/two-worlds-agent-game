@@ -15,8 +15,10 @@ from twoworlds.domain.persistence import (
     CommandReceipt,
     Digest,
     PairRecord,
+    RateLimitRecord,
     SaveRecord,
     UTCDateTime,
+    VerificationCodeRecord,
 )
 from twoworlds.ports.repository import (
     CorruptRecord,
@@ -182,11 +184,9 @@ class MongoRepository:
         with self._operation():
             return self._read("accounts", {"_id": _key(account_id)}, AccountRecord)
 
-    def get_account_by_recovery_digest(self, digest: Digest) -> AccountRecord | None:
+    def get_account_by_email(self, email: str) -> AccountRecord | None:
         with self._operation():
-            return self._read(
-                "accounts", {"recovery_digest": _key(digest)}, AccountRecord
-            )
+            return self._read("accounts", {"email": _key(email)}, AccountRecord)
 
     def get_account_by_session_digest(
         self, digest: Digest, now: datetime
@@ -212,8 +212,79 @@ class MongoRepository:
             if current is None or current.version != expected_version:
                 return False
             candidate = _candidate(candidate, AccountRecord)
-            _transition(current, candidate, ("id", "recovery_digest", "created_at"))
+            _transition(current, candidate, ("id", "email", "created_at"))
             return self._replace("accounts", account_id, expected_version, candidate)
+
+    def create_verification_code(
+        self, record: VerificationCodeRecord
+    ) -> VerificationCodeRecord:
+        with self._operation():
+            record = _candidate(record, VerificationCodeRecord)
+            self._database.verification_codes.insert_one(_document(record))
+            return record
+
+    def get_verification_code(self, code_id: str) -> VerificationCodeRecord | None:
+        with self._operation():
+            return self._read(
+                "verification_codes", {"_id": _key(code_id)}, VerificationCodeRecord
+            )
+
+    def compare_and_swap_verification_code(
+        self, code_id: str, expected_version: int, candidate: VerificationCodeRecord
+    ) -> bool:
+        with self._operation():
+            _expected(expected_version)
+            current = self.get_verification_code(code_id)
+            if current is None or current.version != expected_version:
+                return False
+            candidate = _candidate(candidate, VerificationCodeRecord)
+            _transition(current, candidate, ("id", "email", "purpose"))
+            return self._replace(
+                "verification_codes", code_id, expected_version, candidate
+            )
+
+    def delete_expired_verification_codes(self, now: datetime) -> int:
+        with self._operation():
+            now = _now(now)
+            # Fixed-width ISO UTC strings compare chronologically as text.
+            result = self._database.verification_codes.delete_many(
+                {"expires_at": {"$lte": _time(now)}}
+            )
+            return result.deleted_count
+
+    def create_rate_limit(self, record: RateLimitRecord) -> RateLimitRecord:
+        with self._operation():
+            record = _candidate(record, RateLimitRecord)
+            self._database.rate_limits.insert_one(_document(record))
+            return record
+
+    def get_rate_limit(self, rate_id: str) -> RateLimitRecord | None:
+        with self._operation():
+            return self._read("rate_limits", {"_id": _key(rate_id)}, RateLimitRecord)
+
+    def compare_and_swap_rate_limit(
+        self, rate_id: str, expected_version: int, candidate: RateLimitRecord
+    ) -> bool:
+        with self._operation():
+            _expected(expected_version)
+            current = self.get_rate_limit(rate_id)
+            if current is None or current.version != expected_version:
+                return False
+            candidate = _candidate(candidate, RateLimitRecord)
+            _transition(current, candidate, ("id",))
+            return self._replace("rate_limits", rate_id, expected_version, candidate)
+
+    def delete_expired_rate_limits(self, now: datetime) -> int:
+        with self._operation():
+            now = _now(now)
+            result = self._database.rate_limits.delete_many(
+                {"expires_at": {"$lte": _time(now)}}
+            )
+            return result.deleted_count
+
+    def count_rate_limits(self) -> int:
+        with self._operation():
+            return self._database.rate_limits.count_documents({})
 
     def create_pair(self, pair: PairRecord) -> PairRecord:
         with self._operation():

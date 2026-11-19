@@ -8,9 +8,9 @@ def ensure_indexes(database: Database) -> None:
     database.accounts.create_indexes(
         [
             IndexModel(
-                [("recovery_digest", ASCENDING)],
+                [("email", ASCENDING)],
                 unique=True,
-                name="accounts_recovery_unique",
+                name="accounts_email_unique",
             ),
             IndexModel(
                 [("sessions.token_digest", ASCENDING)],
@@ -20,6 +20,19 @@ def ensure_indexes(database: Database) -> None:
                 partialFilterExpression={"sessions.token_digest": {"$type": "string"}},
             ),
         ]
+    )
+    database.verification_codes.create_indexes(
+        [
+            IndexModel(
+                [("email", ASCENDING), ("purpose", ASCENDING)],
+                unique=True,
+                name="verification_email_purpose_unique",
+            ),
+            IndexModel([("expires_at", ASCENDING)], name="verification_expiry"),
+        ]
+    )
+    database.rate_limits.create_indexes(
+        [IndexModel([("expires_at", ASCENDING)], name="rate_expiry")]
     )
     database.pairs.create_indexes(
         [

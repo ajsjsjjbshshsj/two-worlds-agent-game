@@ -15,15 +15,15 @@
 
 | 路径 | 将来负责什么 | 当前状态 |
 | --- | --- | --- |
-| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 已实现身份、房间、目录、存档、回执、受保护媒体及 T12.1 的 WS 入口 |
+| src/twoworlds/api | HTTP、WS路由、请求模型与认证适配 | 身份/房间/目录/存档/命令回执/受保护媒体已实现；WS待后续 |
 | src/twoworlds/application | 身份、房间、存档、对话的流程编排 | IdentityService、PairService及SaveService生命周期/命令已实现；对话待后续 |
 | src/twoworlds/domain | 确定性规则与可见性投影 | 灯塔规则、个人投影、线索分享、公共历史与回顾 |
 | src/twoworlds/content | 草稿校验、快照发布、哈希与Metadata目录、包资源读取 | T01内容基础设施已实现；灯塔未发布，真实媒体与许可尚缺 |
-| src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 已定义；其他适配接口待实现 |
+| src/twoworlds/ports | 仓储、文本、语音等适配接口 | Repository Protocol 与 EmailCodeSender 已定义；文本/语音适配接口待实现 |
 | src/twoworlds/storage | Mongo、SQLite与原子提交适配 | 严格 JSON、SQLite 事务及 Mongo 单文档 CAS/索引已实现，真库契约通过 |
 | src/twoworlds/ai | 受限LangGraph文本流程与Provider | 仅模块边界 |
-| src/twoworlds/realtime | 订阅、个人快照和连接协议 | T12.1 首帧鉴权、初始个人快照和心跳 |
-| tests/contracts | 已迁移的身份、命令与平台行为要求 | 身份6项及房间竞争契约通过；后续存档/平台契约待T08等 |
+| src/twoworlds/realtime | 连接生命周期和消息协议 | T12.1 个人存档连接心跳和会话续验 |
+| tests/contracts | 已迁移的身份、命令与平台行为要求 | 邮箱身份7项及房间竞争契约通过；后续存档/平台契约待T08等 |
 | tests/content | 字段/引用/媒体声明与加载/发布边界 | 74个Schema+36个加载+36个正式内容+45个发布检查通过；不是完整游戏验收 |
 | tests/domain | 真实内容驱动的领域行为 | 规则 123 项、投影 90 项、剧本重建 10 项、分享与回顾 29 项通过 |
 | tests/storage | 同一共享契约切换适配器，真实约束/故障验证 | T08.1 SQLite组44、真实Mongo组50通过，均含32项共享契约 |
@@ -45,7 +45,7 @@ uv run --project backend --locked ruff check backend/src
 
 第二条命令应打印本项目`backend/src/twoworlds/__init__.py`的绝对路径。`-I`排除当前目录和用户Python路径的干扰；能导入说明本项目确实已安装到所选环境。
 
-`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...])` 装配 HTTP 接口和 T12.1 的 WebSocket 入口。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。本地开发使用下方 `python -m twoworlds.dev` 入口。
+`twoworlds.api.app.create_app(repository=..., ai_mode="demo", allowed_origins=[...], email_sender=..., verification_secret=...)` 已实现，注册邮箱身份、房间、目录、存档、命令回执、受保护媒体和 WebSocket 接口。T06.3.2起`email_sender`与`verification_secret`必填，没有默认邮件适配器或内置验证码密钥。仓储必须由调用方显式传入，导入模块不连接数据库，也不自动回退SQLite。应用退出时关闭传入仓储；多个应用应各自持有指向同库的独立仓储对象。没有模块级app，不要运行`uvicorn twoworlds.api:app`；开发专用TCP入口见第17节。
 
 ## 4. 构建与验证
 
@@ -134,7 +134,9 @@ $env:TWOWORLDS_TEST_BACKEND='sqlite'
 每个 Mongo 测试使用自己的随机库，factory 每次新建 MongoClient，结束只清理本测试库。真实断连测试仅停止带本轮随机名/标签且完整ID匹配的临时 Mongo 容器，共享 twoworlds-mongo 不停止。阅读顺序：`ports/repository.py` → `storage/indexes.py` → `storage/mongo.py` → `tests/storage/conftest.py` → 共享契约/Mongo专项。完整证据、方法说明与生产未验证项见 [Mongo 仓储报告](../docs/reports/mongo-repository.md)。T06.1 已由PR #15合并；T06.2已由PR #16合并。
 
 
-## 9. 身份服务（T06.1）
+## 9. 身份服务（T06.1，历史；已被 T06.3.2 邮箱账号取代）
+
+> 本节与第10节记录的恢复密钥/Bearer 身份是历史实现证据。2026-11-18 用户决定改为邮箱+密码账号；T06.3.2 已删除恢复密钥后端并替换为第18节的 Cookie 认证，不保留兼容分支。
 
 IdentityService只依赖Repository Protocol，不依赖SQL/PyMongo。接口为create_account(display_name)、recover(recovery_key)、authenticate(token)、revoke(token)。创建响应含一次性恢复密钥和初始会话；恢复只返回新会话。秘密字段默认不出现在repr中；HTTP使用专用白名单Schema且不记录请求或响应正文。
 
@@ -147,7 +149,7 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 
 本轮实际44项通过（SQLite/Mongo各22项）。需要真实Mongo，缺环境会明确失败，不用mock代替并发证据。完整回归与文件阅读顺序见[身份报告](../docs/reports/identity-service.md)。T06.1已合并，HTTP接口见下节；房间API见T07；游戏业务API未实现。
 
-## 10. HTTP 身份接口（T06.2，PR #16已合并）
+## 10. HTTP 身份接口（T06.2，PR #16已合并；历史，已被第18节取代）
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
@@ -284,9 +286,9 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017'
 `--basetemp`选新目录。先读tests/save_support.py，再读test_save_isolation.py的完整流程、recap.py的四个星轨里程碑、starline.observations的发现门槛。DialogueTurn仅验证仓储内各存档/角色的记录归属及重开，真实私聊HTTP/NPC未实现。完整命令、双适配器结果、历史失败对比与恢复边界见[本轮报告](../docs/reports/starline-save-isolation.md)。本轮交付后停止等待审查，不自动开始T10。
 
 
-## 17. 开发专用 HTTP 与 WebSocket 启动器
+## 17. 开发专用HTTP启动器（T10.2）
 
-新增 `src/twoworlds/dev.py`。导入没有模块级app、数据库连接或自动启动；显式调用create_dev_app后才创建Repository，既有应用lifespan负责关闭。T10.2 锁定 Uvicorn 0.54.0。T12.1 在 dev 组新增 websockets 16.0，用于回环监听器的 WebSocket Upgrade。它是[开发ASGI服务器](https://uvicorn.dev/settings/)，不是生产部署方案。
+新增 `src/twoworlds/dev.py`。导入没有模块级app、数据库连接或自动启动；显式调用create_dev_app后才创建Repository，既有应用lifespan负责关闭。唯一新增依赖是dev组的精确Uvicorn0.54.0及其click8.5.1，已有依赖版本未升级。它是[开发ASGI服务器](https://uvicorn.dev/settings/)，不是生产部署方案。
 
 先显式选择本地演示SQLite，在工作树backend目录启动：
 
@@ -297,11 +299,14 @@ New-Item -ItemType Directory -Path work -Force
 $env:TWOWORLDS_STORAGE_BACKEND='sqlite'
 $env:TWOWORLDS_SQLITE_PATH='work/dev.sqlite3'
 $env:TWOWORLDS_ALLOWED_ORIGINS='http://127.0.0.1:5186'
+$env:TWOWORLDS_EMAIL_MODE='console'
 $env:TWOWORLDS_DEV_PORT='8016'
 .venv/Scripts/python.exe -m twoworlds.dev
 ```
 
-启动后仅监听127.0.0.1:8016。DEV_PORT 可省略，默认 8000。WebSocket 使用同一回环监听器及精确 Origin 配置，客户端消息上限为 4 KiB。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
+启动后仅监听127.0.0.1:8016。DEV_PORT可省略，默认8000；WebSocket 与 HTTP 共用该回环监听器和精确 Origin 白名单。WebSocket 客户端消息上限为 4 KiB。关闭访问日志和普通服务器异常日志，启动失败只输出固定安全提示，不能把隐藏异常误认为启动成功。用浏览器/HTTP请求GET /api/scripts检查，正式库当前应返回[]。缺配置或数据库故障不会自动切换SQLite/内存。
+
+T06.3.2起邮件模式必须显式选择：`TWOWORLDS_EMAIL_MODE=console`只用于本地开发，把验证码打印到开发控制台；`smtp`需要`SMTP_HOST/SMTP_PORT/SMTP_USERNAME/SMTP_PASSWORD/SMTP_FROM`环境变量，缺失即启动失败。`TWOWORLDS_VERIFICATION_SECRET`可注入持久验证码密钥；省略时开发入口生成一次性临时密钥，重启后未使用的验证码作废。生产HTTPS设`TWOWORLDS_COOKIE_SECURE=1`给会话Cookie加Secure。
 
 真实Mongo开发需另选适当的本地数据库，URI只通过当前进程环境注入，不进入源码/日志/Git：
 
@@ -310,13 +315,14 @@ $env:TWOWORLDS_STORAGE_BACKEND='mongo'
 # 在本机安全设置 MONGO_URI，此处不提交真实连接凭证。
 $env:MONGO_DATABASE='twoworlds_dev'
 $env:TWOWORLDS_ALLOWED_ORIGINS='http://127.0.0.1:5186'
+$env:TWOWORLDS_EMAIL_MODE='console'
 $env:TWOWORLDS_DEV_PORT='8016'
 .venv/Scripts/python.exe -m twoworlds.dev
 ```
 
-必须同时提供MONGO_URI和MONGO_DATABASE，SQLite路径不能作为Mongo失败回退。只配置精确HTTP/HTTPS Origin，不用通配符和Cookie凭证。前端设置公开VITE_API_BASE_URL并启动5186，见[前端README](../frontend/README.md)。以上python模块启动方式已由独立进程TCP测试分别验证SQLite/Mongo，浏览器流程亦通过同一工厂真实连接；本轮临时服务验收后已关闭。
+必须同时提供MONGO_URI和MONGO_DATABASE，SQLite路径不能作为Mongo失败回退。只配置精确HTTP/HTTPS Origin，不用通配符；T06.3.2起对精确白名单Origin启用`Access-Control-Allow-Credentials: true`以携带会话Cookie。前端设置公开VITE_API_BASE_URL并启动5186，见[前端README](../frontend/README.md)。以上python模块启动方式已由独立进程TCP测试分别验证SQLite/Mongo，浏览器流程亦通过同一工厂真实连接；本轮临时服务验收后已关闭。
 
-正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。WebSocket 复用 IdentityService 和 SaveService。 当前运行版本使用首帧会话 token，PR #30 设计的 Cookie 握手随 T06.3 后端身份切换接入。接口协议和真库验证见 [T12.1 报告](../docs/reports/t12-1-websocket-auth.md)。
+正式发布目录不变，空目录是预期；仅测试代码可显式向工厂注入临时PublicationStore，CLI不接受草稿或自动发布参数。WebSocket 复用既有邮箱会话和存档个人投影，协议见第 19 节。
 
 ```powershell
 # 先由本机环境提供 MONGO_URI；Mongo用例会创建并清理随机临时库。
@@ -326,4 +332,41 @@ $env:TWOWORLDS_DEV_PORT='8016'
 uv lock --check --offline
 ```
 
-T10.2 当时的启动器专项为 16 项通过，其中包含两个真实 CLI/TCP 子进程。后续 T12.1 在同一启动器上验证了回环 WebSocket。参见 [T10.2 报告](../docs/reports/t10-2-identity-room-library.md)和 [T12.1 报告](../docs/reports/t12-1-websocket-auth.md)。
+专项16通过（包括两个真实CLI/TCP子进程）；完整回归、正式空目录与test-only书架、学习顺序见[T10.2报告](../docs/reports/t10-2-identity-room-library.md)。没有声称正式发布、生产部署、WS、游戏场景或真机验收完成。
+
+## 18. 邮箱账号认证（T06.3.2，取代第9/10节的恢复密钥身份）
+
+2026-11-18 用户决定：移除匿名身份与恢复密钥，首版只做邮箱+密码。`POST /api/sessions/recover`、恢复密钥生成/摘要与Bearer认证已删除，不保留兼容分支；旧匿名数据不迁移，也不在启动时静默删库。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | /api/verification-codes | {email,purpose:register/reset} → 恒202 `{status:"accepted"}`；发送失败也202，不揭示邮箱是否注册 |
+| POST | /api/accounts | {email,code,password,display_name} → 200 account+session，Set-Cookie；409只在有效验证码之后 |
+| POST | /api/sessions | {email,password} → 200 account+session；失败统一401 INVALID_CREDENTIALS |
+| POST | /api/password-resets | {email,code,new_password} → 204，撤销该账号全部会话并清Cookie |
+| DELETE | /api/sessions/current | 撤销当前会话、清Cookie，204 |
+| GET | /api/me | 当前账号概要与当前会话expires_at |
+
+安全要点：密码10–128字符，Argon2id（m=64MiB,t=3,p=4）哈希，登录成功且参数落后时CAS内升级；未知邮箱登录做dummy_verify均衡时序。验证码6位数字、10分钟、单次使用、最多5次尝试，只存HMAC-SHA256摘要（密钥经`verification_secret`注入，常量时间比较），重发作废旧码，register/reset用途隔离。会话token 32字节随机、只存SHA-256摘要，7天、每账号最多5个；Cookie `tw_session` HttpOnly/SameSite=Lax/Path=/Max-Age=604800，生产加Secure，不设Domain。所有状态变更请求在最外层中间件校验精确Origin白名单（缺失/重复/不匹配403 CSRF_REJECTED），先于正文限制与认证；CORS只对精确Origin开allow-credentials。
+
+限频改为数据库共享原子计数器（`application/rate_limit.py` + 两仓储的rate_limits集合/表），多应用实例共用同一预算，不用进程内存方案：验证码按邮箱1/60秒+5/小时、按IP 10/小时；登录按IP+邮箱5/分钟+20/小时，另加按IP整体30/分钟+300/小时（防止换邮箱反复触发Argon2id）；429带Retry-After。固定窗口、容量10000键fail-closed、到期清理；peer IP只读ASGI scope，不信任X-Forwarded-For。FastAPI先做Schema校验再进路由，因此无效正文不消耗邮箱键预算（有专门测试固定此顺序）。
+
+邮件适配器必须显式注入：`security/mailer.py`的console（仅开发，stdout打印）与smtp（全部配置来自环境变量，强制TLS与超时，只抛净化的EmailSendError）；`build_email_sender`要求`TWOWORLDS_EMAIL_MODE=console|smtp`，无默认回退。T06.3.2审查修复起，投递在进程内后台执行器中运行：`POST /api/verification-codes` 恒202且不等SMTP，reset未知邮箱同样落库但永不投递，发送失败按本次发行`issue_id`条件作废、不误伤重发后的新码；后台任务不持久化，进程退出会丢失未完成发送，生产需持久队列。
+
+阅读顺序：`domain/persistence.py`（AccountRecord/VerificationCodeRecord/RateLimitRecord）→ `security/passwords.py`、`security/credentials.py` → `application/verification.py`、`application/rate_limit.py`、`application/identity.py` → `api/cookies.py`、`api/auth.py`、`api/limits.py`、`api/routers/{verification,accounts,sessions,password_resets}.py` → `api/app.py`的IdentitySafety中间件 → `tests/identity_support.py`与各测试。
+
+```powershell
+# 在backend目录；Mongo用例需要真实本地Mongo
+$env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
+.venv/Scripts/python.exe -m pytest tests/application/test_identity.py tests/application/test_verification.py tests/application/test_rate_limit.py -q -p no:cacheprovider --basetemp=work/t0632-app
+.venv/Scripts/python.exe -m pytest tests/api/test_identity.py tests/api/test_rate_limit.py tests/api/test_request_limits.py tests/api/test_dev_launcher.py tests/contracts/test_identity.py -q -p no:cacheprovider --basetemp=work/t0632-http
+```
+
+应用层身份56、验证码48、限频26项通过；HTTP身份/限频/正文83项、开发启动器19项、身份契约7项通过，均含真实Mongo参数组。完整回归：改动前3 failed/1199 passed，安全审查修复后3 failed/1327 passed（失败ID相同，均为既有WS/NPC用例）；后台投递、issue作废、登录IP上限、防枚举与未验证项见[T06.3.2报告](../docs/reports/t06-3-2-email-auth-backend.md)。前端登录页替换（T06.3.3）与浏览器产品验收（T06.3.4）留待后续。
+
+
+## 19. 个人存档 WebSocket（T12.1）
+
+PR #32 合并后，`/api/ws/saves/{save_id}` 使用同一 `tw_session` HttpOnly Cookie。浏览器先通过邮箱认证，随后建立 WebSocket。连接需要唯一且精确命中白名单的 Origin，URL 不能带查询参数。鉴权和成员检查完成后，服务端发送与同账号 HTTP GET 一致的个人快照。非成员或缺档以 `4404` 关闭。无效会话在握手前拒绝（实际 TCP 为 HTTP 403），已连会话失效时在心跳中以 `4401` 关闭。
+
+客户端在收到 `{"type":"ping","id":1}` 后回复 `{"type":"pong","id":1}`，以实际收到的整数 ID 为准。T12.1 提供初始快照与心跳，HTTP 写入后的新版本可在重连时取得。专项命令和验收记录见 [T12.1 报告](../docs/reports/t12-1-websocket-auth.md)。

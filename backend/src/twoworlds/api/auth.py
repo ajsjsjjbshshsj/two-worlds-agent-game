@@ -2,10 +2,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from fastapi import Request
+from starlette.requests import HTTPConnection
 
 from twoworlds.application.identity import IdentityError
 from twoworlds.domain.persistence import AccountRecord
 from twoworlds.security.credentials import digest_secret
+
+from .cookies import SESSION_COOKIE
 
 
 @dataclass(frozen=True)
@@ -15,14 +18,17 @@ class Authenticated:
     expires_at: datetime
 
 
-def session_token(request: Request) -> str:
-    values = request.headers.getlist("authorization")
-    if len(values) != 1:
+def session_token(connection: HTTPConnection) -> str:
+    # Cookie-only authentication; Authorization headers are deliberately ignored.
+    values = []
+    for header in connection.headers.getlist("cookie"):
+        for part in header.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == SESSION_COOKIE:
+                values.append(value)
+    if len(values) != 1 or not values[0]:
         raise IdentityError("UNAUTHENTICATED")
-    parts = values[0].split(" ")
-    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
-        raise IdentityError("UNAUTHENTICATED")
-    return parts[1]
+    return values[0]
 
 
 def current_identity(request: Request) -> Authenticated:

@@ -7,13 +7,11 @@ from itertools import count
 from starlette.concurrency import run_in_threadpool
 
 from twoworlds.application.identity import IdentityService
-from twoworlds.application.saves import SaveError, SaveService
 
 from .protocol import (
     CloseCode,
     ConnectionRejected,
     WebSocketTiming,
-    auth_token,
     require_pong,
 )
 
@@ -22,26 +20,11 @@ async def serve_subscription(
     *,
     receive: Callable[[], Awaitable[str]],
     send: Callable[[dict], Awaitable[None]],
-    save_id: str,
+    token: str,
+    account_id: str,
     identity: IdentityService,
-    saves: SaveService,
     timing: WebSocketTiming,
 ) -> None:
-    try:
-        async with asyncio.timeout(timing.auth_timeout):
-            token = auth_token(await receive())
-            account_id = (await run_in_threadpool(identity.authenticate, token)).id
-            # Identical authorization, pinned content and projection to HTTP GET.
-            snapshot = await run_in_threadpool(saves.read_save, account_id, save_id)
-    except TimeoutError:
-        raise ConnectionRejected(CloseCode.UNAUTHENTICATED) from None
-    except SaveError as error:
-        if error.code == "SAVE_NOT_FOUND":
-            raise ConnectionRejected(CloseCode.SAVE_NOT_FOUND) from None
-        raise
-
-    await send({"type": "snapshot", "save": snapshot.model_dump(mode="json")})
-    del snapshot
     # A single receive loop owns all timers. There is no global subscription
     # registry or detached heartbeat task to clean up on disconnect.
     for ping_id in count(1):
