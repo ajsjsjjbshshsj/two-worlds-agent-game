@@ -2,7 +2,6 @@ from fastapi import APIRouter, Request
 
 from twoworlds.api.limits import check_limits, client_ip, digest_key
 from twoworlds.api.schemas.identity import CodeAccepted, RequestCode
-from twoworlds.application.verification import VerificationError
 
 router = APIRouter()
 
@@ -16,10 +15,7 @@ def request_code(body: RequestCode, request: Request):
         ("code_email_hour", f"code:email:hour:{email_key}"),
         ("code_ip_hour", f"code:ip:hour:{digest_key(client_ip(request))}"),
     )
-    try:
-        request.app.state.verification_service.request_code(body.email, body.purpose)
-    except VerificationError as error:
-        if error.code != "SEND_FAILED":
-            raise
-        # Delivery failure must not reveal whether the email is registered.
+    # Delivery is scheduled in the background; send failures never surface here
+    # and never reveal whether the address exists.
+    request.app.state.verification_service.request_code(body.email, body.purpose)
     return CodeAccepted()

@@ -103,6 +103,8 @@ class VerificationCodeRecord(_Record):
     id: Identifier
     email: Email
     purpose: Literal["register", "reset"]
+    # Per-issuance identity: a delivery failure may only invalidate its own issue.
+    issue_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
     digest: Digest
     created_at: UTCDateTime
     expires_at: UTCDateTime

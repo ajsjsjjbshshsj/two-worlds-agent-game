@@ -38,7 +38,10 @@ def register_via_console(client, email):
             json={"email": email, "purpose": "register"},
             headers={"Origin": DEV_ORIGIN},
         )
-    assert response.status_code == 202
+        assert response.status_code == 202
+        # Delivery (and its console print) runs in the background; keep the
+        # redirect open until it finishes so the capture is deterministic.
+        assert client.app.state.verification_service.wait_for_delivery(10)
     printed = buffer.getvalue()
     match = re.search(r"\[dev-email\] to=(\S+) purpose=register code=(\d{6})", printed)
     assert match and match.group(1) == email
@@ -311,13 +314,20 @@ def test_real_cli_tcp_startup(tmp_path, request, backend):
                 headers={"Origin": DEV_ORIGIN},
             )
             assert requested.status_code == 202
-            console.flush()
-            printed = (tmp_path / "console.log").read_text(encoding="utf-8")
-            match = re.search(
-                rf"\[dev-email\] to={re.escape(email)} purpose=register code=(\d{{6}})",
-                printed,
+            # The dev console print happens on the background delivery thread;
+            # poll the log instead of assuming it lands before the 202 returns.
+            pattern = re.compile(
+                rf"\[dev-email\] to={re.escape(email)} purpose=register code=(\d{{6}})"
             )
-            assert match, printed
+            deadline = time.time() + 10
+            while True:
+                console.flush()
+                printed = (tmp_path / "console.log").read_text(encoding="utf-8")
+                match = pattern.search(printed)
+                if match:
+                    break
+                assert time.time() < deadline, printed
+                time.sleep(0.05)
             created = client.post(
                 "/api/accounts",
                 json={

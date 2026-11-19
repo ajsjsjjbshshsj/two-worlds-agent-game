@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import re
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 
@@ -59,6 +59,7 @@ def test_wrong_code_increments_attempts_and_locks_after_five(setup):
     service, repo, _, sender = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     code = sender.code_for(email, "register")
     identifier = code_id(email, "register")
     for attempt in range(1, 6):
@@ -79,11 +80,13 @@ def test_expiry_boundary_and_cleanup_on_next_request(setup):
     service, repo, clock, sender = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     record = repo.get_verification_code(code_id(email, "register"))
     clock[0] = record.expires_at - timedelta(microseconds=1)
     service.consume(email, "register", sender.code_for(email, "register"))
     other = unique_email("other")
     service.request_code(other, "register")
+    assert service.wait_for_delivery(10)
     identifier = code_id(other, "register")
     clock[0] = repo.get_verification_code(identifier).expires_at
     with pytest.raises(VerificationError) as caught:
@@ -91,6 +94,7 @@ def test_expiry_boundary_and_cleanup_on_next_request(setup):
     assert caught.value.code == "CODE_EXPIRED"
     # The next request sweeps expired rows, including the one just refused.
     service.request_code(unique_email("third"), "register")
+    assert service.wait_for_delivery(10)
     assert repo.get_verification_code(identifier) is None
 
 
@@ -103,6 +107,7 @@ def test_purpose_isolation(setup, account_factory):
     email = account.email
     service.request_code(email, "register")
     service.request_code(email, "reset")
+    assert service.wait_for_delivery(10)
     register_code = sender.code_for(email, "register")
     reset_code = sender.code_for(email, "reset")
     assert register_code != reset_code
@@ -122,10 +127,12 @@ def test_resend_kills_old_code_and_resets_attempts(setup):
     service, repo, _, sender = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     old = sender.code_for(email, "register")
     with pytest.raises(VerificationError):
         service.consume(email, "register", "000000")
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     new = sender.code_for(email, "register")
     assert new != old
     record = repo.get_verification_code(code_id(email, "register"))
@@ -142,9 +149,10 @@ def test_send_failure_invalidates_code_and_logs_safely(setup, caplog):
     service, repo, _, sender = setup
     email = unique_email()
     sender.fail = True
-    with pytest.raises(VerificationError) as caught:
-        service.request_code(email, "register")
-    assert caught.value.code == "SEND_FAILED"
+    # Delivery is asynchronous: the request returns normally, then the failed
+    # send invalidates its own code in the background.
+    service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     record = repo.get_verification_code(code_id(email, "register"))
     assert record.consumed_at is not None
     with pytest.raises(VerificationError) as caught:
@@ -155,20 +163,74 @@ def test_send_failure_invalidates_code_and_logs_safely(setup, caplog):
     assert "delivery failed" in caplog.text
     sender.fail = False
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     service.consume(email, "register", sender.code_for(email, "register"))
 
 
-def test_reset_for_unknown_email_is_silent_noop(setup):
+def test_reset_for_unknown_email_is_silent_but_records_like_known(setup):
     from twoworlds.application.verification import VerificationError, code_id
 
     service, repo, _, sender = setup
     email = unique_email()
     service.request_code(email, "reset")
-    assert sender.sent == []
-    assert repo.get_verification_code(code_id(email, "reset")) is None
+    assert service.wait_for_delivery(10)
+    # No mail leaves the server, but the stored path matches the known-address
+    # path so the request timing stays uniform.
+    assert all(sent_email != email for sent_email, _, _ in sender.sent)
+    record = repo.get_verification_code(code_id(email, "reset"))
+    assert record is not None and record.consumed_at is None
     with pytest.raises(VerificationError) as caught:
         service.consume(email, "reset", "123456")
     assert caught.value.code == "INVALID_CODE"
+
+
+def test_failed_delivery_only_invalidates_its_own_issue(setup):
+    from twoworlds.application.verification import (
+        VerificationCodeService,
+        VerificationError,
+        code_id,
+    )
+    from twoworlds.ports.email import EmailSendError
+
+    _, repo, clock, _ = setup
+    email = unique_email()
+    started, release = Event(), Event()
+
+    class BlockingFirstSender(FakeEmailSender):
+        def __init__(self):
+            super().__init__()
+            self.attempted = []
+
+        def send_code(self, email, purpose, code):
+            self.attempted.append(code)
+            if len(self.attempted) == 1:
+                started.set()
+                assert release.wait(10)
+                raise EmailSendError("first delivery fails")
+            self.sent.append((email, purpose, code))
+
+    sender = BlockingFirstSender()
+    codes = iter(("300001", "300002"))
+    service = VerificationCodeService(
+        repo,
+        sender,
+        secret=TEST_SECRET,
+        clock=lambda: clock[0],
+        code_generator=lambda: next(codes),
+    )
+    service.request_code(email, "register")  # A: stored, send blocks
+    assert started.wait(5)
+    service.request_code(email, "register")  # B: replaces A, delivered
+    release.set()
+    assert service.wait_for_delivery(10)
+    assert sender.attempted == ["300001", "300002"]
+    record = repo.get_verification_code(code_id(email, "register"))
+    assert record.consumed_at is None
+    # A's failed send must not kill B's newer code.
+    with pytest.raises(VerificationError) as caught:
+        service.consume(email, "register", "300001")
+    assert caught.value.code == "INVALID_CODE"
+    service.consume(email, "register", "300002")
 
 
 def test_register_code_issued_even_for_registered_email(setup, account_factory):
@@ -178,6 +240,7 @@ def test_register_code_issued_even_for_registered_email(setup, account_factory):
     # Enumeration parity: requesting a register code behaves the same whether
     # or not the email exists; the 409 only happens after a valid code.
     service.request_code(account.email, "register")
+    assert service.wait_for_delivery(10)
     assert sender.code_for(account.email, "register")
 
 
@@ -187,6 +250,7 @@ def test_concurrent_consume_has_single_winner(setup, repository_factory):
     service, _, clock, sender = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     code = sender.code_for(email, "register")
     barrier = Barrier(2)
 
@@ -271,6 +335,8 @@ def test_concurrent_resend_keeps_one_live_code(setup, repository_factory):
         )
     with ThreadPoolExecutor(2) as pool:
         list(pool.map(lambda s: s.request_code(email, "register"), services))
+    for candidate_service in services:
+        assert candidate_service.wait_for_delivery(10)
     record = repo.get_verification_code(code_id(email, "register"))
     assert record.version == 1 and record.consumed_at is None
     codes = [sender.sent[0][2] for sender in senders]
@@ -311,6 +377,7 @@ def test_malformed_codes_are_refused_without_spending_attempts(setup, code):
     service, repo, _, _ = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     with pytest.raises(VerificationError) as caught:
         service.consume(email, "register", code)
     assert caught.value.code == "INVALID_CODE"
@@ -340,6 +407,7 @@ def test_retry_exhaustion_and_dependency_errors(setup):
     service, repo, clock, sender = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     code = sender.code_for(email, "register")
 
     class NeverAccept:
@@ -374,6 +442,7 @@ def test_clock_rejection(setup):
     service, _, clock, sender = setup
     email = unique_email()
     service.request_code(email, "register")
+    assert service.wait_for_delivery(10)
     clock[0] -= timedelta(seconds=1)
     with pytest.raises(VerificationError) as caught:
         service.consume(email, "register", sender.code_for(email, "register"))

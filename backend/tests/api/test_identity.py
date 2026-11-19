@@ -1,5 +1,7 @@
 from datetime import timedelta
 import logging
+from threading import Event
+import time
 
 from fastapi.testclient import TestClient
 import pytest
@@ -397,15 +399,40 @@ def test_reset_code_enumeration_parity(clients):
 
 
 def test_code_request_stays_202_on_send_failure(clients):
-    client, app, _ = clients()
+    client, app, repo = clients()
     app.state.email_sender.fail = True
+    email = unique_email()
+    response = client.post(
+        "/api/verification-codes",
+        json={"email": email, "purpose": "register"},
+        headers=ORIGIN_HEADER,
+    )
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted"}
+    assert app.state.verification_service.wait_for_delivery(10)
+    from twoworlds.application.verification import code_id
+
+    assert repo.get_verification_code(code_id(email, "register")).consumed_at
+
+
+def test_slow_delivery_never_delays_the_202_response(clients):
+    gate = Event()
+    client, app, _ = clients(email_sender=FakeEmailSender(gate=gate))
+    started = time.monotonic()
     response = client.post(
         "/api/verification-codes",
         json={"email": unique_email(), "purpose": "register"},
         headers=ORIGIN_HEADER,
     )
+    elapsed = time.monotonic() - started
     assert response.status_code == 202
     assert response.json() == {"status": "accepted"}
+    # The fake transport is still blocked, proving the response did not wait.
+    assert app.state.email_sender.sent == []
+    assert elapsed < 5
+    gate.set()
+    assert app.state.verification_service.wait_for_delivery(10)
+    assert len(app.state.email_sender.sent) == 1
 
 
 def test_dependency_failure_and_unknown_exception_safe(clients):
@@ -497,7 +524,6 @@ def test_identity_error_mapping(clients, code, status):
         ("INVALID_CODE", 422),
         ("CODE_EXPIRED", 422),
         ("CODE_LOCKED", 422),
-        ("SEND_FAILED", 503),
         ("CONCURRENT_UPDATE", 409),
         ("DEPENDENCY_UNAVAILABLE", 503),
     ],

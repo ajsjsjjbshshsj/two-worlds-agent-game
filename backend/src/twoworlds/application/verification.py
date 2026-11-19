@@ -1,10 +1,19 @@
-"""Single-use email verification codes with atomic attempt/consume transitions."""
+"""Single-use email verification codes with atomic attempt/consume transitions.
 
+Delivery runs on an in-process background executor: the HTTP response never
+waits for the mail transport, so response timing does not reveal whether the
+address exists. Reliability limit: pending sends live only in this process;
+a crash or an unflushed shutdown loses them (and their failure invalidation).
+This is not a durable email queue.
+"""
+
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from functools import wraps
+from functools import partial, wraps
 from hashlib import sha256
 import logging
 import secrets
+from threading import Condition
 from typing import Callable, Literal
 
 from pydantic import TypeAdapter, ValidationError
@@ -31,7 +40,6 @@ class VerificationError(RuntimeError):
                 "INVALID_CODE": "验证码无效。",
                 "CODE_EXPIRED": "验证码已过期，请重新申请。",
                 "CODE_LOCKED": "验证码尝试次数已用尽，请重新申请。",
-                "SEND_FAILED": "验证码邮件发送失败。",
                 "CONCURRENT_UPDATE": "验证码更新竞争，请重试。",
                 "DEPENDENCY_UNAVAILABLE": "验证码服务暂不可用。",
                 "CLOCK_ERROR": "验证码服务时间无效。",
@@ -57,6 +65,66 @@ def code_id(email: str, purpose: str) -> str:
     )
 
 
+class CodeDelivery:
+    """Background delivery so the HTTP response never waits for SMTP.
+
+    Failure of a send invalidates only that issuance (by issue id) and is
+    logged sanitized. ``close`` waits for in-flight sends; anything still
+    queued when the process dies is lost by design — see the module docstring.
+    """
+
+    def __init__(self, sender: EmailCodeSender, *, max_workers: int = 4):
+        if type(max_workers) is not int or max_workers < 1:
+            raise ValueError("max_workers must be a positive integer")
+        self._sender = sender
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="twoworlds-email"
+        )
+        self._condition = Condition()
+        self._outstanding = 0
+        self._closed = False
+
+    def submit(self, email: str, purpose: str, code: str, *, on_failure) -> None:
+        with self._condition:
+            if self._closed:
+                raise RuntimeError("code delivery is closed")
+            self._outstanding += 1
+        try:
+            self._executor.submit(self._run, email, purpose, code, on_failure)
+        except RuntimeError:
+            self._finish()
+            raise
+
+    def _run(self, email, purpose, code, on_failure):
+        try:
+            self._sender.send_code(email, purpose, code)
+        except Exception:
+            # Sanitized metric only: no email, code, or SMTP detail is logged.
+            _logger.warning("Verification email delivery failed (purpose=%s)", purpose)
+            try:
+                on_failure()
+            except Exception:
+                _logger.warning(
+                    "Verification code invalidation failed (purpose=%s)", purpose
+                )
+        finally:
+            self._finish()
+
+    def _finish(self):
+        with self._condition:
+            self._outstanding -= 1
+            self._condition.notify_all()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        with self._condition:
+            return self._condition.wait_for(lambda: self._outstanding == 0, timeout)
+
+    def close(self):
+        with self._condition:
+            self._closed = True
+        self._executor.shutdown(wait=True)
+
+
 class VerificationCodeService:
     def __init__(
         self,
@@ -79,7 +147,7 @@ class VerificationCodeService:
         if type(max_verify_attempts) is not int or not 1 <= max_verify_attempts <= 5:
             raise ValueError("max_verify_attempts must be between 1 and 5")
         self._repository = repository
-        self._sender = sender
+        self._delivery = CodeDelivery(sender)
         self._secret = secret
         self._clock = clock
         self._generator = code_generator
@@ -132,10 +200,13 @@ class VerificationCodeService:
         email = self._validated(email, purpose)
         now = self._now()
         self._repository.delete_expired_verification_codes(now)
-        if purpose == "reset" and self._repository.get_account_by_email(email) is None:
-            # Unknown emails get the same external 202 but no stored code.
-            return
+        # Unknown reset addresses take the same store-and-respond path; only the
+        # background delivery differs and it never leaves the server for them.
+        deliver = purpose == "register" or (
+            self._repository.get_account_by_email(email) is not None
+        )
         code = self._code()
+        issue_id = secrets.token_hex(16)
         digest = verification_digest(self._secret, email, purpose, code)
         identifier = code_id(email, purpose)
         stored = False
@@ -149,6 +220,7 @@ class VerificationCodeService:
                             id=identifier,
                             email=email,
                             purpose=purpose,
+                            issue_id=issue_id,
                             digest=digest,
                             created_at=now,
                             expires_at=now + self._ttl,
@@ -161,13 +233,16 @@ class VerificationCodeService:
                 else:
                     if now < current.updated_at:
                         raise VerificationError("CLOCK_ERROR")
-                    # Resend replaces the old digest, so the previous code dies.
+                    # Resend replaces the old digest and issue id: the previous
+                    # code dies, and any of its pending sends can no longer
+                    # invalidate this one.
                     accepted = self._repository.compare_and_swap_verification_code(
                         identifier,
                         current.version,
                         self._candidate(
                             current,
                             now,
+                            issue_id=issue_id,
                             digest=digest,
                             created_at=now,
                             expires_at=now + self._ttl,
@@ -183,19 +258,34 @@ class VerificationCodeService:
                 continue
         if not stored:
             raise VerificationError("CONCURRENT_UPDATE")
+        if not deliver:
+            return
         try:
-            self._sender.send_code(email, purpose, code)
-        except Exception:
-            self._invalidate(identifier)
-            # Sanitized metric only: no email, code, or SMTP detail is logged.
+            self._delivery.submit(
+                email,
+                purpose,
+                code,
+                on_failure=partial(self._invalidate, identifier, issue_id),
+            )
+        except RuntimeError:
+            # Delivery is closed (shutdown); this code can never be received.
             _logger.warning("Verification email delivery failed (purpose=%s)", purpose)
-            raise VerificationError("SEND_FAILED") from None
+            self._invalidate(identifier, issue_id)
 
-    def _invalidate(self, identifier):
+    def wait_for_delivery(self, timeout: float | None = None) -> bool:
+        return self._delivery.wait(timeout)
+
+    def close(self):
+        self._delivery.close()
+
+    def _invalidate(self, identifier, issue_id):
         for _ in range(self._attempts):
             now = self._now()
             current = self._repository.get_verification_code(identifier)
             if current is None or current.consumed_at is not None:
+                return
+            if current.issue_id != issue_id:
+                # A newer issuance replaced this one; its code must stay usable.
                 return
             if self._repository.compare_and_swap_verification_code(
                 identifier,
@@ -203,7 +293,7 @@ class VerificationCodeService:
                 self._candidate(current, now, consumed_at=now),
             ):
                 return
-        raise VerificationError("DEPENDENCY_UNAVAILABLE")
+        _logger.warning("Verification code invalidation gave up after contention")
 
     @_storage_errors
     def consume(self, email: str, purpose: str, code: str) -> None:

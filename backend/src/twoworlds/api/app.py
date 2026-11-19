@@ -29,6 +29,9 @@ DEFAULT_RATE_POLICIES = {
     "code_ip_hour": RateLimitPolicy(10, 3600),
     "login_minute": RateLimitPolicy(5, 60),
     "login_hour": RateLimitPolicy(20, 3600),
+    # Per-IP ceiling so rotating the email cannot bypass Argon2 work unbounded.
+    "login_ip_minute": RateLimitPolicy(30, 60),
+    "login_ip_hour": RateLimitPolicy(300, 3600),
 }
 
 
@@ -185,6 +188,9 @@ def create_app(
                 )
                 yield
         finally:
+            # Drain background sends first: their failure invalidation still
+            # needs the repository.
+            app.state.verification_service.close()
             repository.close()
 
     app = FastAPI(lifespan=lifespan, redirect_slashes=False)

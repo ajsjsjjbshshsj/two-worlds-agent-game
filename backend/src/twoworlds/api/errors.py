@@ -40,7 +40,6 @@ async def verification_error(request, error):
         "INVALID_CODE": 422,
         "CODE_EXPIRED": 422,
         "CODE_LOCKED": 422,
-        "SEND_FAILED": 503,
     }.get(error.code, _STATUS.get(error.code, 503))
     return failure(status, error.code, str(error), status in {409, 503})
 

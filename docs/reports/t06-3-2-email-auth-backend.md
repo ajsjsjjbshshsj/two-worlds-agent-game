@@ -29,7 +29,7 @@
 
 `domain/persistence.py` 的 AccountRecord：`id`、规范化 `email`（strip+lower，≤254，数据库唯一）、`email_verified_at`、`password_hash`（Argon2id 编码串，StrictStr 20..512）、`display_name`（1–40）、`sessions`（最多 5 个，每个只存 `token_digest`/`created_at`/`expires_at`）、`created_at`/`updated_at`、`version`。秘密字段 `repr=False`，序列化 dump 不含密码/token 明文。
 
-新增 VerificationCodeRecord：确定性 `code_id`（邮箱+purpose 的 SHA-256 派生，保证同邮箱同用途只有一条活码）、`email`、`purpose`、`code_digest`（HMAC-SHA256）、`attempts`、`expires_at`、`consumed_at`、`version`。RateLimitRecord：确定性 `rate_id`（键摘要派生）、`count`、`window_started_at`、`expires_at`、`version`；键本身也只存摘要。
+新增 VerificationCodeRecord：确定性 `code_id`（邮箱+purpose 的 SHA-256 派生，保证同邮箱同用途只有一条活码）、`email`、`purpose`、`issue_id`（每次发行独立的 32 位十六进制标识，用于失败作废的 CAS 条件）、`digest`（HMAC-SHA256）、`attempts`、`expires_at`、`consumed_at`、`version`。RateLimitRecord：确定性 `rate_id`（键摘要派生）、`count`、`window_started_at`、`expires_at`、`version`；键本身也只存摘要。
 
 Mongo 新增索引：`accounts_email_unique`（email 唯一）、`verification_email_purpose_unique`（email+purpose 唯一）、`verification_expiry`、`rate_expiry`（expires_at 普通索引，供清理）。SQLite 以表内唯一约束与事务保持同样语义。旧索引只增不删；冲突索引显式失败，不静默重建。
 
@@ -39,7 +39,7 @@ Mongo 新增索引：`accounts_email_unique`（email 唯一）、`verification_e
 
 ## 4. 验证码和邮件发送流程
 
-申请：`POST /api/verification-codes {email, purpose}` → 路由先过三组共享限频（邮箱 1/60s、邮箱 5/h、IP 10/h）→ VerificationService.request_code 生成 6 位数字码，计算 `HMAC-SHA256(secret, email|purpose|code)` 摘要，作废旧码并以 CAS 写入新记录（10 分钟有效）→ 调用注入的 EmailCodeSender 投递。响应恒 202 `{status:"accepted"}`：未知邮箱、已注册邮箱、投递失败外部不可区分。reset 用途对未知邮箱静默不发信；register 用途对已注册邮箱仍发码（409 只在注册端点消费有效码之后才出现）。投递失败记 SEND_FAILED 并把该码标记 consumed（不可再用），日志只留净化信息，不含邮箱/验证码。
+申请：`POST /api/verification-codes {email, purpose}` → 路由先过三组共享限频（邮箱 1/60s、邮箱 5/h、IP 10/h）→ VerificationService.request_code 生成 6 位数字码与本次发行标识 `issue_id`，计算 `HMAC-SHA256(secret, email|purpose|code)` 摘要，作废旧码并以 CAS 写入新记录（10 分钟有效）→ 把发送提交给进程内后台执行器后立即返回。响应恒 202 `{status:"accepted"}`：未知邮箱、已注册邮箱、投递失败外部不可区分，且响应耗时不受 SMTP 延迟影响。reset 用途对未知邮箱同样写入记录但永不投递（路径一致、不发信）。投递失败记净化日志（"Verification email delivery failed"，不含邮箱/验证码/SMTP 细节）并按 `issue_id` 条件作废本次发行：若期间已有新验证码替换，失败回调看到 `issue_id` 不匹配就停止，不会误废新码。日志只留目的，不含邮箱/验证码。
 
 消费：注册/找回提交 code 后，`consume` 重算 HMAC 摘要并 `hmac.compare_digest` 常量时间比较；错误尝试 attempts+1，达到 5 次后即使正确码也 CODE_LOCKED；到期时刻即失效；consumed_at 非空即单次使用拒绝；purpose 不匹配 INVALID_CODE。并发消费用真实双仓储 CAS 竞争测试证明只有一方成功。重发（再次 request_code）使旧码作废并重置尝试数，并发重发测试证明最终只有一条活码。
 
@@ -57,7 +57,7 @@ CSRF 在最外层 IdentitySafety 中间件：所有 /api/* 的 POST/PUT/PATCH/DE
 
 `application/rate_limit.py` 的 SharedRateLimiter 把计数器存进数据库（SQLite rate_limits 表 / Mongo rate_limits 集合），`hit` 用版本条件 CAS 递增，冲突重读重试（上限 8 次）；固定窗口以首次命中为锚，窗口过期重新计数；Retry-After 向上取整到窗口结束。容量上限 10000 键，满容量拒绝新键（fail-closed），已有键预算不受影响；cleanup 只删到期记录。键与 IP 都只存摘要；peer IP 只读 ASGI scope["client"]，不信任 X-Forwarded-For。
 
-策略：验证码邮箱 1/60s + 5/h、IP 10/h；登录 IP+邮箱组合 5/min + 20/h。429 RATE_LIMITED 带 Retry-After。多实例验证：两个独立 create_app 实例（各自仓储对象）指向同一 SQLite 文件/同一 Mongo 库，共享同一预算；重启后计数保持；8 线程并发 hit 恰好放行配额数（真实 CAS 竞争，Barrier 对齐）。没有 Redis，也没有退回进程内存方案。
+策略：验证码邮箱 1/60s + 5/h、IP 10/h；登录 IP+邮箱组合 5/min + 20/h，外加按 IP 整体 30/min + 300/h（先组合键后 IP 键），防止更换邮箱反复触发 Argon2id 造成资源耗尽。429 RATE_LIMITED 带 Retry-After。多实例验证：两个独立 create_app 实例（各自仓储对象）指向同一 SQLite 文件/同一 Mongo 库，共享同一预算；重启后计数保持；8 线程并发 hit 恰好放行配额数（真实 CAS 竞争，Barrier 对齐）。没有 Redis，也没有退回进程内存方案。
 
 一个已固定的顺序事实：FastAPI 先做 Schema 校验再进路由体，因此畸形正文（422）不消耗邮箱键预算；有专门测试固定此行为，而不是假设"错误请求也计数"。
 
@@ -66,7 +66,7 @@ CSRF 在最外层 IdentitySafety 中间件：所有 /api/* 的 POST/PUT/PATCH/DE
 真实 Mongo：本机 Docker 容器 twoworlds-mongo（MongoDB 8.0.34，127.0.0.1:27017），所有 mongo 参数组用真实库，每测试随机临时库并清理；没有 Mock 替代。专项（SQLite/Mongo 双适配均通过）：
 
 - tests/application/test_identity.py：56 通过（注册/登录/重置/认证/撤销、哈希升级、dummy_verify 计数、五会话淘汰、并发注册唯一性、CAS 竞争与重试耗尽、时钟回退）。
-- tests/application/test_verification.py：46 通过（摘要/单次/5 次锁定/到期边界/purpose 隔离/重发废旧/并发消费与重发/发送失败作废/防枚举）。
+- tests/application/test_verification.py：48 通过（摘要/单次/5 次锁定/到期边界/purpose 隔离/重发废旧/并发消费与重发/发送失败作废/失败只废自身发行/未知邮箱落库不投递/防枚举）。
 - tests/application/test_rate_limit.py：26 通过（窗口/Retry-After/跨实例共享/8 线程竞争/容量 fail-closed/清理/策略校验）。
 - tests/api/test_identity.py + test_rate_limit.py + test_request_limits.py：82 通过（Cookie 属性、CSRF 六形态、防枚举 parity、限频端到端含不同 peer IP 的 ASGI 包装、正文 16KiB、CORS 凭证、真实 Mongo HTTP、跨应用文件登录）。
 - tests/api/test_dev_launcher.py：19 通过（显式配置、console 取码注册、显式密钥重启后旧码仍可用、真实 CLI/TCP 子进程 SQLite/Mongo 注册建房）。
@@ -82,6 +82,7 @@ CSRF 在最外层 IdentitySafety 中间件：所有 /api/* 的 POST/PUT/PATCH/DE
   - 对已适配的 5 个 API 测试文件单独运行发现 6 项失败（257 通过），全部是 TestClient cookie jar 与 CSRF 顺序的测试装配问题，不是业务缺陷：无显式 Cookie 的"无凭证"请求会自动带上最近注册的会话；无 Origin 的 POST 先被 CSRF 拒绝（403）而非 401。修复方式：无凭证断言统一用非会话 Cookie（`other=none`）覆盖 jar，POST 补精确 Origin；未削弱任何安全断言。修复后 6 项复验通过；contracts 套件 36 通过/3 既有失败。
   - 首次完整全量还暴露 3 项测试自身问题（共 4 个参数化失败）：pairs 测试仍引用已删除的 `recovery` 凭证命名空间；Mongo 微秒往返测试把 `created_at` 改成精确值却漏改 `email_verified_at`，触发"验证时间不得早于创建时间"的模型不变量；仓储契约竞争测试的 Barrier 包装每次 CAS 都等待，落败方重试时对方已返回导致 15 秒超时。均只改测试装配，保留原断言与安全意图；修复后逐项复验通过，最终全量无新增失败。
 - ruff check src tests：All checks passed；ruff format 通过；uv lock --check --offline：Resolved 30 packages；git diff --check：无空白错误（仅 CRLF 提示）。
+- **安全审查修复后全量（真实 Mongo）**：3 failed, 1327 passed, 0 errors, 0 skipped（work/t0632r-full.txt，1272.73s）。失败 ID 与基线逐项相同（T12 WS 两项、T14 NPC 一项），无新增失败。修复轮专项：tests/api+tests/application+tests/storage 667 全部通过（1200.49s）；验证码+双适配仓储子集 109 通过；HTTP 身份/限频/正文子集 83 通过；开发启动器+契约 55 通过（含既有 3 项失败）。
 
 ## 9. 新提交 SHA
 
@@ -120,3 +121,40 @@ PR 创建后链接见本轮交付回复，目标 `codex/bootstrap`。未合并�
 ## 附：规格 44 项验收点 → 测试映射（摘要）
 
 密码与账号 1–9：application/test_identity.py 注册/规范化/重复/哈希存储/登录/错误与未知邮箱/升级/并发注册唯一性（RegistrationBarrier 逼出真实唯一约束竞争，恰好一方成功）。验证码 10–19：application/test_verification.py 全部条目（含并发消费、发送失败、防枚举 parity）。会话 20–28：api/test_identity.py（自动登录、Cookie 属性、无/伪造 Cookie、过期、第六淘汰、登出只当前、重置撤销全部）与跨应用文件登录/重启测试。CSRF 与限频 29–38：api/test_identity.py CSRF 参数化六形态 + CORS 凭证；api/test_rate_limit.py 邮箱/IP/组合/多实例共享。数据库 39–44：storage 共享契约双适配、test_mongo_contract.py 邮箱唯一索引、验证码原子消费与限频原子竞争（application 层真实 CAS）、dev/identity 重开数据库测试。
+## 安全审查修复（2026-11-19，PR #32 审查）
+
+用户安全审查提出四项修复，全部在本分支完成，不新建 PR。
+
+### 1. 邮箱枚举的时间侧信道
+
+修复前：`POST /api/verification-codes` 对 reset 用途的未知邮箱直接返回，已注册邮箱同步调用邮件发送；HTTP 202 一致但响应耗时随 SMTP 往返明显不同。
+
+最终实现：新增 `application/verification.py::CodeDelivery`，用进程内后台执行器（默认 4 线程）承接发送；`request_code` 只做验证码生成、摘要与数据库 CAS 写入，然后把发送提交给执行器立即返回。reset 用途对未知邮箱同样写入记录，只是不提交发送——两条路径的同步工作一致，客户端看到的 202 在发送开始前已返回，耗时与 SMTP 延迟、账号是否存在无关。发送失败只记净化日志，外部响应仍是 202。
+
+可靠性边界（如实声明）：任务只存在于进程内存，进程崩溃、被强杀或未等待关闭会丢失尚未完成的发送及其失败作废动作；这不是生产级邮件队列。应用 lifespan 退出时 `verification_service.close()` 会等待在途发送完成（SMTP 适配器本身有 10 秒超时），生产多实例/高可用部署需要替换为持久 outbox 或外部队列。
+
+测试证据（SQLite 与真实 Mongo）：
+
+- `api/test_identity.py::test_slow_delivery_never_delays_the_202_response`：发送被 Event 卡住时 202 已返回（实际耗时 < 5 秒断言、发送列表为空），释放后投递完成。
+- `api/test_identity.py::test_code_request_stays_202_on_send_failure`：发送失败外部仍 202，等待后台完成后该验证码已被作废。
+- 既有的已注册/未注册 reset 响应一致性测试保留（202 正文逐字节相同、未知邮箱无邮件）。
+- `application/test_verification.py::test_reset_for_unknown_email_is_silent_but_records_like_known`：未知邮箱记录存在但永不投递、无码可用。
+
+### 2. 并发作废错误
+
+修复前：`_invalidate` 按 (email, purpose) 记录 id 作废，若期间重发已生成新验证码（同 id 的新版本），旧请求的发送失败会误废新码。
+
+最终实现：验证码记录新增 `issue_id`（每次发行 `secrets.token_hex(16)`，重发时随 CAS 一起替换）；失败回调携带自己的 `issue_id`，作废前先读当前记录，`issue_id` 不匹配立即停止，匹配才用版本 CAS 写入 `consumed_at`（竞争时重读，最多 8 次）。
+
+测试证据（两适配器，真实仓储，不用 Mock 数据库）：
+
+- `application/test_verification.py::test_failed_delivery_only_invalidates_its_own_issue`：A 的发送被阻塞 → B 重发成功并投递 → A 发送失败 → 记录仍是 B 的、未作废；A 的码被拒，B 的码可正常消费。
+- 既有测试保留：重发使旧码失效、并发消费只有一方成功、并发重发最终仅一条活码。
+
+### 3. 登录的资源消耗保护
+
+修复前：登录只有 IP+邮箱组合预算；攻击者更换邮箱即可绕过，每次尝试都触发一次 Argon2id。
+
+最终实现：新增 `login_ip_minute`（30 次/60 秒）与 `login_ip_hour`（300 次/3600 秒）两条按 IP 的共享预算，登录路由先查组合键再查 IP 键（被组合键拦下的请求不额外消耗 IP 预算）；Argon2id 参数未降低。
+
+测试证据：`api/test_rate_limit.py::test_login_ip_ceiling_blocks_rotating_emails`：同一 IP 正常登录可用；每次换新邮箱的第 4 次请求 429（Retry-After=60）；预算耗尽后正确密码也被拒；另一 IP 不受影响正常登录。

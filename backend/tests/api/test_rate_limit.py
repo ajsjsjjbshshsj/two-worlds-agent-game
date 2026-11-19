@@ -167,6 +167,59 @@ def test_login_per_ip_email_combo(clients):
     assert_limited(blocked, 60)
 
 
+def test_login_ip_ceiling_blocks_rotating_emails(clients):
+    from twoworlds.application.rate_limit import RateLimitPolicy
+
+    client, app, _ = clients(
+        rate_policies=policies(login_ip_minute=RateLimitPolicy(3, 60))
+    )
+    who = register(client)
+    email = who["account"]["email"]
+    # A normal login still works well below the ceiling.
+    assert (
+        client.post(
+            "/api/sessions",
+            json={"email": email, "password": PASSWORD},
+            headers=ORIGIN_HEADER,
+        ).status_code
+        == 200
+    )
+    # Fresh emails each time still consume the per-IP budget, so rotating
+    # addresses cannot buy unbounded Argon2 work from one peer.
+    for _ in range(2):
+        assert (
+            client.post(
+                "/api/sessions",
+                json={"email": unique_email(), "password": PASSWORD},
+                headers=ORIGIN_HEADER,
+            ).status_code
+            == 401
+        )
+    blocked = client.post(
+        "/api/sessions",
+        json={"email": unique_email(), "password": PASSWORD},
+        headers=ORIGIN_HEADER,
+    )
+    assert_limited(blocked, 60)
+    # Even the right password from this IP is refused until the window resets.
+    blocked = client.post(
+        "/api/sessions",
+        json={"email": email, "password": PASSWORD},
+        headers=ORIGIN_HEADER,
+    )
+    assert_limited(blocked, 60)
+    # Another peer has its own budget and can still log in.
+    with peer_client(app, "203.0.113.9") as other:
+        assert (
+            other.post(
+                "/api/sessions",
+                json={"email": email, "password": PASSWORD},
+                headers=ORIGIN_HEADER,
+            ).status_code
+            == 200
+        )
+
+
 def test_two_app_instances_share_one_budget(clients, tmp_path):
     from twoworlds.application.rate_limit import RateLimitPolicy
 

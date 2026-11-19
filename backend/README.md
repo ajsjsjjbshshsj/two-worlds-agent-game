@@ -349,9 +349,9 @@ uv lock --check --offline
 
 安全要点：密码10–128字符，Argon2id（m=64MiB,t=3,p=4）哈希，登录成功且参数落后时CAS内升级；未知邮箱登录做dummy_verify均衡时序。验证码6位数字、10分钟、单次使用、最多5次尝试，只存HMAC-SHA256摘要（密钥经`verification_secret`注入，常量时间比较），重发作废旧码，register/reset用途隔离。会话token 32字节随机、只存SHA-256摘要，7天、每账号最多5个；Cookie `tw_session` HttpOnly/SameSite=Lax/Path=/Max-Age=604800，生产加Secure，不设Domain。所有状态变更请求在最外层中间件校验精确Origin白名单（缺失/重复/不匹配403 CSRF_REJECTED），先于正文限制与认证；CORS只对精确Origin开allow-credentials。
 
-限频改为数据库共享原子计数器（`application/rate_limit.py` + 两仓储的rate_limits集合/表），多应用实例共用同一预算，不用进程内存方案：验证码按邮箱1/60秒+5/小时、按IP 10/小时；登录按IP+邮箱5/分钟+20/小时；429带Retry-After。固定窗口、容量10000键fail-closed、到期清理；peer IP只读ASGI scope，不信任X-Forwarded-For。FastAPI先做Schema校验再进路由，因此无效正文不消耗邮箱键预算（有专门测试固定此顺序）。
+限频改为数据库共享原子计数器（`application/rate_limit.py` + 两仓储的rate_limits集合/表），多应用实例共用同一预算，不用进程内存方案：验证码按邮箱1/60秒+5/小时、按IP 10/小时；登录按IP+邮箱5/分钟+20/小时，另加按IP整体30/分钟+300/小时（防止换邮箱反复触发Argon2id）；429带Retry-After。固定窗口、容量10000键fail-closed、到期清理；peer IP只读ASGI scope，不信任X-Forwarded-For。FastAPI先做Schema校验再进路由，因此无效正文不消耗邮箱键预算（有专门测试固定此顺序）。
 
-邮件适配器必须显式注入：`security/mailer.py`的console（仅开发，stdout打印）与smtp（全部配置来自环境变量，强制TLS与超时，只抛净化的EmailSendError）；`build_email_sender`要求`TWOWORLDS_EMAIL_MODE=console|smtp`，无默认回退。发送失败记SEND_FAILED并作废该验证码，HTTP仍202。
+邮件适配器必须显式注入：`security/mailer.py`的console（仅开发，stdout打印）与smtp（全部配置来自环境变量，强制TLS与超时，只抛净化的EmailSendError）；`build_email_sender`要求`TWOWORLDS_EMAIL_MODE=console|smtp`，无默认回退。T06.3.2审查修复起，投递在进程内后台执行器中运行：`POST /api/verification-codes` 恒202且不等SMTP，reset未知邮箱同样落库但永不投递，发送失败按本次发行`issue_id`条件作废、不误伤重发后的新码；后台任务不持久化，进程退出会丢失未完成发送，生产需持久队列。
 
 阅读顺序：`domain/persistence.py`（AccountRecord/VerificationCodeRecord/RateLimitRecord）→ `security/passwords.py`、`security/credentials.py` → `application/verification.py`、`application/rate_limit.py`、`application/identity.py` → `api/cookies.py`、`api/auth.py`、`api/limits.py`、`api/routers/{verification,accounts,sessions,password_resets}.py` → `api/app.py`的IdentitySafety中间件 → `tests/identity_support.py`与各测试。
 
@@ -362,4 +362,4 @@ $env:MONGO_URI='mongodb://127.0.0.1:27017/?directConnection=true'
 .venv/Scripts/python.exe -m pytest tests/api/test_identity.py tests/api/test_rate_limit.py tests/api/test_request_limits.py tests/api/test_dev_launcher.py tests/contracts/test_identity.py -q -p no:cacheprovider --basetemp=work/t0632-http
 ```
 
-应用层身份56、验证码46、限频26项通过；HTTP身份/限频/正文82项、开发启动器19项、身份契约7项通过，均含真实Mongo参数组。完整回归：改动前3 failed/1199 passed，改动后3 failed/1324 passed（失败ID相同，均为既有WS/NPC用例）；防枚举、并发与未验证项见[T06.3.2报告](../docs/reports/t06-3-2-email-auth-backend.md)。前端登录页替换（T06.3.3）与浏览器产品验收（T06.3.4）未开始；WS仍只有设计契约。本轮完成后停止等待审查。
+应用层身份56、验证码48、限频26项通过；HTTP身份/限频/正文83项、开发启动器19项、身份契约7项通过，均含真实Mongo参数组。完整回归：改动前3 failed/1199 passed，安全审查修复后3 failed/1327 passed（失败ID相同，均为既有WS/NPC用例）；后台投递、issue作废、登录IP上限、防枚举与未验证项见[T06.3.2报告](../docs/reports/t06-3-2-email-auth-backend.md)。前端登录页替换（T06.3.3）与浏览器产品验收（T06.3.4）未开始；WS仍只有设计契约。本轮完成后停止等待审查。

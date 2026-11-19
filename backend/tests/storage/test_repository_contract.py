@@ -643,6 +643,7 @@ def code_record(now, **changes):
         id="code_" + "a" * 59,
         email="player-a@example.com",
         purpose="register",
+        issue_id="a" * 32,
         digest="d" * 64,
         created_at=now,
         expires_at=now + timedelta(minutes=10),

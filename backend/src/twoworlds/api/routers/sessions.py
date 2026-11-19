@@ -15,11 +15,15 @@ router = APIRouter()
 
 @router.post("/api/sessions", response_model=IdentityView)
 def login(body: Login, request: Request, response: Response):
+    ip_key = digest_key(client_ip(request))
     combo = digest_key(f"{client_ip(request)}|{body.email}")
     check_limits(
         request,
         ("login_minute", f"login:min:{combo}"),
         ("login_hour", f"login:hour:{combo}"),
+        # Rotating emails must not buy unlimited Argon2 attempts from one peer.
+        ("login_ip_minute", f"login:ip:min:{ip_key}"),
+        ("login_ip_hour", f"login:ip:hour:{ip_key}"),
     )
     state = request.app.state
     result = state.identity_service.login(body.email, body.password)

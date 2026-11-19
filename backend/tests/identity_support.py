@@ -1,5 +1,6 @@
 """Shared email-auth vocabulary for HTTP tests: fake sender, cookies, origins."""
 
+from threading import Event
 from uuid import uuid4
 
 from twoworlds.application.rate_limit import RateLimitPolicy
@@ -17,18 +18,27 @@ RELAXED_POLICIES = {
         "code_ip_hour",
         "login_minute",
         "login_hour",
+        "login_ip_minute",
+        "login_ip_hour",
     )
 }
 
 
 class FakeEmailSender:
-    """Controllable test double; never touches a real mailbox."""
+    """Controllable test double; never touches a real mailbox.
 
-    def __init__(self, *, fail=False):
+    Pass a gate to hold every send until the test releases it, which proves
+    the HTTP response no longer waits for delivery.
+    """
+
+    def __init__(self, *, fail=False, gate: Event | None = None):
         self.sent = []
         self.fail = fail
+        self.gate = gate
 
     def send_code(self, email, purpose, code):
+        if self.gate is not None:
+            self.gate.wait(timeout=10)
         if self.fail:
             raise EmailSendError("test delivery failure")
         self.sent.append((email, purpose, code))
@@ -51,6 +61,12 @@ def request_code(client, email, purpose="register"):
         headers=ORIGIN_HEADER,
     )
     assert response.status_code == 202, response.text
+    # Delivery is asynchronous by design; tests that need the code wait here.
+    # Peer wrappers expose an ASGI function instead of the FastAPI app, so the
+    # wait is best-effort there (the owning client drains on shutdown).
+    state = getattr(client.app, "state", None)
+    if state is not None and hasattr(state, "verification_service"):
+        assert state.verification_service.wait_for_delivery(10)
     return response
 
 
