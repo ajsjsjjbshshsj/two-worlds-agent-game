@@ -1,7 +1,12 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { ApiError } from '../services/http'
 import { identityApi } from '../services/identity'
+import {
+  createSessionSync,
+  registerPrivateSessionGuard,
+  withCookieWriteLock,
+} from '../services/session-sync'
 import {
   normalizeEmail,
   type Account,
@@ -28,14 +33,90 @@ function uncertain(error: ApiError) {
 export const useIdentityStore = defineStore('identity', () => {
   const account = ref<Account | null>(null)
   const expiresAt = ref<string | null>(null)
-  const authenticated = computed(() => account.value !== null)
+  const sessionSuspended = ref(false)
+  const authenticated = computed(() => account.value !== null && !sessionSuspended.value)
   const initialized = ref(false)
   const initializing = ref(false)
   const verificationUnavailable = ref(false)
   const busy = ref(false)
   const error = ref<Problem | null>(null)
   const sessionGeneration = ref(0)
-  let verifying: Promise<void> | null = null
+  let verifying: { epoch: number; promise: Promise<void> } | null = null
+  let sync: ReturnType<typeof createSessionSync> | undefined
+  let observed: ReturnType<ReturnType<typeof createSessionSync>['snapshot']> | undefined
+  let verificationEpoch = 0
+  let expiryTimer: number | undefined
+
+  function suspend() {
+    if (sessionSuspended.value) return
+    sessionSuspended.value = true
+    sessionGeneration.value++
+  }
+
+  function observe() {
+    if (!sync) return false
+    const next = sync.snapshot()
+    const changed = next.key !== observed?.key
+    if (next.nextExpiry !== observed?.nextExpiry) scheduleLeaseExpiry(next.nextExpiry)
+    observed = next
+    if (changed) {
+      verificationEpoch++
+      verificationUnavailable.value = false
+      suspend()
+    }
+    return changed
+  }
+
+  function scheduleLeaseExpiry(until: number | undefined) {
+    window.clearTimeout(expiryTimer)
+    if (until !== undefined)
+      expiryTimer = window.setTimeout(peerChanged, Math.max(0, until - Date.now()) + 1)
+  }
+
+  function peerChanged() {
+    if (observe() && !observed?.changing && !busy.value) void verifySession()
+  }
+
+  let disposeSync: (() => void) | undefined
+  onScopeDispose(() => disposeSync?.())
+
+  function enableSessionSync() {
+    if (sync) return
+    sync = createSessionSync(peerChanged)
+    observed = sync.snapshot()
+    if (observed.changing) {
+      suspend()
+      scheduleLeaseExpiry(observed.nextExpiry)
+    }
+    const unbind = registerPrivateSessionGuard(() => {
+      peerChanged()
+      return authenticated.value ? sessionGeneration.value : null
+    })
+    const resume = () => {
+      if (!document.hidden) void verifySession()
+    }
+    const pageShown = (event: PageTransitionEvent) => {
+      if (event.persisted) resume()
+    }
+    const pageHidden = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      verificationEpoch++
+      suspend()
+    }
+    window.addEventListener('focus', resume)
+    window.addEventListener('pageshow', pageShown)
+    window.addEventListener('pagehide', pageHidden)
+    document.addEventListener('visibilitychange', resume)
+    disposeSync = () => {
+      unbind()
+      sync?.close()
+      window.clearTimeout(expiryTimer)
+      window.removeEventListener('focus', resume)
+      window.removeEventListener('pageshow', pageShown)
+      window.removeEventListener('pagehide', pageHidden)
+      document.removeEventListener('visibilitychange', resume)
+    }
+  }
 
   function setSession(next: CurrentIdentity | null, rotate = false) {
     account.value = next?.account ?? null
@@ -49,15 +130,15 @@ export const useIdentityStore = defineStore('identity', () => {
     error.value = { code: 'UNAUTHENTICATED', message: '会话已失效，请重新登录。' }
   }
 
-  async function readSession(generation: number) {
+  async function readSession(generation: number, valid = () => true) {
     try {
       const result = await identityApi.me()
-      if (generation !== sessionGeneration.value) return
+      if (!valid() || generation !== sessionGeneration.value) return
       setSession(result, result.account.id !== account.value?.id)
       verificationUnavailable.value = false
       return result
     } catch (cause) {
-      if (generation !== sessionGeneration.value) return
+      if (!valid() || generation !== sessionGeneration.value) return
       const issue = problem(cause)
       if (issue.status === 401) {
         if (account.value) expireSession(generation)
@@ -72,35 +153,57 @@ export const useIdentityStore = defineStore('identity', () => {
     }
   }
 
-  function verifySession() {
-    if (verifying) return verifying
-    if (busy.value) return Promise.resolve()
-    error.value = null
+  function verifySession(keepError = false) {
+    observe()
+    if (verifying?.epoch === verificationEpoch) return verifying.promise
+    if (busy.value || observed?.changing) return Promise.resolve()
+    if (sync) suspend()
+    if (!keepError) error.value = null
+    const epoch = verificationEpoch
+    const current = () => {
+      observe()
+      return epoch === verificationEpoch
+    }
     initializing.value = true
-    verifying = readSession(sessionGeneration.value).then(() => {
-      initialized.value = true
-      initializing.value = false
+    const promise = readSession(sessionGeneration.value, current).then((result) => {
+      if (verifying?.epoch !== epoch) return
       verifying = null
+      initializing.value = false
+      if (!current()) {
+        if (!observed?.changing) void verifySession(keepError)
+        return
+      }
+      initialized.value = true
+      if (result !== undefined) sessionSuspended.value = false
     })
-    return verifying
+    verifying = { epoch, promise }
+    return promise
   }
 
   function initialize() {
-    return initialized.value ? Promise.resolve() : verifySession()
+    peerChanged()
+    return initialized.value && !sessionSuspended.value ? Promise.resolve() : verifySession()
   }
 
-  async function run(action: (generation: number) => Promise<boolean>) {
-    if (busy.value || initializing.value) return false
-    const generation = sessionGeneration.value
+  async function run(action: (generation: number) => Promise<boolean>, changesSession = false) {
+    peerChanged()
+    if (busy.value || initializing.value || observed?.changing) return false
     busy.value = true
     error.value = null
+    const finish = changesSession ? sync?.begin() : undefined
+    observe()
+    const generation = sessionGeneration.value
     try {
-      return await action(generation)
+      const execute = () => action(generation)
+      return await (finish ? withCookieWriteLock(execute) : execute())
     } catch (cause) {
       if (generation === sessionGeneration.value) error.value = problem(cause)
       return false
     } finally {
+      finish?.()
+      observe()
       busy.value = false
+      if (sync && sessionSuspended.value && !observed?.changing) await verifySession(true)
     }
   }
 
@@ -120,8 +223,8 @@ export const useIdentityStore = defineStore('identity', () => {
   }
 
   function signIn(email: string, submit: () => Promise<CurrentIdentity>, operation: string) {
+    const requestedEmail = normalizeEmail(email)
     return run(async (generation) => {
-      const requestedEmail = normalizeEmail(email)
       const formerAccountId = account.value?.id
       try {
         const result = await submit()
@@ -146,7 +249,9 @@ export const useIdentityStore = defineStore('identity', () => {
           }
         return false
       }
-    })
+    }, true).then(
+      (ok) => ok && (!sync || (authenticated.value && account.value?.email === requestedEmail)),
+    )
   }
 
   function register(input: RegisterInput) {
@@ -163,8 +268,8 @@ export const useIdentityStore = defineStore('identity', () => {
         const issue = problem(cause)
         if (!uncertain(issue)) throw issue
         if (generation === sessionGeneration.value) {
-          // The old session may have been revoked. Require a verified session for private data.
-          setSession(null, true)
+          // A lost response leaves the browser's current session unconfirmed.
+          if (account.value) suspend()
           error.value = {
             code: issue.code,
             message: '密码重置结果尚未确认。请尝试用新密码登录，必要时重新申请验证码。',
@@ -177,7 +282,7 @@ export const useIdentityStore = defineStore('identity', () => {
       initialized.value = true
       verificationUnavailable.value = false
       return true
-    })
+    }, true)
   }
   function logout() {
     return run(async (generation) => {
@@ -197,13 +302,15 @@ export const useIdentityStore = defineStore('identity', () => {
       if (generation !== sessionGeneration.value) return false
       setSession(null, true)
       return true
-    })
+    }, true)
   }
 
   return {
     account,
     expiresAt,
     authenticated,
+    sessionSuspended,
+    enableSessionSync,
     initialized,
     initializing,
     verificationUnavailable,

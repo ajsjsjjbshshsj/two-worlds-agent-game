@@ -20,7 +20,7 @@ export const usePairsStore = defineStore('pairs', () => {
     busy = ref(false)
   let epoch = 0,
     listRequest = 0,
-    hadSession = identity.authenticated
+    sessionAccount = identity.account?.id
   watch(
     () => identity.sessionGeneration,
     () => {
@@ -32,11 +32,11 @@ export const usePairsStore = defineStore('pairs', () => {
       notice.value = ''
       loading.value = false
       busy.value = false
-      if (hadSession) {
+      if (sessionAccount) {
         incoming.value = ''
         inviteHint.value = '请重新打开搭档发来的原邀请链接。'
       }
-      hadSession = identity.authenticated
+      sessionAccount = identity.account?.id
     },
     { flush: 'sync' },
   )

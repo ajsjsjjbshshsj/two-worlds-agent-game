@@ -175,7 +175,7 @@ it.each(['立即注册', '忘记密码？'])(
   },
 )
 
-it('429 obeys Retry-After across mode changes and never auto-resends', async () => {
+it('429 retains the server cooldown for the same normalized email and purpose without auto-resending', async () => {
   vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
   const { wrapper, fetch } = await open(fail(401), fail(429, 'RATE_LIMITED', '75'))
   await choose(wrapper, '立即注册')
@@ -187,10 +187,37 @@ it('429 obeys Retry-After across mode changes and never auto-resends', async () 
   await choose(wrapper, '返回登录')
   expect(vi.getTimerCount()).toBe(0)
   await choose(wrapper, '忘记密码？')
+  expect(wrapper.get('[data-test=send-code]').attributes('disabled')).toBeUndefined()
+  await choose(wrapper, '返回登录')
+  await choose(wrapper, '立即注册')
+  await wrapper.get('#email').setValue(me.account.email.toUpperCase())
   expect(wrapper.get('[data-test=send-code]').text()).toContain('75s')
   await vi.advanceTimersByTimeAsync(75000)
   expect(fetch).toHaveBeenCalledTimes(2)
   expect(wrapper.get('[data-test=send-code]').attributes('disabled')).toBeUndefined()
+})
+
+it('202 cooldown is scoped to email and purpose, and server throttling still applies to reset', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  const { wrapper, fetch } = await open(
+    fail(401),
+    json({ status: 'accepted' }, 202),
+    fail(429, 'RATE_LIMITED', '45'),
+  )
+  await choose(wrapper, '立即注册')
+  await wrapper.get('#email').setValue(me.account.email)
+  await wrapper.get('[data-test=send-code]').trigger('click')
+  await flushPromises()
+  await wrapper.get('#email').setValue('another@example.test')
+  expect(wrapper.get('[data-test=send-code]').attributes('disabled')).toBeUndefined()
+  await wrapper.get('#email').setValue(me.account.email)
+  expect(wrapper.get('[data-test=send-code]').text()).toContain('60s')
+  await choose(wrapper, '返回登录')
+  await choose(wrapper, '忘记密码？')
+  await wrapper.get('[data-test=send-code]').trigger('click')
+  await flushPromises()
+  expect(JSON.parse(fetch.mock.calls[2]![1].body).purpose).toBe('reset')
+  expect(wrapper.get('[data-test=send-code]').text()).toContain('45s')
 })
 
 it.each(['INVALID_CODE', 'CODE_EXPIRED', 'CODE_LOCKED'])(

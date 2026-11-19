@@ -21,7 +21,13 @@
         </p>
       </section>
       <section class="identity-panel" aria-label="邮箱账号" :aria-busy="pending">
-        <template v-if="!identity.initialized || identity.initializing">
+        <template
+          v-if="
+            !identity.initialized ||
+            identity.initializing ||
+            (identity.sessionSuspended && !identity.verificationUnavailable && !identity.busy)
+          "
+        >
           <h2>正在验证身份</h2>
           <p role="status">正在确认此设备的会话。</p>
         </template>
@@ -205,7 +211,10 @@ const codeNotice = ref('')
 const pending = computed(() => identity.busy || identity.initializing)
 const codeWait = ref(0)
 const submitWait = ref(0)
-let codeDeadline = 0
+const codeDeadlines = new Map<string, number>()
+function codeKey(address = normalizeEmail(email.value), purpose = mode.value) {
+  return `${purpose}:${address}`
+}
 let submitDeadline = 0
 let timer: number | undefined
 let mounted = true
@@ -218,7 +227,7 @@ function stopTimer() {
 
 function tick() {
   const now = Date.now() / 1000
-  codeWait.value = Math.max(0, Math.ceil(codeDeadline - now))
+  codeWait.value = Math.max(0, Math.ceil((codeDeadlines.get(codeKey()) ?? 0) - now))
   submitWait.value = Math.max(0, Math.ceil(submitDeadline - now))
   if ((!codeWait.value || mode.value === 'login') && !submitWait.value) stopTimer()
 }
@@ -260,6 +269,7 @@ watch([email, displayName, code, password, confirmation], () => {
 })
 watch(email, () => {
   codeNotice.value = ''
+  scheduleTimer()
 })
 
 onMounted(() => void identity.initialize())
@@ -277,7 +287,9 @@ function invalid(field: string, message: string) {
 
 async function sendCode() {
   const address = normalizeEmail(email.value)
-  if (pending.value || mode.value === 'login' || Date.now() / 1000 < codeDeadline) return
+  const key = codeKey(address)
+  if (pending.value || mode.value === 'login' || Date.now() / 1000 < (codeDeadlines.get(key) ?? 0))
+    return
   if (!validEmail(address)) return invalid('email', '请输入有效的邮箱地址。')
   validation.value = ''
   invalidField.value = ''
@@ -288,9 +300,9 @@ async function sendCode() {
   sendingCode.value = false
   if (accepted) {
     codeNotice.value = '如果邮箱符合条件，验证码将发送至邮箱。请检查收件箱及垃圾邮件。'
-    codeDeadline = Date.now() / 1000 + 60
+    codeDeadlines.set(key, Date.now() / 1000 + 60)
   } else if (identity.error?.retryAfter !== undefined) {
-    codeDeadline = Date.now() / 1000 + identity.error.retryAfter
+    codeDeadlines.set(key, Date.now() / 1000 + identity.error.retryAfter)
   }
   scheduleTimer()
 }

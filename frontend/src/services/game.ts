@@ -10,12 +10,13 @@ export interface Command {
 const http = createHttpClient()
 export const gameApi = {
   async read(id: string) {
-    return parseGame(await http.request(`/api/saves/${identifier(id)}`))
+    return parseGame(await http.request(`/api/saves/${identifier(id)}`, { privateSession: true }))
   },
   async submit(id: string, command: Command) {
     const r = object(
         await http.request(`/api/saves/${identifier(id)}/commands`, {
           method: 'POST',
+          privateSession: true,
           body: command,
         }),
       ),

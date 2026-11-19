@@ -1,15 +1,7 @@
 <script setup lang="ts">
-import { watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import { useIdentityStore } from '../stores/identity'
-const identity = useIdentityStore(),
-  router = useRouter()
-watch(
-  () => identity.authenticated,
-  (value) => {
-    if (!value) void router.replace('/')
-  },
-)
+const identity = useIdentityStore()
 </script>
 <template>
   <div class="space-shell">

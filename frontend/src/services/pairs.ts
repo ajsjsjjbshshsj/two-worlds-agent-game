@@ -3,19 +3,28 @@ import { identifier, list, parseInvitation, parseJoined, parsePair } from '../ty
 const http = createHttpClient()
 export const pairApi = {
   async list() {
-    return list(await http.request('/api/pairs'), parsePair)
+    return list(await http.request('/api/pairs', { privateSession: true }), parsePair)
   },
   async create() {
-    return parseInvitation(await http.request('/api/pairs', { method: 'POST' }))
+    return parseInvitation(
+      await http.request('/api/pairs', { method: 'POST', privateSession: true }),
+    )
   },
   async refresh(id: string) {
     return parseInvitation(
-      await http.request(`/api/pairs/${identifier(id)}/invite`, { method: 'POST' }),
+      await http.request(`/api/pairs/${identifier(id)}/invite`, {
+        method: 'POST',
+        privateSession: true,
+      }),
     )
   },
   async join(invite_token: string) {
     return parseJoined(
-      await http.request('/api/pairs/join', { method: 'POST', body: { invite_token } }),
+      await http.request('/api/pairs/join', {
+        method: 'POST',
+        privateSession: true,
+        body: { invite_token },
+      }),
     )
   },
 }

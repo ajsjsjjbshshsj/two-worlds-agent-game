@@ -30,7 +30,7 @@ export function createAppRouter(
     if (to.meta.requiresAuth) {
       const identity = useIdentityStore(pinia)
       await identity.initialize()
-      if (!identity.authenticated) return '/'
+      if (!identity.authenticated && !identity.sessionSuspended) return '/'
     }
     return true
   })
