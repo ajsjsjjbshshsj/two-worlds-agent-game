@@ -1,376 +1,263 @@
 import { createPinia } from 'pinia'
-import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
+import { afterEach, expect, it, vi } from 'vitest'
 import Identity from '../../src/views/Identity.vue'
-import { created, fail, json, recovered, pendingMetadata, pendingA, pendingB } from '../fixtures'
+import { deferred, fail, json, me, noContent, password } from '../fixtures'
 
-const wrappers: ReturnType<typeof mount>[] = []
-function page() {
-  const wrapper = mount(Identity, { global: { plugins: [createPinia()] } })
-  wrappers.push(wrapper)
-  return wrapper
-}
-beforeEach(() => {
-  sessionStorage.clear()
-  localStorage.clear()
-})
-afterEach(() => {
-  wrappers.forEach((w) => w.unmount())
-  wrappers.length = 0
-  vi.unstubAllGlobals()
-})
-
-it('validates blank and overlong names before sending requests', async () => {
-  const fetch = vi.fn()
+function page(...responses: (Response | Error | Promise<Response>)[]) {
+  const fetch = vi.fn().mockResolvedValue(fail(401))
+  for (const response of responses.length ? responses : [fail(401)]) {
+    if (response instanceof Error) fetch.mockRejectedValueOnce(response)
+    else fetch.mockImplementationOnce(() => Promise.resolve(response))
+  }
   vi.stubGlobal('fetch', fetch)
-  const wrapper = page()
+  const wrapper = mount(Identity, {
+    global: { plugins: [createPinia()], stubs: { RouterLink: RouterLinkStub } },
+  })
+  return { wrapper, fetch }
+}
+type Wrapper = ReturnType<typeof page>['wrapper']
+const wrappers: Wrapper[] = []
+async function open(...responses: (Response | Error | Promise<Response>)[]) {
+  const result = page(...responses)
+  wrappers.push(result.wrapper)
   await flushPromises()
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  expect(wrapper.text()).toContain('1–40')
-  await wrapper.get('#display-name').setValue('字'.repeat(41))
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  expect(fetch).not.toHaveBeenCalled()
+  return result
+}
+afterEach(() => {
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
 })
-it.each(['', 'x'.repeat(129)])(
-  'validates recovery input and offers a reveal toggle (%i)',
-  async (input) => {
-    const fetch = vi.fn()
-    vi.stubGlobal('fetch', fetch)
-    const wrapper = page()
+async function choose(w: Wrapper, text: string) {
+  const button = w.findAll('button').find((candidate) => candidate.text() === text)
+  expect(button).toBeDefined()
+  await button!.trigger('click')
+}
+async function fill(w: Wrapper, mode: 'login' | 'register' | 'reset') {
+  await w.get('#email').setValue(me.account.email)
+  await w.get('#password').setValue(password)
+  if (mode !== 'login') {
+    await w.get('#verification-code').setValue('123456')
+    await w.get('#confirm-password').setValue(password)
+  }
+  if (mode === 'register') await w.get('#display-name').setValue(me.account.display_name)
+}
+
+it('defaults to labeled email login with the correct autocomplete and native form controls', async () => {
+  const { wrapper } = await open()
+  expect(wrapper.get('h2').text()).toBe('邮箱登录')
+  expect(wrapper.get('label[for=email]').text()).toBe('邮箱')
+  expect(wrapper.get('#email').attributes('type')).toBe('email')
+  expect(wrapper.get('#email').attributes('autocomplete')).toBe('username')
+  expect(wrapper.get('#password').attributes('autocomplete')).toBe('current-password')
+  expect(wrapper.get('button[type=submit]').text()).toBe('登录')
+  expect(wrapper.find('#verification-code').exists()).toBe(false)
+})
+
+it('toggles password visibility without changing the value or submitting', async () => {
+  const { wrapper, fetch } = await open()
+  await wrapper.get('#password').setValue(password)
+  await choose(wrapper, '显示密码')
+  expect(wrapper.get('#password').attributes('type')).toBe('text')
+  expect(wrapper.get('[aria-controls=password]').attributes('aria-pressed')).toBe('true')
+  await choose(wrapper, '隐藏密码')
+  expect(wrapper.get('#password').attributes('type')).toBe('password')
+  expect((wrapper.get('#password').element as HTMLInputElement).value).toBe(password)
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it('register presents a nickname, numeric code, new password and confirmation', async () => {
+  const { wrapper } = await open()
+  await choose(wrapper, '立即注册')
+  expect(wrapper.get('#display-name').attributes('autocomplete')).toBe('nickname')
+  expect(wrapper.get('#verification-code').attributes()).toMatchObject({
+    inputmode: 'numeric',
+    maxlength: '6',
+    autocomplete: 'one-time-code',
+  })
+  expect(wrapper.get('label[for=confirm-password]').text()).toBe('确认密码')
+  expect(wrapper.get('#password').attributes('autocomplete')).toBe('new-password')
+})
+
+it.each([
+  ['display-name', '', '显示名称'],
+  ['display-name', '旅'.repeat(41), '显示名称'],
+  ['email', 'invalid', '邮箱'],
+  ['verification-code', '', '验证码'],
+  ['verification-code', '12e456', '验证码'],
+  ['password', 'short', '10–128'],
+  ['password', '旅'.repeat(129), '10–128'],
+  ['confirm-password', 'different-password', '不一致'],
+])('rejects invalid register field %s before POST', async (field, value, message) => {
+  const { wrapper, fetch } = await open()
+  await choose(wrapper, '立即注册')
+  await fill(wrapper, 'register')
+  await wrapper.get(`#${field}`).setValue(value)
+  await wrapper.get('form').trigger('submit')
+  expect(wrapper.get('[role=alert]').text()).toContain(message)
+  expect(wrapper.get(`#${field}`).attributes('aria-invalid')).toBe('true')
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it('registration accepts 40 Unicode characters and automatically authenticates', async () => {
+  const { wrapper, fetch } = await open(fail(401), json(me))
+  await choose(wrapper, '立即注册')
+  await fill(wrapper, 'register')
+  await wrapper.get('#display-name').setValue('旅'.repeat(40))
+  await wrapper.get('#email').setValue(' PLAYER@EXAMPLE.TEST ')
+  await wrapper.get('form').trigger('submit')
+  await flushPromises()
+  expect(fetch.mock.calls[1]![0]).toBe('/api/accounts')
+  expect(JSON.parse(fetch.mock.calls[1]![1].body)).toMatchObject({
+    display_name: '旅'.repeat(40),
+    email: me.account.email,
+  })
+  expect(wrapper.text()).toContain('已登录')
+  expect(wrapper.text()).not.toMatch(/恢复密钥|123456|example-password/)
+})
+
+it('successful login replaces the form with the verified account and room link', async () => {
+  const { wrapper, fetch } = await open(fail(401), json(me))
+  await fill(wrapper, 'login')
+  await wrapper.get('form').trigger('submit')
+  await flushPromises()
+  expect(fetch.mock.calls[1]![0]).toBe('/api/sessions')
+  expect(wrapper.text()).toContain(me.account.email)
+  expect(wrapper.text()).toContain('进入我的房间')
+  expect(wrapper.find('#password').exists()).toBe(false)
+})
+
+it('unknown email and wrong password share one localized 401 response', async () => {
+  const { wrapper } = await open(fail(401), fail(401, 'INVALID_CREDENTIALS'))
+  await fill(wrapper, 'login')
+  await wrapper.get('form').trigger('submit')
+  await flushPromises()
+  expect(wrapper.get('[role=alert]').text()).toBe('邮箱或密码错误。')
+  expect(wrapper.text()).not.toContain('PRIVATE_TEST_RESPONSE')
+})
+
+it('loading disables form controls and duplicate submits do not repeat the password', async () => {
+  const response = deferred<Response>()
+  const { wrapper, fetch } = await open(fail(401), response.promise)
+  await fill(wrapper, 'login')
+  await wrapper.get('form').trigger('submit')
+  await wrapper.get('form').trigger('submit')
+  expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined()
+  expect(wrapper.get('button[type=submit]').text()).toBe('正在提交…')
+  expect(fetch).toHaveBeenCalledTimes(2)
+  response.resolve(json(me))
+  await flushPromises()
+})
+
+it.each(['立即注册', '忘记密码？'])(
+  '202 feedback is neutral and the countdown has 60 seconds in %s',
+  async (mode) => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    const { wrapper, fetch } = await open(fail(401), json({ status: 'accepted' }, 202))
+    await choose(wrapper, mode)
+    await wrapper.get('#email').setValue(me.account.email)
+    const send = wrapper.get('[data-test=send-code]')
+    await send.trigger('click')
     await flushPromises()
-    await wrapper.get('[data-test=restore-tab]').trigger('click')
-    await wrapper.get('#recovery-key').setValue(input)
-    await wrapper.get('[data-test=recover-form]').trigger('submit')
-    expect(wrapper.text()).toContain('1–128')
-    await wrapper.get('[data-test=toggle-key]').trigger('click')
-    expect(wrapper.get('#recovery-key').attributes('type')).toBe('text')
-    expect(fetch).not.toHaveBeenCalled()
+    expect(send.text()).toContain('60s')
+    expect(send.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('如果邮箱符合条件')
+    expect(wrapper.text()).not.toMatch(/发送成功|邮箱未注册/)
+    expect(JSON.parse(fetch.mock.calls[1]![1].body).purpose).toBe(
+      mode === '立即注册' ? 'register' : 'reset',
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(send.text()).toContain('59s')
+    await vi.advanceTimersByTimeAsync(59000)
+    expect(send.attributes('disabled')).toBeUndefined()
   },
 )
-it('shows one-time key, copies it, clears it on confirmation and never renders token', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(created)))
-  const writeText = vi.fn().mockResolvedValue(undefined)
-  vi.stubGlobal('navigator', { clipboard: { writeText } })
-  const wrapper = page()
+
+it('429 obeys Retry-After across mode changes and never auto-resends', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  const { wrapper, fetch } = await open(fail(401), fail(429, 'RATE_LIMITED', '75'))
+  await choose(wrapper, '立即注册')
+  await wrapper.get('#email').setValue(me.account.email)
+  await wrapper.get('[data-test=send-code]').trigger('click')
   await flushPromises()
-  await wrapper.get('#display-name').setValue('旅人')
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  await flushPromises()
-  expect((wrapper.get('[data-test=one-time-key]').element as HTMLTextAreaElement).value).toBe(
-    created.recovery_key,
-  )
-  expect(wrapper.text()).toContain('只展示一次')
-  await wrapper.get('[data-test=copy-key]').trigger('click')
-  await flushPromises()
-  expect(writeText).toHaveBeenCalledWith(created.recovery_key)
-  expect(wrapper.text()).toContain('已复制')
-  expect(wrapper.html()).not.toContain(created.session.token)
-  await wrapper.get('[data-test=confirm-key]').trigger('click')
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(wrapper.text()).toContain('身份已验证')
-  expect(JSON.stringify(sessionStorage)).not.toContain(created.recovery_key)
-})
-it('offers manual copy when clipboard permission is unavailable', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(created)))
-  vi.stubGlobal('navigator', {
-    clipboard: { writeText: vi.fn().mockRejectedValue(new Error('blocked')) },
-  })
-  const wrapper = page()
-  await flushPromises()
-  await wrapper.get('#display-name').setValue('旅人')
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  await flushPromises()
-  await wrapper.get('[data-test=copy-key]').trigger('click')
-  await flushPromises()
-  expect(wrapper.text()).toContain('手动复制')
-  expect(wrapper.get('[data-test=one-time-key]').attributes('readonly')).toBeDefined()
-})
-it('prevents duplicate create while loading and shows unknown-result warning', async () => {
-  let reject!: (reason: Error) => void
-  const fetch = vi.fn().mockImplementation(
-    () =>
-      new Promise((_resolve, fail) => {
-        reject = fail
-      }),
-  )
-  vi.stubGlobal('fetch', fetch)
-  const wrapper = page()
-  await flushPromises()
-  await wrapper.get('#display-name').setValue('旅人')
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  expect(wrapper.get('[data-test=create-button]').attributes('disabled')).toBeDefined()
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  expect(fetch).toHaveBeenCalledTimes(1)
-  reject(new Error('offline'))
-  await flushPromises()
-  expect(wrapper.text()).toContain('可能已创建')
-})
-it('restores identity and removes entered recovery key', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(recovered)))
-  const wrapper = page()
-  await flushPromises()
-  await wrapper.get('[data-test=restore-tab]').trigger('click')
-  await wrapper.get('#recovery-key').setValue('PRIVATE_RECOVERY')
-  await wrapper.get('[data-test=recover-form]').trigger('submit')
-  await flushPromises()
-  expect(wrapper.text()).toContain('身份已验证')
-  expect(wrapper.html()).not.toContain('PRIVATE_RECOVERY')
-})
-it.each([401, 422, 429, 503])('displays safe feedback for recovery failure %i', async (status) => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fail(status)))
-  const wrapper = page()
-  await flushPromises()
-  await wrapper.get('[data-test=restore-tab]').trigger('click')
-  await wrapper.get('#recovery-key').setValue('PRIVATE_RECOVERY')
-  await wrapper.get('[data-test=recover-form]').trigger('submit')
-  await flushPromises()
-  expect(wrapper.find('[role=alert]').exists()).toBe(true)
-  expect((wrapper.get('#recovery-key').element as HTMLInputElement).value).toBe('')
-  expect(wrapper.html()).not.toContain('PRIVATE_RECOVERY')
-})
-it('accepts forty Unicode code points consistently with the backend name limit', async () => {
-  const fetch = vi.fn().mockResolvedValue(json(created))
-  vi.stubGlobal('fetch', fetch)
-  const wrapper = page()
-  await flushPromises()
-  const name = '🌌'.repeat(40)
-  await wrapper.get('#display-name').setValue(name)
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  await flushPromises()
-  expect(JSON.parse(fetch.mock.calls[0]![1].body).display_name).toBe(name)
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(true)
-})
-it('refresh verifies the token without redisplaying the one-time recovery key', async () => {
-  sessionStorage.setItem('twoworlds.session.token', created.session.token)
-  vi.stubGlobal(
-    'fetch',
-    vi
-      .fn()
-      .mockResolvedValue(
-        json({ account: created.account, session: { expires_at: created.session.expires_at } }),
-      ),
-  )
-  const wrapper = page()
-  await flushPromises()
-  expect(wrapper.text()).toContain('身份已验证')
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(wrapper.html()).not.toContain(created.recovery_key)
+  expect(wrapper.get('[data-test=send-code]').text()).toContain('75s')
+  expect(wrapper.get('[role=alert]').text()).toContain('频繁')
+  await choose(wrapper, '返回登录')
+  expect(vi.getTimerCount()).toBe(0)
+  await choose(wrapper, '忘记密码？')
+  expect(wrapper.get('[data-test=send-code]').text()).toContain('75s')
+  await vi.advanceTimersByTimeAsync(75000)
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(wrapper.get('[data-test=send-code]').attributes('disabled')).toBeUndefined()
 })
 
-const pendingKey = 'twoworlds.recovery.pending.v1.' + created.account.id
-function beforeUnload() {
-  const event = new Event('beforeunload', { cancelable: true })
-  window.dispatchEvent(event)
-  return event.defaultPrevented
-}
-async function createdPage() {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(created)))
-  const wrapper = page()
+it.each(['INVALID_CODE', 'CODE_EXPIRED', 'CODE_LOCKED'])(
+  'reset shows %s as a safe verification error and preserves form input',
+  async (error) => {
+    const { wrapper } = await open(fail(401), fail(422, error))
+    await choose(wrapper, '忘记密码？')
+    await fill(wrapper, 'reset')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[role=alert]').text()).toContain('验证码')
+    expect(wrapper.get('[role=alert]').text()).not.toContain('PRIVATE')
+    expect((wrapper.get('#password').element as HTMLInputElement).value).toBe(password)
+    expect((wrapper.get('#verification-code').element as HTMLInputElement).value).toBe('123456')
+  },
+)
+
+it('confirmed reset returns to login, clears secrets, retains the email and asks to sign in', async () => {
+  const { wrapper } = await open(fail(401), noContent())
+  await choose(wrapper, '忘记密码？')
+  await fill(wrapper, 'reset')
+  await wrapper.get('form').trigger('submit')
   await flushPromises()
-  await wrapper.get('#display-name').setValue('旅人')
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  await flushPromises()
-  return wrapper
-}
-it('marks pending without storing the secret and protects leaving until confirmation', async () => {
-  expect(beforeUnload()).toBe(false)
-  const wrapper = await createdPage()
-  expect(JSON.parse(localStorage.getItem(pendingKey)!)).toEqual({
-    account_id: created.account.id,
-    display_name: created.account.display_name,
-    created_at: expect.any(String),
-    pending: true,
-  })
-  expect(JSON.stringify(sessionStorage)).not.toContain(created.recovery_key)
-  expect(localStorage.length).toBe(1)
-  expect(JSON.stringify(localStorage)).not.toContain(created.recovery_key)
-  expect(JSON.stringify(localStorage)).not.toContain(created.session.token)
-  expect(beforeUnload()).toBe(true)
-  await wrapper.get('[data-test=confirm-key]').trigger('click')
-  expect(localStorage.getItem(pendingKey)).toBeNull()
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(beforeUnload()).toBe(false)
+  expect(wrapper.get('h2').text()).toBe('邮箱登录')
+  expect(wrapper.get('[role=status]').text()).toContain('密码已重置')
+  expect((wrapper.get('#email').element as HTMLInputElement).value).toBe(me.account.email)
+  expect((wrapper.get('#password').element as HTMLInputElement).value).toBe('')
 })
-it('refresh detects unconfirmed recovery and never redisplays or regenerates the lost secret', async () => {
-  const original = await createdPage()
-  original.unmount()
-  const fetch = vi
-    .fn()
-    .mockResolvedValue(
-      json({ account: created.account, session: { expires_at: created.session.expires_at } }),
-    )
-  vi.stubGlobal('fetch', fetch)
-  const refreshed = page()
+
+it('reset network uncertainty does not display success or repeat the request', async () => {
+  const { wrapper, fetch } = await open(fail(401), new TypeError('PRIVATE'))
+  await choose(wrapper, '忘记密码？')
+  await fill(wrapper, 'reset')
+  await wrapper.get('form').trigger('submit')
   await flushPromises()
-  expect(refreshed.get('[data-test=pending-recovery-warning]').text()).toContain('尚未确认保存')
-  expect(refreshed.text()).toContain('无法在其他设备恢复')
-  expect(refreshed.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(refreshed.html()).not.toContain(created.recovery_key)
-  expect(fetch).toHaveBeenCalledTimes(1)
-  expect(fetch.mock.calls[0]![0]).toBe('/api/me')
-  expect(beforeUnload()).toBe(false)
+  expect(wrapper.get('[role=alert]').text()).toContain('密码重置结果尚未确认')
+  expect(wrapper.text()).not.toContain('密码已重置')
+  expect(fetch).toHaveBeenCalledTimes(2)
 })
-it('removes the exact unload listener on unmount while retaining the pending marker', async () => {
-  const added = vi.spyOn(window, 'addEventListener')
-  const removed = vi.spyOn(window, 'removeEventListener')
-  const wrapper = await createdPage()
-  const callback = added.mock.calls.find(([event]) => event === 'beforeunload')?.[1]
-  expect(callback).toBeTypeOf('function')
+
+it('temporary startup failure offers a retry before presenting the login form', async () => {
+  const { wrapper, fetch } = await open(fail(503), fail(401))
+  expect(wrapper.get('h2').text()).toBe('暂时无法验证身份')
+  expect(wrapper.find('form').exists()).toBe(false)
+  await choose(wrapper, '重试验证')
+  await flushPromises()
+  expect(wrapper.get('h2').text()).toBe('邮箱登录')
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/me', '/api/me'])
+})
+
+it('mode switch clears code, passwords, reveal state and active interval', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  const { wrapper } = await open(fail(401), json({ status: 'accepted' }, 202))
+  await choose(wrapper, '立即注册')
+  await fill(wrapper, 'register')
+  await choose(wrapper, '显示密码')
+  await wrapper.get('[data-test=send-code]').trigger('click')
+  await flushPromises()
+  expect(vi.getTimerCount()).toBe(1)
+  await choose(wrapper, '返回登录')
+  expect(vi.getTimerCount()).toBe(0)
+  expect(wrapper.get('#password').attributes('type')).toBe('password')
+  await choose(wrapper, '立即注册')
+  for (const selector of ['#password', '#confirm-password', '#verification-code']) {
+    expect((wrapper.get(selector).element as HTMLInputElement).value).toBe('')
+  }
   wrapper.unmount()
-  expect(removed).toHaveBeenCalledWith('beforeunload', callback)
-  expect(beforeUnload()).toBe(false)
-  expect(JSON.parse(localStorage.getItem(pendingKey)!)).toEqual({
-    account_id: created.account.id,
-    display_name: created.account.display_name,
-    created_at: expect.any(String),
-    pending: true,
-  })
-})
-it('keeps an in-memory safety state and unload warning when sessionStorage is blocked', async () => {
-  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-    throw new Error('blocked')
-  })
-  const wrapper = await createdPage()
-  expect(wrapper.text()).toContain('无法保存会话')
-  expect((wrapper.get('[data-test=one-time-key]').element as HTMLTextAreaElement).value).toBe(
-    created.recovery_key,
-  )
-  expect(beforeUnload()).toBe(true)
-  expect(sessionStorage.length).toBe(0)
-  await wrapper.get('[data-test=confirm-key]').trigger('click')
-  expect(beforeUnload()).toBe(false)
-})
-it('retains the unconfirmed warning even when the refreshed session is invalid', async () => {
-  localStorage.setItem(pendingKey, JSON.stringify(pendingMetadata(created.account)))
-  sessionStorage.setItem('twoworlds.session.token', created.session.token)
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fail(401)))
-  const wrapper = page()
-  await flushPromises()
-  expect(wrapper.get('[data-test=pending-recovery-warning]').text()).toContain('尚未确认保存')
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(sessionStorage.getItem('twoworlds.session.token')).toBeNull()
-  expect(localStorage.getItem(pendingKey)).toBe(JSON.stringify(pendingMetadata(created.account)))
-})
-it('shows all reminders independently of the authenticated account and confirms only A', async () => {
-  for (const item of [pendingA, pendingB])
-    localStorage.setItem(
-      'twoworlds.recovery.pending.v1.' + item.account.id,
-      JSON.stringify(pendingMetadata(item.account)),
-    )
-  sessionStorage.setItem('twoworlds.session.token', pendingB.session.token)
-  vi.stubGlobal(
-    'fetch',
-    vi
-      .fn()
-      .mockResolvedValue(
-        json({ account: pendingB.account, session: { expires_at: pendingB.session.expires_at } }),
-      ),
-  )
-  const wrapper = page()
-  await flushPromises()
-  expect(wrapper.findAll('[data-test=pending-reminder]')).toHaveLength(2)
-  expect(wrapper.text()).toContain('旅人甲')
-  expect(wrapper.text()).toContain('旅人乙')
-  await wrapper.get('[data-account-id=account_a] [data-test=acknowledge-pending]').trigger('click')
-  expect(wrapper.find('[data-account-id=account_a]').exists()).toBe(false)
-  expect(wrapper.find('[data-account-id=account_b]').exists()).toBe(true)
-  expect(localStorage.getItem('twoworlds.recovery.pending.v1.account_b')).toBe(
-    JSON.stringify(pendingMetadata(pendingB.account)),
-  )
-})
-it('recovering B leaves the reminder for A visible', async () => {
-  localStorage.setItem(
-    'twoworlds.recovery.pending.v1.account_a',
-    JSON.stringify(pendingMetadata(pendingA.account)),
-  )
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(pendingB)))
-  const wrapper = page()
-  await flushPromises()
-  await wrapper.get('[data-test=restore-tab]').trigger('click')
-  await wrapper.get('#recovery-key').setValue(pendingB.recovery_key)
-  await wrapper.get('[data-test=recover-form]').trigger('submit')
-  await flushPromises()
-  expect(wrapper.text()).toContain('旅人乙')
-  expect(wrapper.get('[data-account-id=account_a]').text()).toContain('旅人甲')
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
-})
-it('logout and reopening without a token retain A reminder and do not recreate the key', async () => {
-  localStorage.setItem(pendingKey, JSON.stringify(pendingMetadata(created.account)))
-  sessionStorage.setItem('twoworlds.session.token', created.session.token)
-  vi.stubGlobal(
-    'fetch',
-    vi
-      .fn()
-      .mockResolvedValueOnce(
-        json({ account: created.account, session: { expires_at: created.session.expires_at } }),
-      )
-      .mockResolvedValueOnce(new Response(null, { status: 204 })),
-  )
-  const wrapper = page()
-  await flushPromises()
-  const logout = wrapper.findAll('button').find((button) => button.text() === '登出此设备')!
-  await logout.trigger('click')
-  await flushPromises()
-  expect(localStorage.getItem(pendingKey)).toBe(JSON.stringify(pendingMetadata(created.account)))
-  wrapper.unmount()
-  const fetch = vi.fn()
-  vi.stubGlobal('fetch', fetch)
-  const reopened = page()
-  await flushPromises()
-  expect(reopened.get('[data-test=pending-recovery-warning]').text()).toContain(
-    created.account.display_name,
-  )
-  expect(reopened.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(fetch).not.toHaveBeenCalled()
-})
-it('abandoning a reminder requires a second explicit confirmation and leaves B intact', async () => {
-  for (const item of [pendingA, pendingB])
-    localStorage.setItem(
-      'twoworlds.recovery.pending.v1.' + item.account.id,
-      JSON.stringify(pendingMetadata(item.account)),
-    )
-  const fetch = vi.fn()
-  vi.stubGlobal('fetch', fetch)
-  const wrapper = page()
-  await flushPromises()
-  await wrapper.get('[data-account-id=account_a] [data-test=abandon-pending]').trigger('click')
-  expect(wrapper.get('[role=alertdialog]').text()).toContain('可能永久无法恢复')
-  expect(localStorage.getItem('twoworlds.recovery.pending.v1.account_a')).not.toBeNull()
-  await wrapper.get('[data-test=cancel-abandon]').trigger('click')
-  expect(wrapper.find('[role=alertdialog]').exists()).toBe(false)
-  await wrapper.get('[data-account-id=account_a] [data-test=abandon-pending]').trigger('click')
-  await wrapper.get('[data-test=confirm-abandon]').trigger('click')
-  expect(localStorage.getItem('twoworlds.recovery.pending.v1.account_a')).toBeNull()
-  expect(localStorage.getItem('twoworlds.recovery.pending.v1.account_b')).not.toBeNull()
-  expect(fetch).not.toHaveBeenCalled()
-})
-it('blocked localStorage preserves the visible key, memory reminder and leave guard', async () => {
-  const storage = localStorage
-  vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
-    throw new Error('blocked')
-  })
-  const wrapper = await createdPage()
-  expect(wrapper.text()).toContain('本页仍保留内存提醒')
-  expect((wrapper.get('[data-test=one-time-key]').element as HTMLTextAreaElement).value).toBe(
-    created.recovery_key,
-  )
-  expect(beforeUnload()).toBe(true)
-  expect(storage.length).toBe(0)
-  expect(sessionStorage.getItem('twoworlds.session.token')).toBe(created.session.token)
-  await wrapper.get('[data-test=confirm-key]').trigger('click')
-  expect(beforeUnload()).toBe(false)
-})
-it('legacy unassigned marker is warned about rather than guessed or cleared by recovery', async () => {
-  sessionStorage.setItem('twoworlds.recovery.pending', '1')
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(pendingB)))
-  const wrapper = page()
-  await flushPromises()
-  expect(wrapper.text()).toContain('旧版未关联身份')
-  await wrapper.get('[data-test=restore-tab]').trigger('click')
-  await wrapper.get('#recovery-key').setValue(pendingB.recovery_key)
-  await wrapper.get('[data-test=recover-form]').trigger('submit')
-  await flushPromises()
-  expect(wrapper.text()).toContain('旧版未关联身份')
-  expect(wrapper.findAll('[data-test=pending-reminder]')).toHaveLength(0)
-  expect(sessionStorage.getItem('twoworlds.recovery.pending')).toBe('1')
+  wrappers.splice(wrappers.indexOf(wrapper), 1)
+  expect(vi.getTimerCount()).toBe(0)
 })

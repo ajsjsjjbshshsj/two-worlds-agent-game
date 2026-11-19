@@ -62,8 +62,8 @@ it.each(['save', 'role', 'script', 'script-version', 'credential', 'scene'])(
   '%s switch cancels prior work and does not animate a new scope baseline',
   async (change) => {
     const { c, play, pending, states } = setup()
-    c.update(snapshot(), 'TEST')
-    c.update(snapshot('lighthouse', 'a', 11, true), 'TEST')
+    c.update(snapshot(), 1)
+    c.update(snapshot('lighthouse', 'a', 11, true), 1)
     const next = {
       ...snapshot('lighthouse', 'a', 12, true),
       ...(change === 'save' ? { id: 'other_save' } : {}),
@@ -72,7 +72,7 @@ it.each(['save', 'role', 'script', 'script-version', 'credential', 'scene'])(
       ...(change === 'script-version' ? { script_version: '2.0.0' } : {}),
       ...(change === 'scene' ? { scene_id: 'decision' } : {}),
     }
-    c.update(next, change === 'credential' ? 'OTHER' : 'TEST')
+    c.update(next, change === 'credential' ? 2 : 1)
     expect(pending[0]!.signal.aborted).toBe(true)
     pending[0]!.resolve()
     await flushPromises()

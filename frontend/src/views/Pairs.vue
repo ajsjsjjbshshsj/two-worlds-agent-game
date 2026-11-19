@@ -3,9 +3,7 @@ import { onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import SpaceShell from '../components/SpaceShell.vue'
 import { usePairsStore } from '../stores/pairs'
-import { useIdentityStore } from '../stores/identity'
 const pairs = usePairsStore(),
-  identity = useIdentityStore(),
   router = useRouter()
 onMounted(() => {
   pairs.captureInvite()
@@ -45,14 +43,11 @@ async function join() {
       <section class="resource-panel">
         <h2>接受搭档邀请</h2>
         <p>{{ pairs.inviteHint }}</p>
-        <p v-if="identity.currentRecoveryKeyPending" class="notice">
-          请先回身份页确认密钥保存情况，再加入房间。
-        </p>
         <button
           v-if="pairs.hasIncomingInvite"
           data-test="join-pair"
           class="primary"
-          :disabled="pairs.busy || identity.currentRecoveryKeyPending"
+          :disabled="pairs.busy"
           @click="join"
         >
           确认以当前身份加入 · 角色 B

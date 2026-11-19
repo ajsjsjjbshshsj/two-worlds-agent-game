@@ -19,7 +19,7 @@ watch(
         ><span>TwoWorlds<small>两个人 · 两个世界</small></span></RouterLink
       >
       <nav aria-label="主要导航">
-        <RouterLink to="/pairs">我的房间</RouterLink><RouterLink to="/">身份与恢复</RouterLink>
+        <RouterLink to="/pairs">我的房间</RouterLink><RouterLink to="/">我的账号</RouterLink>
       </nav>
       <p class="help">{{ identity.account?.display_name }}</p>
     </header>

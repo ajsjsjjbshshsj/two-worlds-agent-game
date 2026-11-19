@@ -15,7 +15,7 @@ it('failed protected image retains readable alternative and playable controls', 
       cues: [],
     },
   })
-  const w = mount(SceneRenderer, { props: { snapshot: s, token: 'SESSION_TEST' } })
+  const w = mount(SceneRenderer, { props: { snapshot: s, sessionGeneration: 1 } })
   await flushPromises()
   expect(w.text()).toContain('图片暂不可用')
   expect(w.find('svg').exists()).toBe(true)
@@ -40,7 +40,7 @@ it('unmount with an active object URL revokes it', async () => {
       cues: [],
     },
   })
-  const w = mount(SceneRenderer, { props: { snapshot: s, token: 'SESSION_TEST' } })
+  const w = mount(SceneRenderer, { props: { snapshot: s, sessionGeneration: 1 } })
   await flushPromises()
   w.unmount()
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:ACTIVE')
@@ -99,7 +99,7 @@ it('supports booleans, integers and bounded free text without guessed answers', 
   expect(w.emitted('command')?.[0]).toEqual(['test', { enabled: true, count: 2, note: 'ok' }])
   w.unmount()
 })
-it('fetches image with Bearer and no-store and owns object URL cleanup', async () => {
+it('fetches image with Cookie and no-store and owns object URL cleanup', async () => {
   const fetch = vi.fn().mockResolvedValue(
     new Response(new Blob(['image'], { type: 'image/png' }), {
       headers: { 'Content-Type': 'image/png' },
@@ -113,16 +113,9 @@ it('fetches image with Bearer and no-store and owns object URL cleanup', async (
       static revokeObjectURL = vi.fn()
     },
   )
-  const result = await protectedImage(
-    'SESSION_TEST',
-    'save_one',
-    'asset_one',
-    new AbortController().signal,
-  )
-  expect(fetch.mock.calls[0]![1]).toMatchObject({ cache: 'no-store', credentials: 'omit' })
-  expect(new Headers(fetch.mock.calls[0]![1].headers).get('Authorization')).toBe(
-    'Bearer SESSION_TEST',
-  )
+  const result = await protectedImage('save_one', 'asset_one', new AbortController().signal)
+  expect(fetch.mock.calls[0]![1]).toMatchObject({ cache: 'no-store', credentials: 'include' })
+  expect(new Headers(fetch.mock.calls[0]![1].headers).get('Authorization')).toBeNull()
   result.dispose()
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:TEST')
 })
@@ -156,10 +149,54 @@ it('scene revokes images on snapshot change and unmount; failure leaves readable
       cues: [],
     },
   })
-  const w = mount(SceneRenderer, { props: { snapshot: s, token: 'SESSION_TEST' } })
+  const w = mount(SceneRenderer, { props: { snapshot: s, sessionGeneration: 1 } })
   await flushPromises()
   expect(w.find('img').attributes('src')).toBe('blob:TEST')
   await w.setProps({ snapshot: parseGame(game()) })
   expect(revoke).toHaveBeenCalled()
+  w.unmount()
+})
+
+it('a private image 401 invalidates only the session generation that requested it', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response('', { status: 401 }))
+  vi.stubGlobal('fetch', fetch)
+  const snapshot = parseGame({
+    ...game(),
+    presentation: {
+      background: { asset_id: 'asset_one', kind: 'image', alt_text: 'TEST-ONLY', transcript: null },
+      cues: [],
+    },
+  })
+  const w = mount(SceneRenderer, { props: { snapshot, sessionGeneration: 7 } })
+  await flushPromises()
+  expect(w.emitted('sessionExpired')).toEqual([[7]])
+  expect(w.find('img').exists()).toBe(false)
+  w.unmount()
+})
+
+it('a 401 from an old image request cannot expire the new session', async () => {
+  let resolve!: (value: Response) => void
+  const fetch = vi
+    .fn()
+    .mockReturnValueOnce(
+      new Promise<Response>((done) => {
+        resolve = done
+      }),
+    )
+    .mockResolvedValueOnce(new Response('', { status: 404 }))
+  vi.stubGlobal('fetch', fetch)
+  const snapshot = parseGame({
+    ...game(),
+    presentation: {
+      background: { asset_id: 'asset_one', kind: 'image', alt_text: 'TEST-ONLY', transcript: null },
+      cues: [],
+    },
+  })
+  const w = mount(SceneRenderer, { props: { snapshot, sessionGeneration: 7 } })
+  await w.setProps({ sessionGeneration: 8 })
+  expect(fetch.mock.calls[0]![1].signal.aborted).toBe(true)
+  resolve(new Response('', { status: 401 }))
+  await flushPromises()
+  expect(w.emitted('sessionExpired')).toBeUndefined()
   w.unmount()
 })

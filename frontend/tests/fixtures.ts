@@ -1,36 +1,38 @@
-export const account = { id: 'account_fixture', display_name: '旅人' }
-export const session = { token: 'tw_session_TEST_ONLY', expires_at: '2027-01-01T00:00:00Z' }
-export const created = { account, session, recovery_key: 'tw_recovery_TEST_ONLY' }
-export const recovered = { account, session }
-export const me = { account, session: { expires_at: session.expires_at } }
-export function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status })
+export const account = { id: 'account_fixture', email: 'player@example.test', display_name: '旅人' }
+export const session = { expires_at: '2027-01-01T00:00:00Z' }
+export const me = { account, session }
+export const other = {
+  account: { id: 'account_other', email: 'partner@example.test', display_name: '搭档' },
+  session,
 }
-export function fail(status: number) {
+export const password = 'example-password-123'
+export const loginInput = { email: account.email, password }
+export const registerInput = { ...loginInput, code: '123456', display_name: '旅人' }
+export const resetInput = { email: account.email, code: '123456', new_password: password }
+
+export function json(body: unknown, status = 200, headers?: HeadersInit) {
+  return new Response(JSON.stringify(body), { status, headers })
+}
+export function fail(status: number, code = 'UNAUTHENTICATED', seconds?: string) {
   return json(
-    { error: { code: 'UNAUTHENTICATED', message: '固定测试错误', retryable: false } },
+    {
+      error: {
+        code,
+        message: 'PRIVATE_TEST_RESPONSE',
+        retryable: status === 429 || status === 503,
+      },
+    },
     status,
+    seconds === undefined ? undefined : { 'Retry-After': seconds },
   )
 }
-
-export const pendingA = {
-  account: { id: 'account_a', display_name: '旅人甲' },
-  session: { token: 'tw_session_a_TEST', expires_at: '2027-01-01T00:00:00Z' },
-  recovery_key: 'tw_recovery_a_TEST',
+export function noContent() {
+  return new Response(null, { status: 204 })
 }
-export const pendingB = {
-  account: { id: 'account_b', display_name: '旅人乙' },
-  session: { token: 'tw_session_b_TEST', expires_at: '2027-01-01T00:00:00Z' },
-  recovery_key: 'tw_recovery_b_TEST',
+export function deferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
 }
-export const pendingC = {
-  account: { id: 'account_c', display_name: '旅人丙' },
-  session: { token: 'tw_session_c_TEST', expires_at: '2027-01-01T00:00:00Z' },
-  recovery_key: 'tw_recovery_c_TEST',
-}
-export const pendingMetadata = (account = pendingA.account) => ({
-  account_id: account.id,
-  display_name: account.display_name,
-  created_at: '2026-11-16T00:00:00.000Z',
-  pending: true,
-})

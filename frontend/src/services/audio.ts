@@ -1,5 +1,6 @@
 import type { AudioCue, AudioPreferences, AudioState } from '../types/audio'
 import { audioCues, operationAudioCues } from './audio-assets'
+import { ApiError } from './http'
 import { protectedAudio } from './media'
 import type { GameSnapshot } from '../types/game'
 interface Track {
@@ -24,7 +25,7 @@ export class AudioManager {
     time: 0,
   }
   private scope = ''
-  private token = ''
+  private sessionGeneration: number | undefined
   private saveId = ''
   private version = -1
   private scene = ''
@@ -42,19 +43,20 @@ export class AudioManager {
   constructor(
     private changed: (state: AudioState) => void = () => {},
     private deps: Dependencies = defaults,
+    private sessionExpired: (generation: number) => void = () => {},
   ) {}
   private notify() {
     this.changed({ ...this.state })
   }
-  update(snapshot: GameSnapshot, token: string) {
+  update(snapshot: GameSnapshot, sessionGeneration: number) {
     const scope = [snapshot.id, snapshot.script_id, snapshot.script_version, snapshot.role].join(
       ':',
     )
-    const initial = scope !== this.scope || token !== this.token
+    const initial = scope !== this.scope || sessionGeneration !== this.sessionGeneration
     if (initial) {
       this.reset()
       this.scope = scope
-      this.token = token
+      this.sessionGeneration = sessionGeneration
       this.saveId = snapshot.id
     }
     if (snapshot.version < this.version) return
@@ -184,7 +186,7 @@ export class AudioManager {
     this.pending.set(cue.key, controller)
     let resource: Awaited<ReturnType<typeof protectedAudio>> | undefined
     try {
-      resource = await this.deps.load(this.token, this.saveId, cue.asset_id, controller.signal)
+      resource = await this.deps.load(this.saveId, cue.asset_id, controller.signal)
       if (controller.signal.aborted || epoch !== this.epoch) {
         resource.dispose()
         return
@@ -227,9 +229,15 @@ export class AudioManager {
       this.volumes()
       await this.play(track)
       if (this.tracks.get(cue.key) === track && cue.channel === 'ambient') this.fade(track, 1)
-    } catch {
+    } catch (cause) {
       resource?.dispose()
       if (!controller.signal.aborted && epoch === this.epoch) {
+        if (
+          cause instanceof ApiError &&
+          cause.status === 401 &&
+          this.sessionGeneration !== undefined
+        )
+          this.sessionExpired(this.sessionGeneration)
         this.failed.add(cue.key)
         this.state.status = 'error'
         this.state.message = '音频资源暂不可用或尚未配置；请继续阅读字幕与操作。'
@@ -314,7 +322,7 @@ export class AudioManager {
   reset() {
     this.disable()
     this.scope = ''
-    this.token = ''
+    this.sessionGeneration = undefined
     this.saveId = ''
     this.version = -1
     this.scene = ''

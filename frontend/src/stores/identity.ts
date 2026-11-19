@@ -1,295 +1,222 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { Account, CreateAccount, PendingRecovery, RecoverSession } from '../types/api'
-import { createdIdentity, currentIdentity, recoveredIdentity } from '../types/api'
-import { ApiError, createHttpClient, isRecord } from '../services/http'
+import { ApiError } from '../services/http'
+import { identityApi } from '../services/identity'
+import {
+  normalizeEmail,
+  type Account,
+  type CurrentIdentity,
+  type LoginInput,
+  type RegisterInput,
+  type ResetPasswordInput,
+  type VerificationPurpose,
+} from '../types/api'
 
-export const SESSION_KEY = 'twoworlds.session.token'
-export const PENDING_RECOVERY_PREFIX = 'twoworlds.recovery.pending.v1.'
-function validAccountId(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.exec(value)?.[0] === value
+type Problem = { code: string; message: string; retryAfter?: number }
+
+function problem(cause: unknown) {
+  return cause instanceof ApiError ? cause : new ApiError(0, 'NETWORK_ERROR', true)
 }
-function parsePending(key: string, raw: string | null): PendingRecovery | null {
-  if (!raw || raw.length > 2048) return null
-  try {
-    const value: unknown = JSON.parse(raw)
-    if (
-      !isRecord(value) ||
-      Object.keys(value).sort().join(',') !== 'account_id,created_at,display_name,pending' ||
-      !validAccountId(value.account_id) ||
-      key !== PENDING_RECOVERY_PREFIX + value.account_id ||
-      typeof value.display_name !== 'string' ||
-      !value.display_name.trim() ||
-      Array.from(value.display_name).length > 40 ||
-      typeof value.created_at !== 'string' ||
-      value.created_at.length > 40 ||
-      !/(Z|[+-]\d{2}:\d{2})$/.test(value.created_at) ||
-      !Number.isFinite(Date.parse(value.created_at)) ||
-      value.pending !== true
-    )
-      return null
-    return {
-      account_id: value.account_id,
-      display_name: value.display_name,
-      created_at: value.created_at,
-      pending: true,
-    }
-  } catch {
-    return null
-  }
+function uncertain(error: ApiError) {
+  return (
+    error.status === 0 ||
+    error.status >= 500 ||
+    (error.status < 300 && error.code === 'INVALID_RESPONSE')
+  )
 }
+
 export const useIdentityStore = defineStore('identity', () => {
   const account = ref<Account | null>(null)
-  const token = ref<string | null>(null)
   const expiresAt = ref<string | null>(null)
-  const initializing = ref(false)
+  const authenticated = computed(() => account.value !== null)
   const initialized = ref(false)
+  const initializing = ref(false)
+  const verificationUnavailable = ref(false)
   const busy = ref(false)
-  const error = ref<{ message: string; code: string } | null>(null)
-  const storageWarning = ref<string | null>(null)
-  const pendingRecoveries = ref<PendingRecovery[]>([])
-  const pendingStorageIssues = ref({ read: false, write: false, remove: false, invalid: false })
-  const pendingStorageWarning = computed(() => {
-    const issues = pendingStorageIssues.value
-    const messages = [
-      issues.read &&
-        '无法读取本机恢复提醒；本页仍保留内存提醒，但不能保证重开后可见。请妥善保存密钥。',
-      issues.write &&
-        '无法保存恢复提醒；本页仍保留内存提醒，刷新或关闭后可能丢失。请现在妥善保存密钥。',
-      issues.remove &&
-        '本次确认只在本页生效，旧提醒后续读取或重开后可能再次出现。请检查浏览器存储设置。',
-      issues.invalid && '部分恢复提醒格式无效，已保留原记录但未读取。请核对自行保存的密钥。',
-    ].filter(Boolean)
-    return messages.length ? messages.join(' ') : null
-  })
-  const legacyPendingWarning = ref<string | null>(null)
-  const http = createHttpClient()
-  function storageWarningMessage() {
-    storageWarning.value = '当前浏览器无法保存会话，刷新后可能需要恢复密钥。请妥善保存密钥。'
+  const error = ref<Problem | null>(null)
+  const sessionGeneration = ref(0)
+  let verifying: Promise<void> | null = null
+
+  function setSession(next: CurrentIdentity | null, rotate = false) {
+    account.value = next?.account ?? null
+    expiresAt.value = next?.session.expires_at ?? null
+    if (rotate) sessionGeneration.value++
   }
-  function loadPendingRecoveries() {
-    const records = new Map(pendingRecoveries.value.map((record) => [record.account_id, record]))
+
+  function expireSession(expectedGeneration = sessionGeneration.value) {
+    if (expectedGeneration !== sessionGeneration.value || !account.value) return
+    setSession(null, true)
+    error.value = { code: 'UNAUTHENTICATED', message: '会话已失效，请重新登录。' }
+  }
+
+  async function readSession(generation: number) {
     try {
-      for (let index = 0; index < localStorage.length; index++) {
-        const key = localStorage.key(index)
-        if (!key?.startsWith(PENDING_RECOVERY_PREFIX)) continue
-        const raw = localStorage.getItem(key)
-        if (raw === null) continue
-        const record = parsePending(key, raw)
-        if (record) records.set(record.account_id, record)
-        else pendingStorageIssues.value.invalid = true
-      }
-      pendingStorageIssues.value.read = false
-    } catch {
-      pendingStorageIssues.value.read = true
-    }
-    pendingRecoveries.value = [...records.values()].sort(
-      (a, b) =>
-        a.created_at.localeCompare(b.created_at) || a.account_id.localeCompare(b.account_id),
-    )
-  }
-  function addPendingRecovery(account: Account) {
-    loadPendingRecoveries()
-    const record = pendingRecoveries.value.find((record) => record.account_id === account.id) ?? {
-      account_id: account.id,
-      display_name: account.display_name,
-      created_at: new Date().toISOString(),
-      pending: true as const,
-    }
-    if (!validAccountId(record.account_id)) throw new ApiError(200, 'INVALID_RESPONSE', false)
-    if (!pendingRecoveries.value.some((item) => item.account_id === record.account_id))
-      pendingRecoveries.value.push(record)
-    try {
-      const key = PENDING_RECOVERY_PREFIX + record.account_id
-      const existing = localStorage.getItem(key)
-      if (existing !== null && !parsePending(key, existing)) {
-        pendingStorageIssues.value.invalid = true
-        return
-      }
-      localStorage.setItem(key, JSON.stringify(record))
-      pendingStorageIssues.value.write = false
-    } catch {
-      pendingStorageIssues.value.write = true
-    }
-  }
-  function confirmRecoveryKeySaved(accountId: string) {
-    if (!validAccountId(accountId)) return
-    loadPendingRecoveries()
-    if (!pendingRecoveries.value.some((record) => record.account_id === accountId)) return
-    pendingRecoveries.value = pendingRecoveries.value.filter(
-      (record) => record.account_id !== accountId,
-    )
-    try {
-      const key = PENDING_RECOVERY_PREFIX + accountId
-      const existing = localStorage.getItem(key)
-      if (existing !== null && !parsePending(key, existing)) {
-        pendingStorageIssues.value.invalid = true
-        return
-      }
-      localStorage.removeItem(key)
-      pendingStorageIssues.value.remove = false
-    } catch {
-      pendingStorageIssues.value.remove = true
-    }
-  }
-  function clear() {
-    token.value = null
-    account.value = null
-    expiresAt.value = null
-    try {
-      sessionStorage.removeItem(SESSION_KEY)
-    } catch {
-      storageWarningMessage()
-    }
-  }
-  function accept(value: ReturnType<typeof recoveredIdentity>) {
-    token.value = value.session.token
-    account.value = value.account
-    expiresAt.value = value.session.expires_at
-    try {
-      sessionStorage.setItem(SESSION_KEY, value.session.token)
-    } catch {
-      storageWarningMessage()
-    }
-  }
-  function failure(value: unknown): ApiError {
-    return value instanceof ApiError ? value : new ApiError(0, 'NETWORK_ERROR', true)
-  }
-  async function create(name: string): Promise<string | null> {
-    if (busy.value || initializing.value) return null
-    busy.value = true
-    error.value = null
-    try {
-      const response = createdIdentity(
-        await http.request<unknown>('/api/accounts', {
-          method: 'POST',
-          body: { display_name: name } satisfies CreateAccount,
-        }),
-      )
-      addPendingRecovery(response.account)
-      accept(response)
-      // The key is returned to the page only; never part of Pinia state or storage.
-      return response.recovery_key
+      const result = await identityApi.me()
+      if (generation !== sessionGeneration.value) return
+      setSession(result, result.account.id !== account.value?.id)
+      verificationUnavailable.value = false
+      return result
     } catch (cause) {
-      const problem = failure(cause)
+      if (generation !== sessionGeneration.value) return
+      const issue = problem(cause)
+      if (issue.status === 401) {
+        if (account.value) expireSession(generation)
+        verificationUnavailable.value = false
+        return null
+      }
+      verificationUnavailable.value = true
       error.value = {
-        code: problem.code,
-        message:
-          problem.status === 0 || problem.status >= 500 || problem.code === 'INVALID_RESPONSE'
-            ? '创建结果尚未确认，服务端可能已创建身份。请勿连续重试；未收到密钥的身份无法找回。'
-            : problem.message,
+        code: issue.code,
+        message: '暂时无法验证身份，请检查连接后重试。',
       }
-      return null
-    } finally {
-      busy.value = false
     }
   }
-  async function recover(key: string): Promise<void> {
-    if (busy.value || initializing.value) return
-    busy.value = true
+
+  function verifySession() {
+    if (verifying) return verifying
+    if (busy.value) return Promise.resolve()
     error.value = null
-    try {
-      accept(
-        recoveredIdentity(
-          await http.request<unknown>('/api/sessions/recover', {
-            method: 'POST',
-            body: { recovery_key: key } satisfies RecoverSession,
-          }),
-        ),
-      )
-      // Possession proves recovery only for this account, not other reminders.
-      if (account.value) confirmRecoveryKeySaved(account.value.id)
-    } catch (cause) {
-      const problem = failure(cause)
-      if (problem.status === 401) clear()
-      error.value = { code: problem.code, message: problem.message }
-    } finally {
-      busy.value = false
-    }
-  }
-  async function initialize(): Promise<void> {
-    if (initialized.value || initializing.value) return
-    loadPendingRecoveries()
-    try {
-      if (sessionStorage.getItem('twoworlds.recovery.pending') === '1') {
-        legacyPendingWarning.value =
-          '检测到旧版未关联身份的未确认提醒，无法确定所属身份。请核对曾保存的恢复密钥；系统无法重建或显示旧密钥。'
-      }
-      token.value = sessionStorage.getItem(SESSION_KEY)
-    } catch {
-      storageWarningMessage()
-    }
-    if (token.value && (token.value.length > 128 || /\s/.test(token.value))) clear()
-    await verifySession()
-  }
-  async function verifySession(): Promise<void> {
-    if (initializing.value || busy.value) return
     initializing.value = true
-    error.value = null
-    try {
-      if (token.value) {
-        const response = currentIdentity(
-          await http.request<unknown>('/api/me', { token: token.value }),
-        )
-        account.value = response.account
-        expiresAt.value = response.session.expires_at
-      }
-    } catch (cause) {
-      const problem = failure(cause)
-      if (problem.status === 401) clear()
-      error.value = { code: problem.code, message: problem.message }
-    } finally {
-      initializing.value = false
+    verifying = readSession(sessionGeneration.value).then(() => {
       initialized.value = true
-    }
+      initializing.value = false
+      verifying = null
+    })
+    return verifying
   }
-  async function logout(): Promise<void> {
-    if (busy.value || initializing.value || !token.value) return
+
+  function initialize() {
+    return initialized.value ? Promise.resolve() : verifySession()
+  }
+
+  async function run(action: (generation: number) => Promise<boolean>) {
+    if (busy.value || initializing.value) return false
+    const generation = sessionGeneration.value
     busy.value = true
     error.value = null
     try {
-      await http.request<void>('/api/sessions/current', { method: 'DELETE', token: token.value })
-      clear()
+      return await action(generation)
     } catch (cause) {
-      const problem = failure(cause)
-      if (problem.status === 401) clear()
-      error.value = {
-        code: problem.code,
-        message:
-          problem.status === 401
-            ? problem.message
-            : '服务端会话撤销尚未确认，当前身份仍保留。请检查连接后再次登出。',
-      }
+      if (generation === sessionGeneration.value) error.value = problem(cause)
+      return false
     } finally {
       busy.value = false
     }
   }
+
+  function requestVerificationCode(email: string, purpose: VerificationPurpose) {
+    return run(async (generation) => {
+      try {
+        await identityApi.requestCode(email, purpose)
+        return generation === sessionGeneration.value
+      } catch (cause) {
+        const issue = problem(cause)
+        if (!uncertain(issue)) throw issue
+        if (generation === sessionGeneration.value)
+          error.value = { code: issue.code, message: '申请结果尚未确认。请先检查邮箱，稍后再试。' }
+        return false
+      }
+    })
+  }
+
+  function signIn(email: string, submit: () => Promise<CurrentIdentity>, operation: string) {
+    return run(async (generation) => {
+      const requestedEmail = normalizeEmail(email)
+      const formerAccountId = account.value?.id
+      try {
+        const result = await submit()
+        if (generation !== sessionGeneration.value) return false
+        if (result.account.email !== requestedEmail)
+          throw new ApiError(200, 'INVALID_RESPONSE', false)
+        setSession(result, true)
+        initialized.value = true
+        verificationUnavailable.value = false
+        return true
+      } catch (cause) {
+        const issue = problem(cause)
+        if (!uncertain(issue) || generation !== sessionGeneration.value) throw issue
+        // The browser might already have received Set-Cookie. Reconcile once by GET.
+        const confirmed = await readSession(generation)
+        if (confirmed?.account.email === requestedEmail && confirmed.account.id !== formerAccountId)
+          return true
+        if (generation === sessionGeneration.value)
+          error.value = {
+            code: issue.code,
+            message: `${operation}结果尚未确认。请先检查当前会话，再决定是否重试。`,
+          }
+        return false
+      }
+    })
+  }
+
+  function register(input: RegisterInput) {
+    return signIn(input.email, () => identityApi.register(input), '注册')
+  }
+  function login(input: LoginInput) {
+    return signIn(input.email, () => identityApi.login(input), '登录')
+  }
+  function resetPassword(input: ResetPasswordInput) {
+    return run(async (generation) => {
+      try {
+        await identityApi.resetPassword(input)
+      } catch (cause) {
+        const issue = problem(cause)
+        if (!uncertain(issue)) throw issue
+        if (generation === sessionGeneration.value) {
+          // The old session may have been revoked. Require a verified session for private data.
+          setSession(null, true)
+          error.value = {
+            code: issue.code,
+            message: '密码重置结果尚未确认。请尝试用新密码登录，必要时重新申请验证码。',
+          }
+        }
+        return false
+      }
+      if (generation !== sessionGeneration.value) return false
+      setSession(null, true)
+      initialized.value = true
+      verificationUnavailable.value = false
+      return true
+    })
+  }
+  function logout() {
+    return run(async (generation) => {
+      try {
+        await identityApi.logout()
+      } catch (cause) {
+        const issue = problem(cause)
+        if (issue.status !== 401) {
+          if (generation === sessionGeneration.value)
+            error.value = {
+              code: issue.code,
+              message: `${issue.message} 服务端会话撤销尚未确认，请再次登出。`,
+            }
+          return false
+        }
+      }
+      if (generation !== sessionGeneration.value) return false
+      setSession(null, true)
+      return true
+    })
+  }
+
   return {
     account,
-    token,
     expiresAt,
-    initializing,
+    authenticated,
     initialized,
+    initializing,
+    verificationUnavailable,
     busy,
     error,
-    storageWarning,
-    pendingRecoveries,
-    pendingStorageWarning,
-    pendingStorageIssues,
-    loadPendingRecoveries,
-    legacyPendingWarning,
-    currentRecoveryKeyPending: computed(
-      () =>
-        !!account.value &&
-        pendingRecoveries.value.some((record) => record.account_id === account.value?.id),
-    ),
-    confirmRecoveryKeySaved,
-    authenticated: computed(() => !!account.value && !!token.value),
-    create,
-    recover,
+    sessionGeneration,
     initialize,
     verifySession,
+    requestVerificationCode,
+    register,
+    login,
+    resetPassword,
     logout,
-    expireSession: clear,
+    expireSession,
   }
 })

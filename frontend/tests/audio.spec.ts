@@ -69,7 +69,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 it('does not fetch or autoplay on first load, enabling starts looping ambience only', async () => {
-  manager.update(soundSnapshot(1, ['ambience', 'sfx', 'narration']), 'TEST')
+  manager.update(soundSnapshot(1, ['ambience', 'sfx', 'narration']), 1)
   expect(load).not.toHaveBeenCalled()
   manager.enable()
   await flushPromises()
@@ -78,34 +78,34 @@ it('does not fetch or autoplay on first load, enabling starts looping ambience o
   expect(elements[0]?.play).toHaveBeenCalledTimes(1)
 })
 it('new confirmed cues play once; same-version reads, retries and newer identical snapshots do not replay', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
-  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 'TEST')
+  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 1)
   await flushPromises()
   expect(elements[1]?.loop).toBe(false)
   elements[1]?.onended?.()
-  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 'TEST')
-  manager.update(soundSnapshot(3, ['ambience', 'sfx']), 'TEST')
+  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 1)
+  manager.update(soundSnapshot(3, ['ambience', 'sfx']), 1)
   await flushPromises()
   expect(load).toHaveBeenCalledTimes(2)
 })
 it('reconstructed page baselines current effects rather than replaying history', async () => {
-  manager.update(soundSnapshot(8, ['sfx']), 'TEST')
+  manager.update(soundSnapshot(8, ['sfx']), 1)
   manager.enable()
   await flushPromises()
   expect(load).not.toHaveBeenCalled()
 })
 it('rejects late lower versions without disclosing their cues', async () => {
-  manager.update(soundSnapshot(8), 'TEST')
+  manager.update(soundSnapshot(8), 1)
   manager.enable()
   await flushPromises()
-  manager.update(soundSnapshot(7, ['sfx']), 'TEST')
+  manager.update(soundSnapshot(7, ['sfx']), 1)
   await flushPromises()
   expect(load).toHaveBeenCalledTimes(1)
 })
 it('voice playback pauses/resumes, tracks time, skips and explicitly replays authorized narration', async () => {
-  manager.update(soundSnapshot(1, ['narration']), 'TEST')
+  manager.update(soundSnapshot(1, ['narration']), 1)
   manager.enable()
   manager.replay('narration:narration')
   await flushPromises()
@@ -128,11 +128,11 @@ it('voice playback pauses/resumes, tracks time, skips and explicitly replays aut
   expect(elements).toHaveLength(2)
 })
 it('independent channel levels and voice ducking preserve other channels', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
   vi.advanceTimersByTime(400)
-  manager.update(soundSnapshot(2, ['ambience', 'sfx', 'narration']), 'TEST')
+  manager.update(soundSnapshot(2, ['ambience', 'sfx', 'narration']), 1)
   await flushPromises()
   manager.settings({ volumes: { ambient: 0.8, sfx: 0.2, voice: 0.6 }, muted: false })
   expect(elements[0]?.volume).toBeCloseTo(0.8 * 0.35)
@@ -142,11 +142,11 @@ it('independent channel levels and voice ducking preserve other channels', async
   expect(elements[0]?.volume).toBe(0.8)
 })
 it('global mute cancels tracks, consumes new effects and restores only ambience', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
   manager.settings({ volumes: { ambient: 0.5, sfx: 0.5, voice: 1 }, muted: true })
-  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 'TEST')
+  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 1)
   await flushPromises()
   expect(dispose).toHaveBeenCalledTimes(1)
   expect(load).toHaveBeenCalledTimes(1)
@@ -155,7 +155,7 @@ it('global mute cancels tracks, consumes new effects and restores only ambience'
   expect(load).toHaveBeenCalledTimes(2)
 })
 it('crossfades old ambient and releases it after scene change', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
   vi.advanceTimersByTime(200)
@@ -164,7 +164,7 @@ it('crossfades old ambient and releases it after scene change', async () => {
   const s = soundSnapshot(2)
   const repair = { ...s, scene_id: 'repair' }
   s.presentation.cues[0]!.id = 'repair_ambient'
-  manager.update(repair, 'TEST')
+  manager.update(repair, 1)
   await flushPromises()
   expect(elements).toHaveLength(2)
   vi.advanceTimersByTime(200)
@@ -173,10 +173,10 @@ it('crossfades old ambient and releases it after scene change', async () => {
   expect(dispose).toHaveBeenCalledTimes(1)
   expect(elements[1]?.volume).toBeCloseTo(0.5)
 })
-it.each(['token', 'save', 'role'])(
+it.each(['session', 'save', 'role'])(
   'changing %s stops and releases old private audio and requires a new gesture',
   async (change) => {
-    manager.update(soundSnapshot(), 'TEST')
+    manager.update(soundSnapshot(), 1)
     manager.enable()
     await flushPromises()
     const next = {
@@ -184,7 +184,7 @@ it.each(['token', 'save', 'role'])(
       ...(change === 'save' ? { id: 'save_other' } : {}),
       ...(change === 'role' ? { role: 'b' as const } : {}),
     }
-    manager.update(next, change === 'token' ? 'TEST_OTHER' : 'TEST')
+    manager.update(next, change === 'session' ? 2 : 1)
     expect(dispose).toHaveBeenCalledTimes(1)
     expect(manager.state.enabled).toBe(false)
   },
@@ -197,33 +197,33 @@ it('reset aborts in-flight loads and disposes late resources even if fetch ignor
         resolve = r
       }),
   )
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   manager.reset()
-  expect(load.mock.calls[0]![3].aborted).toBe(true)
+  expect(load.mock.calls[0]![2].aborted).toBe(true)
   resolve({ url: 'blob:late', dispose })
   await flushPromises()
   expect(dispose).toHaveBeenCalledTimes(1)
   expect(elements).toHaveLength(0)
 })
 it('background/disabling cancels sound, ignores new cues, and never resumes automatically', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
   manager.background()
   expect(manager.state.enabled).toBe(false)
-  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 'TEST')
+  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 1)
   await flushPromises()
   expect(load).toHaveBeenCalledTimes(1)
   manager.enable()
   await flushPromises()
   expect(load).toHaveBeenCalledTimes(2)
   manager.disable()
-  manager.update(soundSnapshot(3), 'TEST')
+  manager.update(soundSnapshot(3), 1)
   expect(manager.state.enabled).toBe(false)
 })
 it('autoplay rejection is caught without retries, and an explicit gesture can retry', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
   manager.disable()
@@ -237,13 +237,13 @@ it('autoplay rejection is caught without retries, and an explicit gesture can re
       return e as unknown as HTMLAudioElement
     },
   })
-  blocked.update(soundSnapshot(), 'TEST')
+  blocked.update(soundSnapshot(), 1)
   blocked.enable()
   await flushPromises()
   expect(blocked.state.status).toBe('blocked')
   expect(elements.at(-1)?.play).toHaveBeenCalledTimes(1)
   const attempts = load.mock.calls.length
-  blocked.update(soundSnapshot(2), 'TEST')
+  blocked.update(soundSnapshot(2), 1)
   await flushPromises()
   // An ordinary read must not retry a blocked ambient load.
   expect(blocked.state.message).toContain('浏览器拒绝')
@@ -253,14 +253,14 @@ it('autoplay rejection is caught without retries, and an explicit gesture can re
 it('resource failure is reported without losing authorized subtitle text', async () => {
   load.mockRejectedValue(new Error('unavailable'))
   const s = soundSnapshot()
-  manager.update(s, 'TEST')
+  manager.update(s, 1)
   manager.enable()
   await flushPromises()
   expect(manager.state.status).toBe('error')
   expect(audioCues(s)[0]?.text).toContain('TEST-ONLY')
 })
 it('media decode error is handled and releases URL', async () => {
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
   elements[0]?.onerror?.()
@@ -282,7 +282,7 @@ it('current server cues alone determine subtitles, not hidden script or devices'
   expect(audioCues(s)).toEqual([])
 })
 it.each(['audio/wav', 'audio/mpeg', 'audio/ogg', 'audio/mp4'])(
-  'protected %s uses Bearer, no-store, bounded Blob and explicit disposal',
+  'protected %s uses Cookies, no-store, bounded Blob and explicit disposal',
   async (type) => {
     const create = vi.fn((_blob: Blob) => 'blob:AUDIO'),
       revoke = vi.fn()
@@ -295,13 +295,12 @@ it.each(['audio/wav', 'audio/mpeg', 'audio/ogg', 'audio/mp4'])(
     )
     const fetcher = vi.fn(async () => new Response('audio', { headers: { 'Content-Type': type } }))
     vi.stubGlobal('fetch', fetcher)
-    const r = await protectedAudio('TEST', 'save_one', 'audio_one', new AbortController().signal)
+    const r = await protectedAudio('save_one', 'audio_one', new AbortController().signal)
     expect(fetcher).toHaveBeenCalledWith(
       '/api/saves/save_one/media/audio_one',
       expect.objectContaining({
-        headers: { Authorization: 'Bearer TEST' },
         cache: 'no-store',
-        credentials: 'omit',
+        credentials: 'include',
         redirect: 'error',
       }),
     )
@@ -318,7 +317,7 @@ it.each(['image/png', 'text/html', 'application/octet-stream'])(
       vi.fn(async () => new Response('data', { headers: { 'Content-Type': type } })),
     )
     await expect(
-      protectedAudio('TEST', 'save_one', 'audio_one', new AbortController().signal),
+      protectedAudio('save_one', 'audio_one', new AbortController().signal),
     ).rejects.toThrow()
   },
 )
@@ -340,9 +339,9 @@ it('aborted and oversized audio is rejected before object URL creation', async (
         }),
     ),
   )
-  await expect(protectedAudio('TEST', 'save_one', 'audio_one', controller.signal)).rejects.toThrow()
+  await expect(protectedAudio('save_one', 'audio_one', controller.signal)).rejects.toThrow()
   controller.abort()
-  await expect(protectedAudio('TEST', 'save_one', 'audio_one', controller.signal)).rejects.toThrow()
+  await expect(protectedAudio('save_one', 'audio_one', controller.signal)).rejects.toThrow()
   expect(create).not.toHaveBeenCalled()
 })
 it('paused in-flight fetch never starts later, and new paused effects are not backlogged', async () => {
@@ -353,14 +352,14 @@ it('paused in-flight fetch never starts later, and new paused effects are not ba
         resolve = r
       }),
   )
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   manager.pause()
   resolve({ url: 'blob:PAUSED', dispose })
   await flushPromises()
   expect(elements).toHaveLength(0)
   expect(dispose).toHaveBeenCalledTimes(1)
-  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 'TEST')
+  manager.update(soundSnapshot(2, ['ambience', 'sfx']), 1)
   manager.resume()
   await flushPromises()
   expect(elements).toHaveLength(1)
@@ -368,10 +367,10 @@ it('paused in-flight fetch never starts later, and new paused effects are not ba
 })
 it('loading failure is not retried by repeated or newer snapshots', async () => {
   load.mockRejectedValue(Error('unavailable'))
-  manager.update(soundSnapshot(), 'TEST')
+  manager.update(soundSnapshot(), 1)
   manager.enable()
   await flushPromises()
-  manager.update(soundSnapshot(2), 'TEST')
+  manager.update(soundSnapshot(2), 1)
   await flushPromises()
   expect(load).toHaveBeenCalledTimes(1)
   manager.enable()

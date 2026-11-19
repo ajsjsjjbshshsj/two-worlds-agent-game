@@ -1,86 +1,82 @@
 import { createPinia } from 'pinia'
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
-import { mount, flushPromises } from '@vue/test-utils'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import Identity from '../src/views/Identity.vue'
-import { created, json } from './fixtures'
+import { createMemoryHistory } from 'vue-router'
+import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, expect, it, vi } from 'vitest'
+import App from '../src/App.vue'
+import { createAppRouter } from '../src/router'
+import { useIdentityStore } from '../src/stores/identity'
+import { deferred, fail, json, me, password } from './fixtures'
 
 const wrappers: ReturnType<typeof mount>[] = []
-beforeEach(() => {
-  localStorage.clear()
-  sessionStorage.clear()
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(created)))
-})
 afterEach(() => {
-  wrappers.forEach((w) => w.unmount())
-  wrappers.length = 0
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
+
 async function setup() {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: Identity },
-      { path: '/destination', component: { template: '<p>目的地</p>' } },
-    ],
-  })
-  await router.push('/destination')
-  await router.push('/')
-  const wrapper = mount(RouterView, { global: { plugins: [createPinia(), router] } })
+  const fetch = vi.fn().mockResolvedValueOnce(fail(401))
+  vi.stubGlobal('fetch', fetch)
+  const pinia = createPinia()
+  const router = createAppRouter(createMemoryHistory(), pinia)
+  const wrapper = mount(App, { global: { plugins: [pinia, router] } })
   wrappers.push(wrapper)
-  await router.isReady()
+  await router.push('/')
   await flushPromises()
-  await wrapper.get('#display-name').setValue('旅人')
-  await wrapper.get('[data-test=create-form]').trigger('submit')
-  await flushPromises()
-  return { router, wrapper }
+  return { wrapper, router, fetch, identity: useIdentityStore(pinia) }
 }
-it('canceling SPA leave retains key and Pending; accepting clears page key only on unmount', async () => {
-  const { router, wrapper } = await setup()
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  await router.push('/destination')
-  expect(confirm).toHaveBeenCalledTimes(1)
-  expect(router.currentRoute.value.path).toBe('/')
-  expect((wrapper.get('[data-test=one-time-key]').element as HTMLTextAreaElement).value).toBe(
-    created.recovery_key,
-  )
-  expect(localStorage.getItem('twoworlds.recovery.pending.v1.' + created.account.id)).not.toBeNull()
-  confirm.mockReturnValue(true)
-  await router.push('/destination')
+
+async function submit(wrapper: Awaited<ReturnType<typeof setup>>['wrapper']) {
+  await wrapper.get('#email').setValue(me.account.email)
+  await wrapper.get('#password').setValue(password)
+  await wrapper.get('form').trigger('submit')
+}
+
+it('successful native form submission reaches the rooms route without a legacy prompt', async () => {
+  const { wrapper, fetch, router } = await setup()
+  const confirm = vi.spyOn(window, 'confirm')
+  fetch.mockResolvedValueOnce(json(me)).mockResolvedValueOnce(json([]))
+  await submit(wrapper)
   await flushPromises()
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(false)
-  expect(localStorage.getItem('twoworlds.recovery.pending.v1.' + created.account.id)).not.toBeNull()
-  const unload = new Event('beforeunload', { cancelable: true })
-  window.dispatchEvent(unload)
-  expect(unload.defaultPrevented).toBe(false)
-})
-it('later navigation cancellation does not clear the key after leave confirmation', async () => {
-  const { router, wrapper } = await setup()
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
-  router.beforeResolve((to) => (to.path === '/destination' ? false : true))
-  await router.push('/destination')
-  expect(router.currentRoute.value.path).toBe('/')
-  expect((wrapper.get('[data-test=one-time-key]').element as HTMLTextAreaElement).value).toBe(
-    created.recovery_key,
-  )
-  const unload = new Event('beforeunload', { cancelable: true })
-  window.dispatchEvent(unload)
-  expect(unload.defaultPrevented).toBe(true)
-})
-it('saving the key permits navigation without confirmation', async () => {
-  const { router, wrapper } = await setup()
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  await wrapper.get('[data-test=confirm-key]').trigger('click')
-  await router.push('/destination')
-  expect(router.currentRoute.value.path).toBe('/destination')
+  expect(router.currentRoute.value.path).toBe('/pairs')
+  expect(wrapper.text()).toContain('我的双人房间')
   expect(confirm).not.toHaveBeenCalled()
+  expect(wrapper.text()).not.toContain(password)
 })
-it('history back uses the same protection and preserves key after cancel', async () => {
-  const { router, wrapper } = await setup()
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  router.back()
+
+it('unmounted form cannot navigate or put late validation feedback in the document', async () => {
+  const { wrapper, router, fetch } = await setup()
+  const late = deferred<Response>()
+  fetch.mockReturnValueOnce(late.promise)
+  await submit(wrapper)
+  wrapper.unmount()
+  wrappers.splice(wrappers.indexOf(wrapper), 1)
+  late.resolve(json(me))
   await flushPromises()
-  expect(confirm).toHaveBeenCalledOnce()
   expect(router.currentRoute.value.path).toBe('/')
-  expect(wrapper.find('[data-test=one-time-key]').exists()).toBe(true)
+  expect(document.body.textContent).not.toContain(password)
+})
+
+it('direct private navigation waits for the shared startup check without loading private data on 503', async () => {
+  const { wrapper, router, fetch, identity } = await setup()
+  fetch.mockResolvedValueOnce(fail(503))
+  await identity.verifySession()
+  await router.push('/saves/save_one')
+  expect(router.currentRoute.value.path).toBe('/')
+  expect(wrapper.text()).toContain('暂时无法验证身份')
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/me', '/api/me'])
+})
+
+it('expired session on a protected page redirects and cannot return with browser history', async () => {
+  const { wrapper, router, fetch, identity } = await setup()
+  fetch.mockResolvedValueOnce(json(me)).mockResolvedValueOnce(json([]))
+  await submit(wrapper)
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/pairs')
+  identity.expireSession()
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/')
+  await router.push('/pairs')
+  expect(router.currentRoute.value.path).toBe('/')
+  expect(wrapper.find('#password').exists()).toBe(true)
 })

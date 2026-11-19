@@ -6,14 +6,22 @@ import { useAudioStore } from '../../stores/audio'
 import type { GameSnapshot } from '../../types/game'
 import AudioSettings from './AudioSettings.vue'
 import SubtitleDisplay from './SubtitleDisplay.vue'
-const props = defineProps<{ snapshot: GameSnapshot; token: string }>()
+const props = defineProps<{ snapshot: GameSnapshot; sessionGeneration?: number }>()
+const emit = defineEmits<{ sessionExpired: [generation: number] }>()
 const audio = useAudioStore()
-const manager = new AudioManager((state) => Object.assign(audio.state, state))
-const cues = computed(() => (props.token ? audioCues(props.snapshot) : []))
+const manager = new AudioManager(
+  (state) => Object.assign(audio.state, state),
+  undefined,
+  (generation) => emit('sessionExpired', generation),
+)
+const cues = computed(() =>
+  props.sessionGeneration !== undefined ? audioCues(props.snapshot) : [],
+)
 watch(
-  () => [props.snapshot, props.token] as const,
+  () => [props.snapshot, props.sessionGeneration] as const,
   () => {
-    if (props.token) manager.update(props.snapshot, props.token)
+    if (props.sessionGeneration !== undefined)
+      manager.update(props.snapshot, props.sessionGeneration)
     else manager.reset()
   },
   { immediate: true, flush: 'sync' },

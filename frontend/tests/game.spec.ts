@@ -77,7 +77,7 @@ it('rejects invalid nested scalar, parameter type and unprojected dialogue', () 
 async function setup() {
   const id = useIdentityStore()
   id.account = me.account
-  id.token = 'SESSION_TEST'
+  id.sessionGeneration = 1
   id.initialized = true
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(game())))
   const store = useGameStore()

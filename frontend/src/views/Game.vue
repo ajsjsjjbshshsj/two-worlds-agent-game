@@ -69,9 +69,13 @@ function focusDevice(id: string) {
       </section>
       <SceneRenderer
         :snapshot="game.snapshot"
-        :token="identity.token ?? undefined"
+        :session-generation="identity.sessionGeneration"
+        @session-expired="identity.expireSession"
         @focus-device="focusDevice" />
-      <AudioControls :snapshot="game.snapshot" :token="identity.token ?? ''" />
+      <AudioControls
+        :snapshot="game.snapshot"
+        :session-generation="identity.sessionGeneration"
+        @session-expired="identity.expireSession" />
       <div class="game-columns">
         <div>
           <section class="resource-panel">
