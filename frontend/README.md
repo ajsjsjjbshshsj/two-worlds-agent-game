@@ -25,13 +25,13 @@ VITE_API_BASE_URL=http://127.0.0.1:8016 npm run dev -- --port 5186 --strictPort
 | /pairs/:pairId/library | 列出已发布剧本和本人存档，按绑定版本开始或继续 |
 | /saves/:saveId | 展示个人快照和可用操作，按授权读取图片、音频和字幕 |
 
-首次加载通过 `GET /api/me` 验证 Cookie。接口 401 表示会话无效，保护页面返回登录，私人数据清理。网络异常和 503 在启动时显示验证重试入口，业务请求失败时保留上次确认的会话。注册或登录结果未知时只尝试安全的 `GET /api/me`，密码不会自动重发。登出超时会明确提示撤销尚未确认。
+首次加载、页面重新聚焦或从后台恢复时，通过 `GET /api/me` 确认 Cookie 会话。接口 401 表示会话无效，保护页面返回登录并清理私人数据。身份验证遇到网络异常或 503 时显示重试入口，恢复确认前暂停私人内容及写入。注册或登录结果未知时用 `GET /api/me` 确认，密码不会自动重发。登出超时会明确提示撤销尚未确认。
 
 账号变化、确认为登出、会话失效或密码重置会推进会话代次。房间、书架和游戏利用代次丢弃迟到结果，场景与音频停止旧加载并释放对象 URL。邀请只经 URL Fragment 传递，读取后即从地址栏清除，保留到明确确认加入或离开当前会话。
 
-HTTP 和媒体均使用 `credentials: 'include'`、`cache: 'no-store'`、`redirect: 'error'`。前端不读或存 Cookie，也不读取历史认证键。历史键和演示库清理由 T06.3.4 单独执行。
+HTTP 和媒体均使用 `credentials: 'include'`、`cache: 'no-store'`、`redirect: 'error'`。浏览器自动附上 HttpOnly Cookie。T06.3.4 将清理接入前端启动，只移除当前来源的 `sessionStorage` 旧会话键和旧提醒键，以及 `localStorage` 中旧版按账号保存的恢复提醒键。应用仅检查键名。同源其他标签页各自在重载时清理自己的 `sessionStorage`。当前会话同步标记及其他键保留，存储权限拒绝时仍可走 Cookie 认证。
 
-**正式目录当前为空。** 非空书架依靠已发布内容。开发验证用隔离发布库和测试素材，详细结果和阅读路径见 [T06.3.3 报告](../docs/reports/t06-3-3-frontend-email-auth.md)。
+**正式目录当前为空。** 非空书架依靠已发布内容。重做本地演示时，为 `TWOWORLDS_SQLITE_PATH` 配置一个新的独立文件路径，或为专用 Mongo 实例配置一个新的空 `MONGO_DATABASE`。在新库重新注册即可保留原有演示数据。隔离验证与正式发布边界见 [T06.3.4 报告](../docs/reports/t06-3-4-identity-cleanup-acceptance.md)。
 
 ```bash
 npm run typecheck
