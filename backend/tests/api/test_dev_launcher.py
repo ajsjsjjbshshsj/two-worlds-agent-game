@@ -1,6 +1,7 @@
 """Development wiring only; backend business policies are tested separately."""
 
 import importlib
+import re
 import subprocess
 import sys
 import os
@@ -10,15 +11,49 @@ import time
 from fastapi.testclient import TestClient
 import pytest
 
+from tests.identity_support import PASSWORD, auth, unique_email
 from twoworlds.dev import create_dev_app, main
+
+DEV_ORIGIN = "http://127.0.0.1:5173"
 
 
 def settings(tmp_path):
     return {
         "TWOWORLDS_STORAGE_BACKEND": "sqlite",
         "TWOWORLDS_SQLITE_PATH": str(tmp_path / "dev.sqlite"),
-        "TWOWORLDS_ALLOWED_ORIGINS": "http://127.0.0.1:5173",
+        "TWOWORLDS_ALLOWED_ORIGINS": DEV_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "console",
     }
+
+
+def register_via_console(client, email):
+    """Dev flow: request a code, read it from the dev console, then register."""
+    import io
+    from contextlib import redirect_stdout
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        response = client.post(
+            "/api/verification-codes",
+            json={"email": email, "purpose": "register"},
+            headers={"Origin": DEV_ORIGIN},
+        )
+    assert response.status_code == 202
+    printed = buffer.getvalue()
+    match = re.search(r"\[dev-email\] to=(\S+) purpose=register code=(\d{6})", printed)
+    assert match and match.group(1) == email
+    response = client.post(
+        "/api/accounts",
+        json={
+            "email": email,
+            "code": match.group(2),
+            "password": PASSWORD,
+            "display_name": "开发测试",
+        },
+        headers={"Origin": DEV_ORIGIN},
+    )
+    assert response.status_code == 200, response.text
+    return response
 
 
 def test_import_has_no_app_or_database(tmp_path):
@@ -37,7 +72,12 @@ def test_import_has_no_app_or_database(tmp_path):
 
 @pytest.mark.parametrize(
     "missing",
-    ["TWOWORLDS_STORAGE_BACKEND", "TWOWORLDS_SQLITE_PATH", "TWOWORLDS_ALLOWED_ORIGINS"],
+    [
+        "TWOWORLDS_STORAGE_BACKEND",
+        "TWOWORLDS_SQLITE_PATH",
+        "TWOWORLDS_ALLOWED_ORIGINS",
+        "TWOWORLDS_EMAIL_MODE",
+    ],
 )
 def test_explicit_configuration_required(tmp_path, missing):
     env = settings(tmp_path)
@@ -64,6 +104,25 @@ def test_rejects_unsafe_origins_before_connecting(tmp_path, origin):
     assert not (tmp_path / "dev.sqlite").exists()
 
 
+def test_email_mode_must_be_explicit_and_smtp_never_leaks_credentials(tmp_path):
+    env = {**settings(tmp_path), "TWOWORLDS_EMAIL_MODE": "auto"}
+    with pytest.raises(ValueError):
+        create_dev_app(env)
+    env = {
+        **settings(tmp_path),
+        "TWOWORLDS_EMAIL_MODE": "smtp",
+        "SMTP_HOST": "smtp.example.test",
+        "SMTP_FROM": "noreply@example.test",
+        "SMTP_USERNAME": "mailer",
+        "SMTP_PASSWORD": "SECRET_SMTP_PASSWORD",
+    }
+    del env["SMTP_HOST"]
+    with pytest.raises(ValueError) as error:
+        create_dev_app(env)
+    assert "SECRET_SMTP_PASSWORD" not in str(error.value)
+    assert not (tmp_path / "dev.sqlite").exists()
+
+
 def test_mongo_never_falls_back_to_sqlite(tmp_path):
     env = {**settings(tmp_path), "TWOWORLDS_STORAGE_BACKEND": "mongo"}
     with pytest.raises(ValueError):
@@ -71,36 +130,76 @@ def test_mongo_never_falls_back_to_sqlite(tmp_path):
     assert not (tmp_path / "dev.sqlite").exists()
 
 
-def test_sqlite_factory_serves_real_empty_catalog_identity_and_cors(tmp_path):
+def test_sqlite_factory_serves_real_catalog_and_cookie_identity(tmp_path):
     app = create_dev_app(settings(tmp_path))
+    email = unique_email("dev")
     with TestClient(app) as client:
         result = client.get("/api/scripts")
         assert result.status_code == 200 and result.json() == []
-        response = client.post(
-            "/api/accounts",
-            json={"display_name": "开发测试"},
-            headers={"Origin": "http://127.0.0.1:5173"},
-        )
-        assert response.status_code == 200
+        response = register_via_console(client, email)
         assert response.headers["Cache-Control"] == "no-store"
-        assert (
-            response.headers["Access-Control-Allow-Origin"] == "http://127.0.0.1:5173"
-        )
-        assert "Access-Control-Allow-Credentials" not in response.headers
+        assert response.headers["Access-Control-Allow-Origin"] == DEV_ORIGIN
+        assert "tw_session=" in response.headers["Set-Cookie"]
+        assert "HttpOnly" in response.headers["Set-Cookie"]
         assert (
             "Access-Control-Allow-Origin"
             not in client.get(
                 "/api/scripts", headers={"Origin": "https://unknown.test"}
             ).headers
         )
+        token = response.cookies.get("tw_session")
+        assert client.get("/api/me", headers=auth({"token": token})).status_code == 200
+    # A restarted process keeps accounts; login works without any new code.
     with TestClient(create_dev_app(settings(tmp_path))) as reopened:
-        token = response.json()["session"]["token"]
+        again = reopened.post(
+            "/api/sessions",
+            json={"email": email, "password": PASSWORD},
+            headers={"Origin": DEV_ORIGIN},
+        )
+        assert again.status_code == 200
         assert (
             reopened.get(
-                "/api/me", headers={"Authorization": "Bearer " + token}
+                "/api/me", headers=auth({"token": again.cookies.get("tw_session")})
             ).status_code
             == 200
         )
+
+
+def test_explicit_verification_secret_survives_restart(tmp_path):
+    import io
+    from contextlib import redirect_stdout
+
+    secret = "dev-verification-secret-0123456789abcdef"
+    env = {**settings(tmp_path), "TWOWORLDS_VERIFICATION_SECRET": secret}
+    email = unique_email("restart")
+    buffer = io.StringIO()
+    with TestClient(create_dev_app(env)) as first:
+        with redirect_stdout(buffer):
+            assert (
+                first.post(
+                    "/api/verification-codes",
+                    json={"email": email, "purpose": "register"},
+                    headers={"Origin": DEV_ORIGIN},
+                ).status_code
+                == 202
+            )
+    match = re.search(r"code=(\d{6})", buffer.getvalue())
+    assert match
+    # Same injected secret: the outstanding code stays usable after restart,
+    # without requesting a new one (a resend would kill the old code).
+    with TestClient(create_dev_app(env)) as second:
+        response = second.post(
+            "/api/accounts",
+            json={
+                "email": email,
+                "code": match.group(1),
+                "password": PASSWORD,
+                "display_name": "重启验证",
+            },
+            headers={"Origin": DEV_ORIGIN},
+        )
+        assert response.status_code == 200, response.text
+        assert secret not in response.text
 
 
 def test_main_restricts_listener_and_disables_sensitive_logging(tmp_path, monkeypatch):
@@ -134,16 +233,16 @@ def test_mongo_factory_uses_real_database_without_sqlite_fallback(
         "MONGO_URI": uri,
         "MONGO_DATABASE": database.name,
     }
-    with TestClient(create_dev_app(env)) as client:
-        response = client.post("/api/accounts", json={"display_name": "Mongo开发验证"})
-        assert response.status_code == 200
+    app = create_dev_app(env)
+    email = unique_email("mongo-dev")
+    with TestClient(app) as client:
+        response = register_via_console(client, email)
         assert client.get("/api/scripts").json() == []
+        token = response.cookies.get("tw_session")
         assert (
             client.get(
                 "/api/pairs",
-                headers={
-                    "Authorization": "Bearer " + response.json()["session"]["token"]
-                },
+                headers=auth({"token": token}),
             ).json()
             == []
         )
@@ -180,13 +279,16 @@ def test_real_cli_tcp_startup(tmp_path, request, backend):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     env["TWOWORLDS_DEV_PORT"] = str(port)
+    # Console codes go to a file: a PIPE could fill and block the server.
+    console = open(tmp_path / "console.log", "w+b")
     process = subprocess.Popen(
         [sys.executable, "-m", "twoworlds.dev"],
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=console,
         stderr=subprocess.PIPE,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    email = unique_email("tcp")
     try:
         with httpx.Client(
             base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=1
@@ -203,12 +305,39 @@ def test_real_cli_tcp_startup(tmp_path, request, backend):
             else:
                 pytest.fail("Development TCP listener did not start")
             assert result.status_code == 200 and result.json() == []
-            created = client.post("/api/accounts", json={"display_name": "真实TCP验证"})
-            assert created.status_code == 200
-            headers = {"Authorization": "Bearer " + created.json()["session"]["token"]}
-            assert client.get("/api/pairs", headers=headers).json() == []
+            requested = client.post(
+                "/api/verification-codes",
+                json={"email": email, "purpose": "register"},
+                headers={"Origin": DEV_ORIGIN},
+            )
+            assert requested.status_code == 202
+            console.flush()
+            printed = (tmp_path / "console.log").read_text(encoding="utf-8")
+            match = re.search(
+                rf"\[dev-email\] to={re.escape(email)} purpose=register code=(\d{{6}})",
+                printed,
+            )
+            assert match, printed
+            created = client.post(
+                "/api/accounts",
+                json={
+                    "email": email,
+                    "code": match.group(1),
+                    "password": PASSWORD,
+                    "display_name": "真实TCP验证",
+                },
+                headers={"Origin": DEV_ORIGIN},
+            )
+            assert created.status_code == 200, created.text
+            token = created.cookies.get("tw_session")
+            assert token
+            assert client.get("/api/pairs", headers=auth({"token": token})).json() == []
     finally:
         process.terminate()
-        output, errors = process.communicate(timeout=10)
-    for secret in (created.json()["session"]["token"], created.json()["recovery_key"]):
-        assert secret.encode() not in output + errors
+        _, errors = process.communicate(timeout=10)
+        console.close()
+    output = (tmp_path / "console.log").read_bytes() + errors
+    # The dev console intentionally shows the code; passwords and session
+    # tokens must never appear in any process output.
+    assert PASSWORD.encode() not in output
+    assert token.encode() not in output

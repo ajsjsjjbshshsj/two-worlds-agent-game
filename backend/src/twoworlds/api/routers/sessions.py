@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Request, Response
 
 from twoworlds.api.auth import Authenticated, current_identity, session_token
+from twoworlds.api.cookies import clear_session_cookie, set_session_cookie
+from twoworlds.api.limits import check_limits, client_ip, digest_key
 from twoworlds.api.schemas.identity import (
-    CurrentIdentity,
-    RecoveredIdentity,
-    RecoverSession,
-    SessionCredential,
+    IdentityView,
+    Login,
     SessionView,
     account_view,
 )
@@ -13,18 +13,26 @@ from twoworlds.api.schemas.identity import (
 router = APIRouter()
 
 
-@router.post("/api/sessions/recover", response_model=RecoveredIdentity)
-def recover_session(body: RecoverSession, request: Request):
-    result = request.app.state.identity_service.recover(body.recovery_key)
-    return RecoveredIdentity(
+@router.post("/api/sessions", response_model=IdentityView)
+def login(body: Login, request: Request, response: Response):
+    combo = digest_key(f"{client_ip(request)}|{body.email}")
+    check_limits(
+        request,
+        ("login_minute", f"login:min:{combo}"),
+        ("login_hour", f"login:hour:{combo}"),
+    )
+    state = request.app.state
+    result = state.identity_service.login(body.email, body.password)
+    set_session_cookie(response, result.token, secure=state.cookie_secure)
+    return IdentityView(
         account=account_view(result.account),
-        session=SessionCredential(token=result.token, expires_at=result.expires_at),
+        session=SessionView(expires_at=result.expires_at),
     )
 
 
-@router.get("/api/me", response_model=CurrentIdentity)
+@router.get("/api/me", response_model=IdentityView)
 def me(identity: Authenticated = Depends(current_identity)):
-    return CurrentIdentity(
+    return IdentityView(
         account=account_view(identity.account),
         session=SessionView(expires_at=identity.expires_at),
     )
@@ -33,4 +41,6 @@ def me(identity: Authenticated = Depends(current_identity)):
 @router.delete("/api/sessions/current", status_code=204)
 def logout(request: Request, token: str = Depends(session_token)):
     request.app.state.identity_service.revoke(token)
-    return Response(status_code=204)
+    result = Response(status_code=204)
+    clear_session_cookie(result, secure=request.app.state.cookie_secure)
+    return result

@@ -1,4 +1,4 @@
-"""Database-independent identity workflows. HTTP policy belongs to T06.2."""
+"""Database-independent email account workflows. HTTP policy lives in the API."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -11,11 +11,24 @@ from pydantic import TypeAdapter, ValidationError
 from twoworlds.domain.persistence import (
     AccountRecord,
     DisplayName,
+    Email,
     SessionRecord,
     UTCDateTime,
 )
 from twoworlds.ports.repository import DuplicateRecord, Repository, RepositoryError
 from twoworlds.security.credentials import digest_secret, new_secret
+from twoworlds.security.passwords import (
+    Password,
+    dummy_verify,
+    hash_password,
+    needs_rehash,
+    verify_password,
+)
+
+_EMAIL = TypeAdapter(Email)
+_PASSWORD = TypeAdapter(Password)
+_NAME = TypeAdapter(DisplayName)
+_TIME = TypeAdapter(UTCDateTime)
 
 
 class IdentityError(RuntimeError):
@@ -26,7 +39,9 @@ class IdentityError(RuntimeError):
         super().__init__(
             {
                 "UNAUTHENTICATED": "身份凭证无效。",
+                "INVALID_CREDENTIALS": "邮箱或密码错误。",
                 "INVALID_INPUT": "身份输入无效。",
+                "EMAIL_ALREADY_REGISTERED": "该邮箱已注册。",
                 "CONCURRENT_UPDATE": "身份更新竞争，请重试。",
                 "DEPENDENCY_UNAVAILABLE": "身份存储暂不可用。",
                 "GENERATION_FAILED": "无法生成新的身份凭证。",
@@ -38,6 +53,7 @@ class IdentityError(RuntimeError):
 @dataclass(frozen=True)
 class AccountInfo:
     id: str
+    email: str
     display_name: str
 
 
@@ -46,11 +62,6 @@ class SessionIssued:
     account: AccountInfo
     expires_at: datetime
     token: str = field(repr=False)
-
-
-@dataclass(frozen=True)
-class AccountCreated(SessionIssued):
-    recovery_key: str = field(repr=False)
 
 
 def _storage_errors(method):
@@ -82,7 +93,7 @@ class IdentityService:
 
     def _now(self):
         try:
-            return TypeAdapter(UTCDateTime).validate_python(self._clock())
+            return _TIME.validate_python(self._clock())
         except Exception:
             raise IdentityError("CLOCK_ERROR") from None
 
@@ -101,26 +112,58 @@ class IdentityService:
 
     @staticmethod
     def _info(account):
-        return AccountInfo(account.id, account.display_name)
+        return AccountInfo(account.id, account.email, account.display_name)
 
-    @_storage_errors
-    def create_account(self, display_name: str) -> AccountCreated:
+    @staticmethod
+    def _email(value):
         try:
-            name = TypeAdapter(DisplayName).validate_python(display_name)
+            return _EMAIL.validate_python(value)
         except ValidationError:
             raise IdentityError("INVALID_INPUT") from None
+
+    @staticmethod
+    def _password(value):
+        try:
+            return _PASSWORD.validate_python(value)
+        except ValidationError:
+            raise IdentityError("INVALID_INPUT") from None
+
+    @staticmethod
+    def _hash(password):
+        try:
+            return hash_password(password)
+        except Exception:
+            raise IdentityError("GENERATION_FAILED") from None
+
+    def _session(self, now):
+        token = self._secret("session")
+        return token, SessionRecord(
+            token_digest=digest_secret(token),
+            created_at=now,
+            expires_at=now + timedelta(days=7),
+        )
+
+    @_storage_errors
+    def register(self, email: str, password: str, display_name: str) -> SessionIssued:
+        """The caller must already have consumed a valid register code."""
+        email = self._email(email)
+        password = self._password(password)
+        try:
+            name = _NAME.validate_python(display_name)
+        except ValidationError:
+            raise IdentityError("INVALID_INPUT") from None
+        password_hash = self._hash(password)
         for _ in range(self._attempts):
-            recovery, token = self._secret("recovery"), self._secret("session")
+            if self._repository.get_account_by_email(email) is not None:
+                raise IdentityError("EMAIL_ALREADY_REGISTERED")
             now = self._now()
-            session = SessionRecord(
-                token_digest=digest_secret(token),
-                created_at=now,
-                expires_at=now + timedelta(days=7),
-            )
+            token, session = self._session(now)
             account = AccountRecord(
                 id="account_" + secrets.token_hex(16),
+                email=email,
+                email_verified_at=now,
+                password_hash=password_hash,
                 display_name=name,
-                recovery_digest=digest_secret(recovery),
                 sessions=(session,),
                 created_at=now,
                 updated_at=now,
@@ -128,33 +171,36 @@ class IdentityService:
             try:
                 saved = self._repository.create_account(account)
             except DuplicateRecord:
-                continue
-            return AccountCreated(
-                self._info(saved), session.expires_at, token, recovery
-            )
-        raise IdentityError("GENERATION_FAILED")
+                # The unique email constraint means a concurrent register won.
+                raise IdentityError("EMAIL_ALREADY_REGISTERED") from None
+            return SessionIssued(self._info(saved), session.expires_at, token)
+        raise IdentityError("CONCURRENT_UPDATE")
 
     @_storage_errors
-    def recover(self, recovery_key: str) -> SessionIssued:
-        digest = self._digest(recovery_key, "recovery")
+    def login(self, email: str, password: str) -> SessionIssued:
+        email = self._email(email)
+        if type(password) is not str or not 10 <= len(password) <= 128:
+            dummy_verify(password if type(password) is str else "")
+            raise IdentityError("INVALID_CREDENTIALS")
+        current = self._repository.get_account_by_email(email)
+        if current is None:
+            dummy_verify(password)
+            raise IdentityError("INVALID_CREDENTIALS")
+        if not verify_password(current.password_hash, password):
+            raise IdentityError("INVALID_CREDENTIALS")
+        upgraded = self._hash(password) if needs_rehash(current.password_hash) else None
         for _ in range(self._attempts):
-            current = self._repository.get_account_by_recovery_digest(digest)
-            if current is None:
-                raise IdentityError("UNAUTHENTICATED")
+            current = self._repository.get_account_by_email(email)
+            if current is None or not verify_password(current.password_hash, password):
+                raise IdentityError("INVALID_CREDENTIALS")
             now = self._now()
             if now < current.updated_at or any(
                 s.created_at > now for s in current.sessions
             ):
                 raise IdentityError("CLOCK_ERROR")
-            token = self._secret("session")
-            token_digest = digest_secret(token)
-            if any(s.token_digest == token_digest for s in current.sessions):
+            token, session = self._session(now)
+            if any(s.token_digest == session.token_digest for s in current.sessions):
                 continue
-            session = SessionRecord(
-                token_digest=token_digest,
-                created_at=now,
-                expires_at=now + timedelta(days=7),
-            )
             retained = [s for s in current.sessions if s.expires_at > now]
             # Stable sort preserves acceptance order for equal clock timestamps;
             # the new session wins a tie without deleting an arbitrary device.
@@ -167,6 +213,7 @@ class IdentityService:
                     "version": current.version + 1,
                     "updated_at": now,
                 }
+                | ({"password_hash": upgraded} if upgraded else {})
             )
             try:
                 accepted = self._repository.compare_and_swap_account(
@@ -176,6 +223,34 @@ class IdentityService:
                 continue
             if accepted:
                 return SessionIssued(self._info(candidate), session.expires_at, token)
+        raise IdentityError("CONCURRENT_UPDATE")
+
+    @_storage_errors
+    def reset_password(self, email: str, new_password: str) -> None:
+        """The caller must already have consumed a valid reset code."""
+        email = self._email(email)
+        new_password = self._password(new_password)
+        password_hash = self._hash(new_password)
+        for _ in range(self._attempts):
+            current = self._repository.get_account_by_email(email)
+            if current is None:
+                raise IdentityError("INVALID_INPUT")
+            now = self._now()
+            if now < current.updated_at:
+                raise IdentityError("CLOCK_ERROR")
+            candidate = AccountRecord.model_validate(
+                current.model_dump()
+                | {
+                    "password_hash": password_hash,
+                    "sessions": (),
+                    "version": current.version + 1,
+                    "updated_at": now,
+                }
+            )
+            if self._repository.compare_and_swap_account(
+                current.id, current.version, candidate
+            ):
+                return
         raise IdentityError("CONCURRENT_UPDATE")
 
     @_storage_errors

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from .support import Platform
+from tests.identity_support import RELAXED_POLICIES, TEST_SECRET, FakeEmailSender
 from tests.save_support import make_publications
 
 ORIGIN = "http://testserver"
@@ -44,6 +45,9 @@ def client_factory(tmp_path, contract_publication_store):
                 publication_store=contract_publication_store,
                 ai_mode="demo",
                 allowed_origins=[ORIGIN],
+                email_sender=FakeEmailSender(),
+                verification_secret=TEST_SECRET,
+                rate_policies=RELAXED_POLICIES,
             )
             app_lifetime = stack.enter_context(ExitStack())
             client = app_lifetime.enter_context(TestClient(app))

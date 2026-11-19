@@ -6,15 +6,20 @@ import httpx
 import pytest
 
 LIMIT = 16384
+ORIGIN = b"http://testserver"
 
 
 def padded_body(size):
-    value = json.dumps({"display_name": "旅人"}, ensure_ascii=False).encode()
+    value = json.dumps(
+        {"email": "traveler@example.com", "password": "correct horse 9"}
+    ).encode()
     assert len(value) <= size
     return value + b" " * (size - len(value))
 
 
-def raw_request(app, chunks, *, headers=(), method="POST", path="/api/accounts"):
+def raw_request(
+    app, chunks, *, headers=(), method="POST", path="/api/sessions", default_origin=True
+):
     """Send distinct ASGI frames; TestClient coalesces iterable request bodies."""
     sent = []
     reads = 0
@@ -46,7 +51,11 @@ def raw_request(app, chunks, *, headers=(), method="POST", path="/api/accounts")
                 "raw_path": path.encode(),
                 "query_string": b"",
                 "root_path": "",
-                "headers": [(b"content-type", b"application/json"), *headers],
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    *([(b"origin", ORIGIN)] if default_origin else []),
+                    *headers,
+                ],
                 "client": ("127.0.0.1", 1234),
                 "server": ("testserver", 80),
             },
@@ -82,25 +91,33 @@ def assert_too_large(response):
     }
 
 
+def assert_parsed_login(response):
+    # A parsed body reaches the login rule and is refused as unknown credentials;
+    # an unparsed body would have produced 422 INVALID_INPUT instead.
+    assert response.status_code == 401, response.text
+    assert response.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    assert response.headers["cache-control"] == "no-store"
+
+
 @pytest.mark.parametrize("size", [64, LIMIT])
 def test_normal_and_exact_limit_body_still_parse(clients, size):
     client, _, _ = clients()
     body = padded_body(size)
     assert len(body) == size
     response = client.post(
-        "/api/accounts", content=body, headers={"Content-Type": "application/json"}
+        "/api/sessions",
+        content=body,
+        headers={"Content-Type": "application/json", "Origin": "http://testserver"},
     )
-    assert response.status_code == 200
-    assert response.json()["account"]["display_name"] == "旅人"
-    assert response.headers["cache-control"] == "no-store"
+    assert_parsed_login(response)
 
 
 def test_over_limit_testclient_request_is_rejected(clients):
     client, _, _ = clients()
     response = client.post(
-        "/api/accounts",
+        "/api/sessions",
         content=padded_body(LIMIT + 1),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Origin": "http://testserver"},
     )
     assert_too_large(response)
 
@@ -115,7 +132,7 @@ def test_excess_content_length_rejects_before_reading(clients, declared):
     assert reads == 0
 
 
-@pytest.mark.parametrize("method,path", [("POST", "/api/accounts"), ("GET", "/api/me")])
+@pytest.mark.parametrize("method,path", [("POST", "/api/sessions"), ("GET", "/api/me")])
 def test_missing_content_length_uses_actual_bytes(clients, method, path):
     _, app, _ = clients()
     response, reads = raw_request(
@@ -155,14 +172,16 @@ def test_exact_limit_chunked_without_length_replays_to_fastapi(clients):
         [body[:8000], b"", body[8000:]],
         headers=[(b"transfer-encoding", b"chunked")],
     )
-    assert response.status_code == 200
-    assert response.json()["account"]["display_name"] == "旅人"
+    assert_parsed_login(response)
     assert reads == 3
 
 
 def test_limit_counts_utf8_bytes_not_characters(clients):
     _, app, _ = clients()
-    text = json.dumps({"display_name": "界" * 6000}, ensure_ascii=False)
+    text = json.dumps(
+        {"email": "traveler@example.com", "password": "界" * 6000},
+        ensure_ascii=False,
+    )
     body = text.encode()
     assert len(text) < LIMIT < len(body)
     response, _ = raw_request(app, [body])
@@ -173,11 +192,12 @@ def test_rejection_does_not_echo_or_log_secrets(clients, caplog):
     caplog.set_level(logging.INFO)
     _, app, _ = clients()
     secret = "private-password-token-never-echo"
-    body = json.dumps({"recovery_key": secret}).encode() + b" " * LIMIT
+    body = json.dumps({"email": "a@b.co", "password": secret}).encode()
+    body += b" " * (LIMIT + 1 - len(body))
     response, _ = raw_request(
         app,
         [body],
-        path="/api/sessions/recover",
+        path="/api/sessions",
         headers=[(b"authorization", ("Bearer " + secret).encode())],
     )
     assert_too_large(response)
@@ -185,15 +205,26 @@ def test_rejection_does_not_echo_or_log_secrets(clients, caplog):
 
 
 @pytest.mark.parametrize(
-    "origin,allowed", [("http://testserver", True), ("https://evil.invalid", False)]
+    "origin,allowed", [(b"http://testserver", True), (b"https://evil.invalid", False)]
 )
-def test_too_large_keeps_exact_cors_allowlist(clients, origin, allowed):
+def test_rejections_keep_exact_cors_allowlist(clients, origin, allowed):
     _, app, _ = clients()
+    # Replace the default Origin instead of duplicating it: duplicate Origin
+    # headers are themselves a CSRF rejection.
     response, _ = raw_request(
         app,
         [padded_body(LIMIT + 1)],
-        headers=[(b"origin", origin.encode())],
+        headers=[(b"origin", origin)],
+        default_origin=False,
     )
-    assert_too_large(response)
-    assert (response.headers.get("access-control-allow-origin") == origin) is allowed
+    if allowed:
+        assert_too_large(response)
+    else:
+        # A foreign Origin is refused by CSRF before the body is even read.
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "CSRF_REJECTED"
+        assert response.headers["cache-control"] == "no-store"
+    assert (
+        response.headers.get("access-control-allow-origin") == origin.decode()
+    ) is allowed
     assert "access-control-allow-credentials" not in response.headers

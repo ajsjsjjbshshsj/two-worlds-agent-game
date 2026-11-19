@@ -13,6 +13,7 @@ import pytest
 
 from tests.api import test_saves as lifecycle
 from tests.contracts.support import Platform, error
+from tests.identity_support import RELAXED_POLICIES, TEST_SECRET, FakeEmailSender
 from twoworlds.api.app import create_app
 
 save_repository_factory = lifecycle.save_repository_factory
@@ -30,7 +31,10 @@ def media_world(save_repository_factory, published_story):
             repository=repo,
             publication_store=store,
             identity_clock=lambda: clock[0],
-            rate_limit=100,
+            allowed_origins=["http://testserver"],
+            email_sender=FakeEmailSender(),
+            verification_secret=TEST_SECRET,
+            rate_policies=RELAXED_POLICIES,
         )
         client = stack.enter_context(TestClient(app))
         game = Platform(client, lambda: None)
@@ -40,9 +44,11 @@ def media_world(save_repository_factory, published_story):
 
 
 def get_media(game, actor, save, asset, **headers):
+    # 无身份时用非会话Cookie覆盖TestClient cookie jar，否则会自动带上最近登录的会话。
+    base = actor.headers if actor else {"Cookie": "other=none"}
     return game.http.get(
         f"/api/saves/{save['id']}/media/{asset}",
-        headers={**(actor.headers if actor else {}), **headers},
+        headers={**base, **headers},
     )
 
 
@@ -105,7 +111,7 @@ def test_visible_binary_headers_and_complete_save_unchanged(
         a.token.encode() not in response.content
         and b.token.encode() not in response.content
     )
-    for secret in (a.token, a.recovery_key, b.token, b.recovery_key, repr(raw)):
+    for secret in (a.token, a.password, b.token, b.password, repr(raw)):
         assert secret not in caplog.text
 
 
@@ -175,7 +181,7 @@ def test_range_and_conditional_requests_return_full_authorized_bytes(media_world
 
 def test_current_session_rechecked_after_revoke_and_expiry(media_world):
     game, a, _, save, repo, _, _, _, clock = media_world
-    other_session = game.recover(a)
+    other_session = game.login(a)
     assert (
         game.http.delete("/api/sessions/current", headers=a.headers).status_code == 204
     )
@@ -184,7 +190,7 @@ def test_current_session_rechecked_after_revoke_and_expiry(media_world):
     clock[0] += timedelta(days=31)
     denied(get_media(game, other_session, save, "old_tower"), 401, "UNAUTHENTICATED")
     denied(
-        get_media(game, None, save, "old_tower", Authorization="Bearer invalid"),
+        get_media(game, None, save, "old_tower", Cookie="tw_session=invalid"),
         401,
         "UNAUTHENTICATED",
     )

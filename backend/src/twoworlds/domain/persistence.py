@@ -23,6 +23,20 @@ Digest = Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 DisplayName = Annotated[
     StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)
 ]
+# Normalized before the pattern runs: trimmed, lowercased, bounded to 254 chars.
+Email = Annotated[
+    StrictStr,
+    StringConstraints(
+        strip_whitespace=True,
+        to_lower=True,
+        min_length=3,
+        max_length=254,
+        # Pydantic checks the pattern before to_lower, so accept both cases here.
+        pattern=r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$",
+    ),
+]
+# Argon2id encoded hash; never a plaintext password. repr stays off at field level.
+PasswordHash = Annotated[StrictStr, StringConstraints(min_length=20, max_length=512)]
 Question = Annotated[
     StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
 ]
@@ -62,8 +76,10 @@ class SessionRecord(_Record):
 
 class AccountRecord(_Record):
     id: Identifier
+    email: Email
+    email_verified_at: UTCDateTime
+    password_hash: PasswordHash = Field(repr=False)
     display_name: DisplayName
-    recovery_digest: Digest
     sessions: Annotated[tuple[SessionRecord, ...], Field(max_length=5)] = ()
     version: Annotated[StrictInt, Field(ge=0)] = 0
     created_at: UTCDateTime
@@ -73,9 +89,55 @@ class AccountRecord(_Record):
     def check_account(self):
         if self.updated_at < self.created_at:
             raise ValueError("account updated_at precedes created_at")
+        if self.email_verified_at < self.created_at:
+            raise ValueError("email verified before account creation")
         digests = [item.token_digest for item in self.sessions]
         if len(digests) != len(set(digests)):
             raise ValueError("duplicate session digest")
+        return self
+
+
+class VerificationCodeRecord(_Record):
+    """One live code per (email, purpose); resend replaces it and invalidates the old."""
+
+    id: Identifier
+    email: Email
+    purpose: Literal["register", "reset"]
+    digest: Digest
+    created_at: UTCDateTime
+    expires_at: UTCDateTime
+    attempts: Annotated[StrictInt, Field(ge=0, le=5)] = 0
+    consumed_at: UTCDateTime | None = None
+    version: Annotated[StrictInt, Field(ge=0)] = 0
+    updated_at: UTCDateTime
+
+    @model_validator(mode="after")
+    def check_code(self):
+        if self.expires_at <= self.created_at:
+            raise ValueError("code expiry must be after creation")
+        if self.updated_at < self.created_at:
+            raise ValueError("code updated_at precedes created_at")
+        if self.consumed_at is not None and self.consumed_at < self.created_at:
+            raise ValueError("code consumed before creation")
+        return self
+
+
+class RateLimitRecord(_Record):
+    """Shared fixed-window counter; the id is a desensitized digest, never raw email/IP."""
+
+    id: Identifier
+    count: Annotated[StrictInt, Field(ge=0)]
+    window_start: UTCDateTime
+    expires_at: UTCDateTime
+    version: Annotated[StrictInt, Field(ge=0)] = 0
+    updated_at: UTCDateTime
+
+    @model_validator(mode="after")
+    def check_window(self):
+        if self.expires_at <= self.window_start:
+            raise ValueError("rate window expiry must be after its start")
+        if self.updated_at < self.window_start:
+            raise ValueError("rate updated_at precedes window start")
         return self
 
 

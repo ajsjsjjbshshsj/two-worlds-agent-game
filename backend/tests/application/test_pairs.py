@@ -105,12 +105,11 @@ def test_invalid_invite_is_generic(setup, value):
 
 def test_wrong_namespaces_and_unknown_invite_rejected(setup):
     service, _, _ = setup
-    for value in (new_secret("session"), new_secret("recovery"), new_secret("invite")):
+    for value in (new_secret("session"), new_secret("invite"), "x" * 43):
         expect("INVITE_INVALID", lambda: service.join_pair("account_b", value))
     token = new_secret("invite")
-    for kind in ("session", "recovery"):
-        with pytest.raises(ValueError):
-            digest_secret(token, kind)
+    with pytest.raises(ValueError):
+        digest_secret(token, "session")
 
 
 def test_member_list_only_own_roles_and_stable_order(setup):

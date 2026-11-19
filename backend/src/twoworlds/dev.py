@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 import os
+import secrets
 import sys
 from urllib.parse import urlsplit
 
@@ -33,6 +34,17 @@ def create_dev_app(environ: Mapping[str, str] | None = None, *, publication_stor
     if backend == "mongo" and not (env.get("MONGO_URI") and env.get("MONGO_DATABASE")):
         raise ValueError("Explicit Mongo URI and database required")
 
+    from twoworlds.security.mailer import build_email_sender
+
+    # No implicit console fallback: the email mode must be chosen explicitly.
+    sender = build_email_sender(env)
+    secret = env.get("TWOWORLDS_VERIFICATION_SECRET")
+    if secret is None:
+        # Dev-only ephemeral key: restarting invalidates outstanding codes.
+        # Production must inject a durable secret through the environment.
+        secret = secrets.token_urlsafe(32)
+    secure = env.get("TWOWORLDS_COOKIE_SECURE", "").lower() in {"1", "true"}
+
     # All concrete adapters are constructed only inside this explicit factory.
     # The existing app lifespan owns closing the repository.
     from twoworlds.api.app import create_app
@@ -50,13 +62,16 @@ def create_dev_app(environ: Mapping[str, str] | None = None, *, publication_stor
             repository=repository,
             allowed_origins=origins,
             publication_store=publication_store,
+            email_sender=sender,
+            verification_secret=secret,
+            cookie_secure=secure,
         )
     except Exception:
         if repository is not None:
             repository.close()
         # Connection exceptions can include credentials; never propagate them.
         raise ValueError(
-            "Development storage unavailable; check local settings"
+            "Development startup failed; check storage, email and origin settings"
         ) from None
 
 
