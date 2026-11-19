@@ -2,7 +2,7 @@
 
 > 版本：v0.2 设计提案 · 2026-10-26  
 > 项目目录：`F:\two-worlds-agent-game`  
-> 2026-11-16 · T10.2：身份告警/SPA密钥保护、房间/邀请/正式书架与本人存档入口已实现；前端125项及四项检查通过，真实SQLite/Mongo双浏览器流程通过。正式目录仍为空，非空书架仅在隔离测试发布库验证；详见[T10.2报告](docs/reports/t10-2-identity-room-library.md)与[运行说明](frontend/README.md)。T11游戏场景尚未开始。
+> 2026-11-19 · T06.3.4：邮箱 Cookie 会话已取代匿名身份。页面启动时清理旧身份键，隔离演示验证及生产验收边界见 [T06.3.4 报告](docs/reports/t06-3-4-identity-cleanup-acceptance.md) 与 [前端运行说明](frontend/README.md)。
 
 TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本平台。两个人进入同一剧本，拥有不同的观察信息与操作能力，通过探索、试验和交流改变彼此的世界。平台提供多个剧本，每个剧本保存各自的进度和记忆，手机与电脑可以继续同一段旅程。
 
@@ -97,7 +97,7 @@ T03.1从[个人投影](backend/src/twoworlds/domain/projection.py)与[投影测�
 
 ```mermaid
 flowchart TD
-    A[创建身份或恢复身份] --> B[建立双人房间]
+    A[注册邮箱账号或登录] --> B[建立双人房间]
     B --> C[搭档接受邀请]
     C --> D[从剧本库选择故事]
     D --> E{是否有对应存档}

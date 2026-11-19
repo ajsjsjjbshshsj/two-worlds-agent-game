@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useIdentityStore } from '../src/stores/identity'
+import { clearLegacyIdentityStorage } from '../src/services/legacy-identity-storage'
 import { fail, json, loginInput, me, noContent, registerInput, resetInput } from './fixtures'
 
 const token = 'twoworlds.session.token'
@@ -17,22 +18,60 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it('ignores old browser state and keeps it intact for the migration task', async () => {
+it('clears only retired identity keys at startup and never uses their values to authenticate', async () => {
+  const secondReminder = 'twoworlds.recovery.pending.v1.account_other'
+  const keepLocal = [
+    [token, 'same key in different storage'],
+    [legacy, 'same key in different storage'],
+    ['twoworlds.recovery.pending.v2.account_fixture', 'another version'],
+    [`${reminder}.extra`, 'not an account id'],
+    [`${reminder}\n`, 'not an account id'],
+    ['twoworlds.auth-context.revision', 'current coordination'],
+    ['twoworlds.auth-context.active.1234', 'current operation'],
+    ['unrelated', 'leave intact'],
+  ] as const
   sessionStorage.setItem(token, 'LEGACY_SESSION_TEST')
   sessionStorage.setItem(legacy, '1')
+  sessionStorage.setItem(reminder, 'leave intact in different storage')
   localStorage.setItem(reminder, '{"unknown":"LEGACY_TEST"}')
-  localStorage.setItem('unrelated', 'leave intact')
+  localStorage.setItem(secondReminder, '')
+  for (const [key, value] of keepLocal) localStorage.setItem(key, value)
   const fetch = vi.fn().mockResolvedValue(fail(401))
   vi.stubGlobal('fetch', fetch)
+  const read = vi.spyOn(Storage.prototype, 'getItem')
+  const clear = vi.spyOn(Storage.prototype, 'clear')
+  clearLegacyIdentityStorage()
+  clearLegacyIdentityStorage()
+  expect(read).not.toHaveBeenCalled()
+  expect(clear).not.toHaveBeenCalled()
   await useIdentityStore().initialize()
   expect(fetch.mock.calls[0]![0]).toBe('/api/me')
   expect(new Headers(fetch.mock.calls[0]![1].headers).has('Authorization')).toBe(false)
   expect(useIdentityStore().authenticated).toBe(false)
-  expect(sessionStorage.getItem(token)).toBe('LEGACY_SESSION_TEST')
-  expect(sessionStorage.getItem(legacy)).toBe('1')
-  expect(localStorage.getItem(reminder)).toBe('{"unknown":"LEGACY_TEST"}')
-  expect(localStorage.getItem('unrelated')).toBe('leave intact')
+  expect(sessionStorage.getItem(token)).toBeNull()
+  expect(sessionStorage.getItem(legacy)).toBeNull()
+  expect(localStorage.getItem(reminder)).toBeNull()
+  expect(localStorage.getItem(secondReminder)).toBeNull()
+  expect(sessionStorage.getItem(reminder)).toBe('leave intact in different storage')
+  for (const [key, value] of keepLocal) expect(localStorage.getItem(key)).toBe(value)
 })
+
+it.each(['sessionStorage', 'localStorage'] as const)(
+  'a denied %s does not block cleanup in the other store or Cookie authentication',
+  async (denied) => {
+    const available = denied === 'sessionStorage' ? localStorage : sessionStorage
+    const key = denied === 'sessionStorage' ? reminder : token
+    available.setItem(key, 'retired')
+    vi.spyOn(window, denied, 'get').mockImplementation(() => {
+      throw new DOMException('Storage denied', 'SecurityError')
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json(me)))
+    clearLegacyIdentityStorage()
+    await useIdentityStore().initialize()
+    expect(available.getItem(key)).toBeNull()
+    expect(useIdentityStore().account).toEqual(me.account)
+  },
+)
 
 it.each(['register', 'login', 'resetPassword', 'logout'] as const)(
   '%s works without reading or writing browser storage or cookie contents',
