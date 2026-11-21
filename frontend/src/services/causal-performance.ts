@@ -87,7 +87,7 @@ export class CausalPerformance {
     if (next.version <= old.version) return
     this.cancel()
     this.previous = next // Copy primitive facts; later mutations cannot change history.
-    if (next.version !== old.version + 1) return
+    if (snapshot.restored || next.version !== old.version + 1) return
     let id: PerformanceId | undefined
     const lighthouse = snapshot.script_id === 'lighthouse'
     const starline = snapshot.script_id === 'starline'

@@ -18,7 +18,7 @@ export function createAppRouter(
       { path: '/pairs', component: Pairs, meta: { requiresAuth: true } },
       { path: '/pairs/:pairId', component: PairRoom, meta: { requiresAuth: true } },
       { path: '/pairs/:pairId/library', component: Library, meta: { requiresAuth: true } },
-      { path: '/saves/:saveId', component: Game, meta: { requiresAuth: true } },
+      { path: '/saves/:saveId', name: 'game', component: Game, meta: { requiresAuth: true } },
       { path: '/:pathMatch(.*)*', redirect: '/' },
     ],
   })

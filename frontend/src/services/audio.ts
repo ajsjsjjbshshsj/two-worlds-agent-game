@@ -87,7 +87,7 @@ export class AudioManager {
       if (!this.state.enabled || this.state.paused || this.preferences.muted) continue
       if (
         cue.channel === 'ambient' ||
-        (!snapshot.from_realtime && !initial && fresh && !cue.operation)
+        (!snapshot.from_realtime && !snapshot.restored && !initial && fresh && !cue.operation)
       )
         void this.start(cue)
     }

@@ -55,6 +55,7 @@ export interface RequestOptions {
   privateSession?: boolean
   expectedStatus?: 200 | 202 | 204
   query?: { pair_id: string }
+  signal?: AbortSignal
 }
 
 function retryAfterSeconds(value: string | null): number | undefined {
@@ -120,7 +121,10 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
       query = '?' + new URLSearchParams(request.query).toString()
     }
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000)
+    const abort = () => controller.abort()
+    const timeout = window.setTimeout(abort, options.timeoutMs ?? 15000)
+    if (request.signal?.aborted) abort()
+    else request.signal?.addEventListener('abort', abort, { once: true })
     let status = 0
     try {
       const headers = new Headers({ Accept: 'application/json' })
@@ -167,6 +171,7 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
       throw new ApiError(status, controller.signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR', true)
     } finally {
       window.clearTimeout(timeout)
+      request.signal?.removeEventListener('abort', abort)
     }
   }
 }
