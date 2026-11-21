@@ -3,8 +3,17 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useIdentityStore } from './identity'
 import { gameApi, type Command } from '../services/game'
 import { ApiError } from '../services/http'
-import { privateSessionLease } from '../services/session-sync'
+import { privateSessionLease, withCookieWriteLock } from '../services/session-sync'
 import { createSaveRecovery, type SyncStatus } from '../services/save-recovery'
+import {
+  canPersistCommand,
+  forgetPending,
+  markPendingSent,
+  pendingScope,
+  readPending,
+  savePending,
+  type PendingScope,
+} from '../services/pending'
 import { validParameter, type GameSnapshot } from '../types/game'
 
 function sameSave(a: GameSnapshot, b: GameSnapshot) {
@@ -24,23 +33,71 @@ export const useGameStore = defineStore('game', () => {
     loading = ref(false),
     error = ref(''),
     pending = ref<Command | null>(null),
+    pendingState = ref<
+      | 'idle'
+      | 'prepared'
+      | 'sending'
+      | 'unknown'
+      | 'checking'
+      | 'missing'
+      | 'accepted'
+      | 'rejected'
+      | 'unavailable'
+    >('idle'),
+    pendingNotice = ref(''),
+    persisted = ref<PendingScope | null>(null),
+    recovered = ref(false),
+    requiredVersion = ref(-1),
     realtime = ref<SyncStatus>('idle'),
     confirmed = ref(false),
-    canAct = computed(() => realtime.value === 'idle' || confirmed.value)
+    canAct = computed(
+      () =>
+        (realtime.value === 'idle' || confirmed.value) &&
+        (snapshot.value?.version ?? -1) >= requiredVersion.value,
+    ),
+    canResubmit = computed(() => {
+      const command = pending.value,
+        save = snapshot.value
+      return !!(
+        recovered.value &&
+        command &&
+        save &&
+        pendingState.value === 'missing' &&
+        save.version === command.expected_version &&
+        save.available_actions.some(
+          (action) =>
+            action.kind === command.kind && validArgs(action.parameters, command.args, true),
+        )
+      )
+    })
   let generation = 0,
     readNumber = 0
   let openedSave: string | null = null
   let recovery: ReturnType<typeof createSaveRecovery> | undefined
+  let restoredJournal = false
+  let receiptController: AbortController | undefined
+  let nextReceiptCheck = 0
+  let remainingReceiptChecks = 0
   function reset() {
     generation++
     readNumber++
     recovery?.stop()
     recovery = undefined
     openedSave = null
+    restoredJournal = false
+    receiptController?.abort()
+    receiptController = undefined
+    nextReceiptCheck = 0
+    remainingReceiptChecks = 0
     realtime.value = 'idle'
     confirmed.value = false
     snapshot.value = null
     pending.value = null
+    persisted.value = null
+    recovered.value = false
+    pendingState.value = 'idle'
+    pendingNotice.value = ''
+    requiredVersion.value = -1
     busy.value = false
     loading.value = false
     error.value = ''
@@ -78,6 +135,13 @@ export const useGameStore = defineStore('game', () => {
       status: (state, ready) => {
         realtime.value = state
         confirmed.value = ready
+        if (state === 'paused' && receiptController) {
+          receiptController.abort()
+          receiptController = undefined
+          pendingState.value = 'unknown'
+          pendingNotice.value = '核对已暂停，回到游戏后可继续。'
+        }
+        if (ready) checkRestored()
       },
       denied: (code) => {
         blockAccess()
@@ -99,6 +163,100 @@ export const useGameStore = defineStore('game', () => {
     const version = snapshot.value?.version ?? -1
     if (next.version > version) snapshot.value = { ...next, ...metadata }
     return next.version >= version
+  }
+  function restoreJournal(scope: PendingScope) {
+    const found = readPending(scope)
+    if (found.status === 'ready') {
+      pending.value = found.record.command
+      persisted.value = scope
+      recovered.value = true
+      pendingState.value = found.record.phase === 'prepared' ? 'prepared' : 'unknown'
+      pendingNotice.value =
+        found.record.phase === 'prepared'
+          ? '原操作已在本机保存，尚未标记发送。'
+          : '已恢复本机待确认操作，正在等待服务器回执。'
+      nextReceiptCheck = 0
+      remainingReceiptChecks = 3
+      checkRestored()
+    } else if (found.status !== 'empty') {
+      pendingState.value = 'unavailable'
+      pendingNotice.value =
+        found.status === 'unavailable'
+          ? '无法读取本机待确认记录。请检查存储权限并核对当前进度。'
+          : '本机待确认记录已损坏或过期，无法据此确认原操作。请核对当前进度。'
+    }
+  }
+  function checkRestored() {
+    if (
+      recovered.value &&
+      remainingReceiptChecks > 0 &&
+      ['unknown', 'prepared', 'missing'].includes(pendingState.value) &&
+      Date.now() >= nextReceiptCheck &&
+      canQueryPending()
+    ) {
+      remainingReceiptChecks--
+      void queryPending()
+    }
+  }
+  function clearPending(state: 'accepted' | 'rejected' | 'unavailable', message: string) {
+    const command = pending.value
+    pendingNotice.value = message
+    if (persisted.value && command && !forgetPending(persisted.value, command.request_id))
+      pendingNotice.value += ' 本机记录未能清除。'
+    pending.value = null
+    persisted.value = null
+    recovered.value = false
+    pendingState.value = state
+  }
+  function canQueryPending() {
+    return (
+      persisted.value &&
+      identity.authenticated &&
+      !busy.value &&
+      !receiptController &&
+      !document.hidden &&
+      navigator.onLine
+    )
+  }
+  async function queryPending() {
+    const s = snapshot.value,
+      command = pending.value
+    if (!s || !command || !canQueryPending()) return
+    const g = generation
+    const controller = new AbortController()
+    receiptController = controller
+    nextReceiptCheck = Date.now() + 15000
+    pendingState.value = 'checking'
+    pendingNotice.value = '正在向服务器核对原操作回执。'
+    try {
+      const version = await gameApi.receipt(s.id, command, controller.signal)
+      if (g !== generation || controller.signal.aborted) return
+      if (version === null) {
+        pendingState.value = 'missing'
+        pendingNotice.value = '暂未查到回执，原操作可能仍在处理。可继续核对原 UUID。'
+        return
+      }
+      requiredVersion.value = version
+      clearPending('accepted', '服务器已确认原操作。')
+      if ((snapshot.value?.version ?? -1) < version) {
+        if (recovery) void recovery.open()
+        else void load(s.id)
+      }
+    } catch (e) {
+      if (g !== generation || controller.signal.aborted) return
+      if (e instanceof ApiError && e.status === 401) {
+        identity.expireSession()
+        return
+      }
+      if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+        blockAccess()
+        return
+      }
+      pendingState.value = 'unknown'
+      pendingNotice.value = '暂时无法核对回执，已保留原 UUID。'
+    } finally {
+      if (receiptController === controller) receiptController = undefined
+    }
   }
   function failure(cause: unknown) {
     const p = cause instanceof ApiError ? cause : new ApiError(0, 'NETWORK_ERROR', true)
@@ -137,7 +295,14 @@ export const useGameStore = defineStore('game', () => {
         (old && old.id === id && (next.version < old.version || !sameSave(old, next)))
       )
         throw new ApiError(200, 'INVALID_RESPONSE', false)
-      return accept(next, signal ? { restored: true } : {})
+      const current = accept(next, signal ? { restored: true } : {})
+      if (openedSave === id && current && identity.account) {
+        if (!restoredJournal) {
+          restoredJournal = true
+          restoreJournal(pendingScope(identity.account.id, next))
+        } else checkRestored()
+      }
+      return current
     } catch (e) {
       if (!signal?.aborted && g === generation && n === readNumber) {
         const denied = e instanceof ApiError && [401, 403, 404].includes(e.status)
@@ -149,10 +314,22 @@ export const useGameStore = defineStore('game', () => {
       if (g === generation && n === readNumber) loading.value = false
     }
   }
+  function validArgs(
+    parameters: GameSnapshot['available_actions'][number]['parameters'],
+    args: Record<string, unknown>,
+    choices = false,
+  ) {
+    return (
+      Object.keys(args).length === parameters.length &&
+      parameters.every((p) => (!choices || p.choices.length > 0) && validParameter(p, args[p.id]))
+    )
+  }
   async function submit(actionId: string, args: Record<string, unknown>) {
-    const s = snapshot.value
+    const s = snapshot.value,
+      account = identity.account
     if (
       !s ||
+      !account ||
       !identity.authenticated ||
       !canAct.value ||
       busy.value ||
@@ -161,46 +338,127 @@ export const useGameStore = defineStore('game', () => {
     )
       return
     const action = s.available_actions.find((a) => a.id === actionId)
-    if (
-      !action ||
-      Object.keys(args).length !== action.parameters.length ||
-      action.parameters.some((p) => !validParameter(p, args[p.id]))
-    ) {
+    if (!action || !validArgs(action.parameters, args)) {
       error.value = '请使用当前可用行动并填写合法参数。'
       return
     }
-    pending.value = {
+    const command: Command = {
       request_id: crypto.randomUUID(),
       expected_version: s.version,
       kind: action.kind,
       args: structuredClone(args),
     }
-    await send()
+    const scope = pendingScope(account.id, s)
+    const eligible = canPersistCommand(command) && validArgs(action.parameters, args, true)
+    const session = privateSessionLease(),
+      g = generation
+    const prepare = () => {
+      if (
+        g !== generation ||
+        identity.account?.id !== account.id ||
+        !session() ||
+        !canAct.value ||
+        snapshot.value?.version !== s.version
+      )
+        return false
+      if (eligible) {
+        const outcome = savePending(scope, command)
+        if (outcome === 'existing') {
+          restoreJournal(scope)
+          return false
+        }
+        if (outcome !== 'saved') {
+          pendingState.value = 'unavailable'
+          pendingNotice.value =
+            outcome === 'full'
+              ? '本机待确认记录已达上限，本次操作未发送。请先处理已有记录。'
+              : '本机无法保存待确认记录，本次操作未发送。请检查存储权限或空间。'
+          return false
+        }
+        persisted.value = scope
+      }
+      pending.value = command
+      pendingState.value = 'prepared'
+      pendingNotice.value = eligible
+        ? '操作已保存，尚未发送。'
+        : '此操作仅在本页保留，刷新后无法自动确认。'
+      return true
+    }
+    let prepared: boolean
+    if (eligible && navigator.locks) {
+      busy.value = true
+      try {
+        prepared = await withCookieWriteLock(async () => prepare())
+      } catch {
+        if (g === generation) pendingNotice.value = '未能保存待确认记录，本次操作未发送。'
+        return
+      } finally {
+        if (g === generation) busy.value = false
+      }
+    } else prepared = prepare()
+    if (g !== generation) return
+    if (prepared) await send()
+    else checkRestored()
   }
-  async function send() {
+  async function send(reconciliation = false) {
     const s = snapshot.value,
       command = pending.value
-    if (!s || !command || !identity.authenticated || !canAct.value || busy.value || loading.value)
+    if (
+      !s ||
+      !command ||
+      !identity.authenticated ||
+      !canAct.value ||
+      busy.value ||
+      loading.value ||
+      receiptController
+    )
       return
+    if (persisted.value && !markPendingSent(persisted.value, command)) {
+      pendingNotice.value = '本机记录已变化或无法标记，本次未发送。可核对原操作或清除本机记录。'
+      return
+    }
     const g = generation
     busy.value = true
     error.value = ''
+    pendingState.value = 'sending'
+    pendingNotice.value = persisted.value
+      ? '正在等待服务器回执。'
+      : '此操作仅在本页保留，刷新后无法自动确认。'
     try {
       const next = await gameApi.submit(s.id, command)
       if (g !== generation) return
       if (!sameSave(s, next) || next.version < s.version)
         throw new ApiError(200, 'INVALID_RESPONSE', false)
-      if (!snapshot.value || next.version >= snapshot.value.version) snapshot.value = next
-      pending.value = null
+      if (reconciliation) accept(next, { restored: true })
+      else if (!snapshot.value || next.version >= snapshot.value.version) snapshot.value = next
+      clearPending('accepted', '服务器已确认原操作。')
     } catch (e) {
       if (g === generation) {
         const p = failure(e)
-        if (p.status >= 400 && p.status < 500) pending.value = null
-        else error.value += ' 操作结果未知；可手动确认同一请求，勿重新提交其他操作。'
+        if (g !== generation) return
+        if ([400, 409, 422].includes(p.status) && p.code !== 'INVALID_RESPONSE') {
+          clearPending('rejected', '服务器明确拒绝了这次操作。')
+        } else {
+          pendingState.value = 'unknown'
+          pendingNotice.value = persisted.value
+            ? '操作结果未知，原 UUID 已保留。'
+            : '操作结果未知，仅可在本页确认。'
+          error.value += ' 操作结果未知；可手动确认同一请求，勿重新提交其他操作。'
+        }
       }
     } finally {
       if (g === generation) busy.value = false
     }
+  }
+  function retry() {
+    return recovered.value ? queryPending() : send()
+  }
+  function resubmit() {
+    if (canResubmit.value) return send(true)
+  }
+  function discardPending() {
+    if (!pending.value || busy.value || receiptController) return
+    clearPending('unavailable', '已停止本机核对。服务器操作结果仍未确认，请核对当前进度。')
   }
   return {
     snapshot,
@@ -208,12 +466,19 @@ export const useGameStore = defineStore('game', () => {
     loading,
     error,
     pending,
+    pendingState,
+    pendingNotice,
+    persisted,
+    recovered,
+    canResubmit,
     realtime,
     canAct,
     open,
     load,
     submit,
-    retry: send,
+    retry,
+    resubmit,
+    discardPending,
     reset,
   }
 })

@@ -1,9 +1,11 @@
 import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { registerPrivateSessionGuard } from '../src/services/session-sync'
+import { PENDING_PREFIX, pendingScope, readPending, savePending } from '../src/services/pending'
 import { useGameStore } from '../src/stores/game'
 import { useIdentityStore } from '../src/stores/identity'
-import { deferred, fail, json, me } from './fixtures'
+import { parseGame } from '../src/types/game'
+import { deferred, fail, json, me, other } from './fixtures'
 import { game } from './game-fixture'
 
 class TestSocket {
@@ -32,6 +34,7 @@ class TestSocket {
 let pinia: ReturnType<typeof createPinia>
 beforeEach(() => {
   vi.useFakeTimers()
+  localStorage.clear()
   pinia = createPinia()
   setActivePinia(pinia)
   const identity = useIdentityStore()
@@ -42,6 +45,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   disposePinia(pinia)
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.useRealTimers()
@@ -395,5 +399,219 @@ it('does not restore private state from a command response after access was deni
   await writing
   expect(store.realtime).toBe('blocked')
   expect(store.snapshot).toBeNull()
+  expect(store.pending).toBeNull()
+})
+
+const pendingCommand = {
+  request_id: '18826d64-68ca-4327-8dbe-604b9a7fee3e' as const,
+  expected_version: 7,
+  kind: 'set_emitter',
+  args: { angle: 90, pattern: 'pulse' },
+}
+const scope = pendingScope(me.account.id, parseGame(game()))
+const receiptPath = '/api/saves/save_one/receipts/' + pendingCommand.request_id
+const accepted = {
+  accepted: true,
+  accepted_version: 8,
+  request_id: pendingCommand.request_id,
+}
+
+it.each([503, 'timeout'])(
+  'persists before dispatch and keeps the UUID after %s',
+  async (outcome) => {
+    const { store, socket, fetch } = await open()
+    socket.snapshot(game())
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue(pendingCommand.request_id)
+    let savedAtDispatch: ReturnType<typeof readPending> | undefined
+    let sent: unknown
+    fetch.mockImplementationOnce(async (_url, request: RequestInit) => {
+      sent = JSON.parse(String(request.body))
+      savedAtDispatch = readPending(scope)
+      if (outcome === 503) return fail(503, 'SERVICE_UNAVAILABLE')
+      return new Promise<Response>((_resolve, reject) => {
+        request.signal?.addEventListener('abort', () => reject(Error('timed out')), { once: true })
+      })
+    })
+    const sending = store.submit('adjust', pendingCommand.args)
+    if (outcome === 'timeout') await vi.advanceTimersByTimeAsync(15000)
+    await sending
+    expect(sent).toEqual(pendingCommand)
+    expect(savedAtDispatch).toMatchObject({
+      status: 'ready',
+      record: { schema: 1, phase: 'sent', command: pendingCommand },
+    })
+    expect(uuid).toHaveBeenCalledOnce()
+    expect(store.pendingState).toBe('unknown')
+    expect(readPending(scope)).toMatchObject({ record: { command: pendingCommand } })
+    expect(store.pending).toEqual(pendingCommand)
+  },
+)
+
+it('reloads the same UUID, coalesces checks and settles only on its matching receipt', async () => {
+  const { store, socket, fetch } = await open()
+  socket.snapshot(game())
+  const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue(pendingCommand.request_id)
+  fetch.mockRejectedValueOnce(Error('lost command response'))
+  await store.submit('adjust', pendingCommand.args)
+  const reloaded = deferred<Response>()
+  disposePinia(pinia)
+  pinia = createPinia()
+  setActivePinia(pinia)
+  const identity = useIdentityStore()
+  identity.account = me.account
+  identity.initialized = true
+  const next = useGameStore()
+  fetch.mockResolvedValueOnce(json(game())).mockReturnValueOnce(reloaded.promise)
+  await next.open('save_one')
+  const newSocket = TestSocket.instances.at(-1)!
+  newSocket.snapshot({ ...game(), version: 9 })
+  await next.submit('adjust', { angle: 0, pattern: 'steady' })
+  await next.retry()
+  expect(next.pending).toEqual(pendingCommand)
+  expect(next.pendingState).toBe('checking')
+  expect(fetch.mock.calls.filter(([url]) => url === receiptPath)).toHaveLength(1)
+  reloaded.resolve(json(accepted))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(next.pending).toBeNull()
+  expect(next.pendingState).toBe('accepted')
+  expect(next.snapshot).toMatchObject({ version: 9, restored: true })
+  expect(next.snapshot).not.toHaveProperty('audio_events')
+  expect(readPending(scope)).toEqual({ status: 'empty' })
+  newSocket.snapshot({ ...game(), version: 9 })
+  await next.retry()
+  expect(next.snapshot).not.toHaveProperty('audio_events')
+  expect(uuid).toHaveBeenCalledOnce()
+  expect(fetch.mock.calls.filter(([, r]) => r.method === 'POST')).toHaveLength(1)
+})
+
+it('blocks new commands after a receipt until its version is visible, then uses a static baseline', async () => {
+  expect(savePending(scope, pendingCommand)).toBe('saved')
+  const confirm = deferred<Response>()
+  const latest = deferred<Response>()
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(json(game()))
+    .mockReturnValueOnce(confirm.promise)
+    .mockReturnValueOnce(latest.promise)
+  vi.stubGlobal('fetch', fetch)
+  const store = useGameStore()
+  await store.open('save_one')
+  TestSocket.instances[0]!.snapshot(game())
+  confirm.resolve(json(accepted))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.pending).toBeNull()
+  expect(store.canAct).toBe(false)
+  expect(store.snapshot?.version).toBe(7)
+  await store.submit('adjust', pendingCommand.args)
+  expect(fetch.mock.calls.filter(([, r]) => r.method === 'POST')).toHaveLength(0)
+  latest.resolve(json({ ...game(), version: 8, audio_events: [{ asset_id: 'foreign' }] }))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.canAct).toBe(true)
+  expect(store.snapshot).toMatchObject({ version: 8, restored: true })
+  expect(store.snapshot).not.toHaveProperty('audio_events')
+})
+
+it('keeps absent or malformed receipts unresolved even when WS has a higher version', async () => {
+  expect(savePending(scope, pendingCommand)).toBe('saved')
+  const receipt = deferred<Response>()
+  const fetch = vi.fn().mockResolvedValueOnce(json(game())).mockReturnValueOnce(receipt.promise)
+  vi.stubGlobal('fetch', fetch)
+  const store = useGameStore()
+  await store.open('save_one')
+  TestSocket.instances[0]!.snapshot({ ...game(), version: 10 })
+  receipt.resolve(json({ accepted: false }))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.pendingState).toBe('missing')
+  expect(store.canResubmit).toBe(false)
+  fetch.mockResolvedValueOnce(json({ ...accepted, accepted_version: 10 }))
+  await store.retry()
+  expect(store.pendingState).toBe('unknown')
+  expect(store.pending?.request_id).toBe(pendingCommand.request_id)
+  expect(readPending(scope).status).toBe('ready')
+  expect(fetch.mock.calls.every(([, r]) => r.method === 'GET')).toBe(true)
+})
+
+it('only retries a restored command after explicit confirmation, with the exact original payload', async () => {
+  expect(savePending(scope, pendingCommand)).toBe('saved')
+  const receipt = deferred<Response>()
+  const fetch = vi.fn().mockResolvedValueOnce(json(game())).mockReturnValueOnce(receipt.promise)
+  vi.stubGlobal('fetch', fetch)
+  const store = useGameStore()
+  await store.open('save_one')
+  TestSocket.instances[0]!.snapshot(game())
+  receipt.resolve(json({ accepted: false }))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.canResubmit).toBe(true)
+  expect(fetch.mock.calls.filter(([, r]) => r.method === 'POST')).toHaveLength(0)
+  const uuid = vi.spyOn(crypto, 'randomUUID')
+  fetch.mockResolvedValueOnce(fail(409, 'VERSION_CONFLICT'))
+  await store.resubmit()
+  expect(JSON.parse(String(fetch.mock.calls[2]![1].body))).toEqual(pendingCommand)
+  expect(uuid).not.toHaveBeenCalled()
+  expect(store.pendingState).toBe('rejected')
+  expect(store.pendingNotice).not.toContain('PRIVATE_TEST_RESPONSE')
+  expect(readPending(scope)).toEqual({ status: 'empty' })
+})
+
+it('ignores old receipts and socket frames after switching save or account', async () => {
+  expect(savePending(scope, pendingCommand)).toBe('saved')
+  const receipt = deferred<Response>()
+  const fetch = vi.fn().mockResolvedValueOnce(json(game())).mockReturnValueOnce(receipt.promise)
+  vi.stubGlobal('fetch', fetch)
+  const store = useGameStore()
+  await store.open('save_one')
+  const late = TestSocket.instances[0]!.onmessage!
+  fetch.mockResolvedValueOnce(json({ ...game(), id: 'save_other', version: 1 }))
+  await store.open('save_other')
+  expect(fetch.mock.calls[1]![1].signal.aborted).toBe(true)
+  late(new MessageEvent('message', { data: JSON.stringify({ type: 'snapshot', save: game() }) }))
+  receipt.resolve(json(accepted))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.snapshot).toMatchObject({ id: 'save_other', version: 1 })
+  expect(store.pending).toBeNull()
+  const identity = useIdentityStore()
+  identity.account = other.account
+  identity.sessionGeneration++
+  fetch.mockResolvedValueOnce(json({ ...game(), role: 'b' }))
+  await store.open('save_one')
+  expect(store.snapshot?.role).toBe('b')
+  expect(store.pending).toBeNull()
+  expect(fetch.mock.calls.filter(([url]) => url === receiptPath)).toHaveLength(1)
+  expect(readPending(scope).status).toBe('ready')
+})
+
+it('does not persist NPC dialogue and discloses that it cannot survive a refresh', async () => {
+  const privateGame = {
+    ...game(),
+    available_actions: [
+      {
+        id: 'ask',
+        kind: 'talk',
+        parameters: [{ id: 'question', value_type: 'string', choices: [], max_length: 120 }],
+      },
+    ],
+  }
+  const fetch = vi.fn().mockResolvedValueOnce(json(privateGame)).mockRejectedValueOnce(Error())
+  vi.stubGlobal('fetch', fetch)
+  const store = useGameStore()
+  await store.open('save_one')
+  TestSocket.instances[0]!.snapshot(privateGame)
+  await store.submit('ask', { question: 'PRIVATE_NPC_TEXT' })
+  expect(JSON.parse(fetch.mock.calls[1]![1].body).args.question).toBe('PRIVATE_NPC_TEXT')
+  expect(Object.keys(localStorage).filter((key) => key.startsWith(PENDING_PREFIX))).toEqual([])
+  expect(JSON.stringify(sessionStorage)).not.toContain('PRIVATE_NPC_TEXT')
+  expect(store.pendingNotice).toContain('仅可在本页')
+})
+
+it('does not send a persistable operation when durable storage fails', async () => {
+  const { store, socket, fetch } = await open()
+  socket.snapshot(game())
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw Error('quota exceeded')
+  })
+  await store.submit('adjust', pendingCommand.args)
+  expect(fetch).toHaveBeenCalledOnce()
+  expect(store.pendingState).toBe('unavailable')
+  expect(store.pendingNotice).toContain('本次操作未发送')
   expect(store.pending).toBeNull()
 })

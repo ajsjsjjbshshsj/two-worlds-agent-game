@@ -106,7 +106,17 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
     // Compare the entire match: JavaScript's $ alone also accepts a final newline.
     const validPath =
       /^\/api\/[a-z][a-z0-9_]{0,63}(?:\/[a-z][a-z0-9_]{0,63})*$/.exec(path)?.[0] === path
-    if (!validPath && path !== '/api/verification-codes' && path !== '/api/password-resets')
+    const receiptPath =
+      (request.method ?? 'GET') === 'GET' &&
+      /^\/api\/saves\/[a-z][a-z0-9_]{0,63}\/receipts\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.exec(
+        path,
+      )?.[0] === path
+    if (
+      !validPath &&
+      !receiptPath &&
+      path !== '/api/verification-codes' &&
+      path !== '/api/password-resets'
+    )
       throw new ApiError(0, 'INVALID_REQUEST', false)
     let query = ''
     if (request.query !== undefined) {
