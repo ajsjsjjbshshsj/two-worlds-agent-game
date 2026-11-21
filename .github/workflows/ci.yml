@@ -77,6 +77,9 @@ jobs:
         options: >-
           --tmpfs /data/db:mode=1777
           --ulimit nofile=8192:8192
+          --log-driver local
+          --log-opt max-size=32k
+          --log-opt max-file=2
           --health-cmd "mongosh --quiet --eval 'quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1)'"
           --health-interval 5s
           --health-timeout 5s
