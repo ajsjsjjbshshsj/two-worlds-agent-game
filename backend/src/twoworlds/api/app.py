@@ -170,6 +170,9 @@ def create_app(
             raise ValueError("CORS origins must be exact HTTP origins")
     if type(cookie_secure) is not bool:
         raise ValueError("cookie_secure must be a boolean")
+    if ai_mode != "demo":
+        # 诚实交付：真实NarrativeProvider/LangGraph尚未接入，不静默退回demo。
+        raise ValueError("only demo AI mode is implemented")
     policies = dict(DEFAULT_RATE_POLICIES)
     if rate_policies is not None:
         for name, policy in rate_policies.items():

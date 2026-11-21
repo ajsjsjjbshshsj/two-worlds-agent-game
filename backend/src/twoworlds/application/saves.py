@@ -3,11 +3,12 @@
 from datetime import datetime, timezone
 from functools import wraps
 import secrets
-from typing import Callable
+from typing import Callable, Literal
 
 from pydantic import TypeAdapter, ValidationError
 
 from twoworlds.application.audio import OperationAudio, project_operation_audio
+from twoworlds.application.dialogue import TalkArgs, append_demo_turn
 from twoworlds.application.media import MediaContent, media_content
 from twoworlds.application.commands import (
     AcceptedReceipt,
@@ -83,6 +84,13 @@ class CommandResponse(ContentModel):
     save: SaveSnapshot
 
 
+class VoiceStatus(ContentModel):
+    """首版未配置任何语音Provider：实时通话/ASR/在线TTS恒为disabled。"""
+
+    enabled: Literal[False] = False
+    capabilities: tuple[str, ...] = ()
+
+
 def _fail_safely(method):
     @wraps(method)
     def wrapped(*args, **kwargs):
@@ -129,7 +137,9 @@ class SaveService:
     def _snapshot(self, save, role):
         # Never look up 'latest': an old save must use its exact sealed version.
         script = self._publications.load(save.script_id, save.script_version)
-        snapshot = project_save(save.state, script, role, save.public_history)
+        snapshot = project_save(
+            save.state, script, role, save.public_history, dialogues=save.dialogues
+        )
         return SaveSnapshot(id=save.id, pair_id=save.pair_id, **snapshot.model_dump())
 
     @_fail_safely
@@ -297,33 +307,54 @@ class SaveService:
         if now < max(current.updated_at, pair.updated_at):
             raise SaveError("CLOCK_ERROR")
         script = self._publications.load(current.script_id, current.script_version)
-        try:
-            state, events = apply_command(
-                current.state,
-                script,
-                role,
-                {
-                    "kind": command.kind,
-                    "args": command.args,
-                },
+        if command.kind == "talk":
+            # 完成档整体只读（_timeline把完成里程碑版本钉在水位上）；
+            # docs/01允许完成后继续NPC对话，与领域冻结的冲突留待T14裁决。
+            if current.state.completed:
+                raise CommandError("SAVE_COMPLETED")
+            # demo NPC是应用层表达：只写本人私聊，不进规则引擎、不产生公共事件。
+            try:
+                args = TalkArgs.model_validate(command.args)
+            except ValidationError:
+                raise CommandError("INVALID_COMMAND") from None
+            dialogues = append_demo_turn(current.dialogues, role, args.question, now)
+            # SaveRecord要求存档/状态/历史水位三方一致：talk同样推进版本，
+            # 但事实、公共事件与里程碑全部原样保留。
+            state = current.state.model_copy(update={"version": current.version + 1})
+            history = PublicHistory.model_validate(
+                current.public_history.model_dump()
+                | {"through_version": current.version + 1}
             )
-        except DomainError as error:
-            if error.code in {
-                "INVALID_STATE",
-                "INVALID_SCRIPT",
-                "SCRIPT_MISMATCH",
-                "SCRIPT_UNSUPPORTED",
-            }:
-                raise
-            raise CommandError(error.code) from None
-        history = append_public_history(
-            current.public_history, script, state.version, events
-        )
+            events = ()
+        else:
+            try:
+                state, events = apply_command(
+                    current.state,
+                    script,
+                    role,
+                    {
+                        "kind": command.kind,
+                        "args": command.args,
+                    },
+                )
+            except DomainError as error:
+                if error.code in {
+                    "INVALID_STATE",
+                    "INVALID_SCRIPT",
+                    "SCRIPT_MISMATCH",
+                    "SCRIPT_UNSUPPORTED",
+                }:
+                    raise
+                raise CommandError(error.code) from None
+            dialogues = current.dialogues
+            history = append_public_history(
+                current.public_history, script, state.version, events
+            )
         receipt = CommandReceipt(
             actor_id=actor_id,
             request_id=command.request_id,
             fingerprint=fingerprint,
-            accepted_version=state.version,
+            accepted_version=current.version + 1,
             created_at=now,
         )
         candidate = SaveRecord.model_validate(
@@ -331,7 +362,8 @@ class SaveService:
             | {
                 "state": state,
                 "public_history": history,
-                "version": state.version,
+                "dialogues": dialogues,
+                "version": current.version + 1,
                 "receipts": (*current.receipts, receipt),
                 "updated_at": now,
             }
@@ -361,6 +393,12 @@ class SaveService:
             return duplicate
         # Never re-execute an action against a new version automatically.
         raise CommandError("VERSION_CONFLICT")
+
+    @_fail_safely
+    def voice_status(self, actor_id, save_id) -> VoiceStatus:
+        # 成员边界与读档一致；外人统一404，不承认存档存在。
+        self._authorized_save(actor_id, save_id)
+        return VoiceStatus()
 
     @_fail_safely
     def get_receipt(

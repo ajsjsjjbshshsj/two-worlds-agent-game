@@ -1,5 +1,6 @@
 """从完整世界逐字段构造个人展示值；不输出内部规则、文件路径或伙伴秘密。"""
 
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from pydantic import Field, StrictBool, StrictInt, field_serializer, field_validator
@@ -20,6 +21,7 @@ from .engine import shareable_clue_ids, validate_state_and_script
 from .errors import DomainError
 from .mechanics.common import conditions_met
 from .models import GameState
+from .persistence import DialogueTurn, Question, UTCDateTime
 from .visuals import VisualEffect, project_visuals
 from .recap import (
     PUBLIC_PROGRESS_FACTS,
@@ -57,10 +59,18 @@ class PublicView(ContentModel):
     recap: PublicRecap = PublicRecap()
 
 
+class DialogueView(ContentModel):
+    """本人私聊轮次；角色过滤在投影内完成，伙伴看不到提问原文。"""
+
+    question: Question
+    answer: Text
+    mode: Literal["demo", "provider", "fallback"]
+    created_at: UTCDateTime
+
+
 class PersonalView(ContentModel):
     clues: tuple[ClueView, ...]
-    # T03.1没有对话存储；仅允许空值，不借展示模型引入虚构历史。
-    dialogue: tuple[()] = ()
+    dialogue: tuple[DialogueView, ...] = ()
     devices: tuple[DeviceView, ...]
     observations: tuple[ObservationView, ...]
 
@@ -249,6 +259,7 @@ def project_save(
     script: ScriptVersion,
     role: str,
     public_history: PublicHistory | None = None,
+    dialogues: Sequence[DialogueTurn] = (),
 ) -> PlayerSnapshot:
     """role须由可信调用方提供；本函数只做内容权限投影，不执行身份认证。"""
     state, script = validate_state_and_script(state, script)
@@ -308,6 +319,11 @@ def project_save(
                 ClueView(id=clue.id, text=clue.text)
                 for clue in clues
                 if clue.role == role and clue.id in state.discovered_clues
+            ),
+            dialogue=tuple(
+                DialogueView(**turn.model_dump(exclude={"role"}))
+                for turn in dialogues
+                if turn.role == role
             ),
             devices=tuple(
                 DeviceView(
