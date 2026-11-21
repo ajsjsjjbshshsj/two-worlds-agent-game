@@ -28,12 +28,13 @@ watch(
   { immediate: true },
 )
 const allowLeave = () =>
+  !!game.persisted ||
   (!game.pending && !game.busy) ||
   window.confirm('操作结果仍待确认。离开会丢失本页请求记录，建议先确认原请求。仍要离开吗？')
 onBeforeRouteLeave(allowLeave)
 onBeforeRouteUpdate(allowLeave)
 function warnUnload(event: BeforeUnloadEvent) {
-  if (game.pending || game.busy) {
+  if (!game.persisted && (game.pending || game.busy)) {
     event.preventDefault()
     event.returnValue = true
   }
@@ -46,6 +47,18 @@ onBeforeUnmount(() => {
 function focusDevice(id: string) {
   document.getElementById('device-' + id)?.focus()
 }
+function resubmitOriginal() {
+  if (
+    window.confirm(
+      '尚未查到回执。重新提交会沿用原 UUID 和参数，原操作未执行时可能执行一次。继续吗？',
+    )
+  )
+    void game.resubmit()
+}
+function discardOriginal() {
+  if (window.confirm('只清除本机核对记录，服务器可能已执行原操作。确定停止核对吗？'))
+    game.discardPending()
+}
 </script>
 <template>
   <SpaceShell
@@ -54,6 +67,7 @@ function focusDevice(id: string) {
     <p v-if="game.loading" role="status">正在读取个人快照…</p>
     <p v-if="syncLabels[game.realtime]" role="status">{{ syncLabels[game.realtime] }}</p>
     <p v-if="game.error" class="error" role="alert">{{ game.error }}</p>
+    <p v-if="game.pendingNotice" role="status">{{ game.pendingNotice }}</p>
     <button
       class="small-action"
       v-if="game.realtime !== 'blocked'"
@@ -64,10 +78,24 @@ function focusDevice(id: string) {
     ><button
       v-if="game.pending"
       class="secondary"
-      :disabled="game.busy || !game.canAct"
+      :disabled="game.busy || game.pendingState === 'checking' || (!game.recovered && !game.canAct)"
       @click="game.retry"
     >
-      手动确认原请求（相同 UUID 与参数）</button
+      {{ game.recovered ? '查询原操作回执' : '手动确认原请求（相同 UUID 与参数）' }}</button
+    ><button
+      v-if="game.canResubmit"
+      class="secondary"
+      :disabled="game.busy || !game.canAct"
+      @click="resubmitOriginal"
+    >
+      使用原 UUID 重新提交 {{ game.pending?.kind }}</button
+    ><button
+      v-if="game.pending && game.persisted"
+      class="secondary"
+      :disabled="game.busy || game.pendingState === 'checking'"
+      @click="discardOriginal"
+    >
+      清除本机待确认记录</button
     ><template v-if="game.snapshot"
       ><section data-test="save-entry">
         <p>

@@ -74,6 +74,19 @@ def test_receipt_precedes_version_and_returns_current_private_snapshot(world):
             assert clue.text not in json.dumps(duplicate, ensure_ascii=False)
 
 
+def test_partner_version_cannot_confirm_an_uncommitted_request(world):
+    game, a, b, _, initial, repo, _, _, _ = world
+    pending = command(initial, "inspect", {"target": "maintenance_log"})
+    game.accept(b, initial, "inspect", {"target": "sea_chart"})
+    before = repo.get_save(initial["id"])
+    assert before.version == 1
+    assert game.read(a, initial)["version"] == 1
+    assert game.receipt(a, initial, pending["request_id"]) == {"accepted": False}
+    error(game.post(a, initial, pending), 409, "VERSION_CONFLICT")
+    assert game.receipt(a, initial, pending["request_id"]) == {"accepted": False}
+    assert repo.get_save(initial["id"]) == before
+
+
 @pytest.mark.parametrize(
     "changes",
     [
