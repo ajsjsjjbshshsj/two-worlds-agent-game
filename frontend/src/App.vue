@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
+import { retryDelay } from './services/save-recovery'
 import { useIdentityStore } from './stores/identity'
 
 const identity = useIdentityStore()
@@ -22,6 +23,49 @@ watch(
       !identity.sessionSuspended
     )
       void router.replace('/')
+  },
+)
+
+// The game view is unmounted while identity is suspended. Retry here so a
+// transient failure of the existing /me check can still remount it safely.
+watch(
+  () =>
+    [
+      route.name,
+      route.params.saveId,
+      identity.account?.id,
+      identity.sessionSuspended,
+      identity.verificationUnavailable,
+    ] as const,
+  ([name, , accountId, suspended, unavailable], _, onCleanup) => {
+    if (name !== 'game' || !accountId || !suspended || !unavailable) return
+    let attempts = 0
+    let timer: number | undefined
+    let stopped = false
+    const active = () => !stopped && !document.hidden && navigator.onLine
+    function schedule() {
+      window.clearTimeout(timer)
+      if (active()) timer = window.setTimeout(recheck, retryDelay(attempts))
+    }
+    async function recheck() {
+      if (!active()) return
+      if (!identity.initializing) {
+        attempts++
+        await identity.verifySession()
+      }
+      schedule()
+    }
+    document.addEventListener('visibilitychange', schedule)
+    window.addEventListener('online', schedule)
+    window.addEventListener('offline', schedule)
+    schedule()
+    onCleanup(() => {
+      stopped = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', schedule)
+      window.removeEventListener('online', schedule)
+      window.removeEventListener('offline', schedule)
+    })
   },
 )
 </script>

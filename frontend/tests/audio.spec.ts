@@ -105,6 +105,18 @@ it('updates audio authorization from a socket without playing unconfirmed one-sh
   await flushPromises()
   expect(load.mock.calls.map(([, asset]) => asset)).toEqual(['ambience', 'narration'])
 })
+it('restores HTTP media authorization without replaying recovered one-shots', async () => {
+  manager.update(soundSnapshot(), 1)
+  manager.enable()
+  const recovered = soundSnapshot(2, ['ambience', 'sfx', 'narration'])
+  manager.update({ ...recovered, restored: true }, 1)
+  manager.update(recovered, 1)
+  await flushPromises()
+  expect(load.mock.calls.map(([, asset]) => asset)).toEqual(['ambience'])
+  manager.replay('narration:narration')
+  await flushPromises()
+  expect(load.mock.calls.map(([, asset]) => asset)).toEqual(['ambience', 'narration'])
+})
 it('reconstructed page baselines current effects rather than replaying history', async () => {
   manager.update(soundSnapshot(8, ['sfx']), 1)
   manager.enable()

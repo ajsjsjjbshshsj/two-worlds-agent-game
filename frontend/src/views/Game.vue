@@ -11,6 +11,15 @@ import { useIdentityStore } from '../stores/identity'
 const route = useRoute(),
   game = useGameStore(),
   identity = useIdentityStore()
+const syncLabels = {
+  idle: '',
+  connecting: '正在同步最新进度…',
+  live: '',
+  http: '实时连接正在恢复，当前进度由 HTTP 更新。',
+  offline: '实时连接已中断，正在等待重新同步。',
+  paused: '页面在后台，已暂停同步。',
+  blocked: '当前会话无法同步此存档。',
+}
 watch(
   () => route.params.saveId,
   (id) => {
@@ -43,15 +52,21 @@ function focusDevice(id: string) {
     ><p class="eyebrow">两个世界，彼此回响</p>
     <h1>我的世界</h1>
     <p v-if="game.loading" role="status">正在读取个人快照…</p>
-    <p v-if="game.realtime === 'offline'" role="status">实时连接已断开，可手动重新读取进度。</p>
+    <p v-if="syncLabels[game.realtime]" role="status">{{ syncLabels[game.realtime] }}</p>
     <p v-if="game.error" class="error" role="alert">{{ game.error }}</p>
     <button
       class="small-action"
+      v-if="game.realtime !== 'blocked'"
       :disabled="game.busy || game.loading"
       @click="game.open(String(route.params.saveId))"
     >
       重新读取 / 获取搭档进度</button
-    ><button v-if="game.pending" class="secondary" :disabled="game.busy" @click="game.retry">
+    ><button
+      v-if="game.pending"
+      class="secondary"
+      :disabled="game.busy || !game.canAct"
+      @click="game.retry"
+    >
       手动确认原请求（相同 UUID 与参数）</button
     ><template v-if="game.snapshot"
       ><section data-test="save-entry">
@@ -106,7 +121,7 @@ function focusDevice(id: string) {
         <ActionPanel
           v-if="!game.snapshot.completed"
           :actions="game.snapshot.available_actions"
-          :disabled="game.busy || game.loading || !!game.pending"
+          :disabled="!game.canAct || game.busy || game.loading || !!game.pending"
           @command="game.submit"
         /></div></template
   ></SpaceShell>

@@ -21,6 +21,16 @@ it('initial already-powered save restores without historical performance', () =>
   c.update(snapshot('lighthouse', 'a', 20, true))
   expect(play).not.toHaveBeenCalled()
 })
+it('recovery establishes a new static baseline even when exactly one version was missed', () => {
+  const { c, play } = setup()
+  c.update(snapshot())
+  c.update({ ...snapshot('lighthouse', 'a', 11, true), restored: true })
+  c.update(snapshot('lighthouse', 'a', 11, true))
+  expect(play).not.toHaveBeenCalled()
+  c.update(snapshot('lighthouse', 'a', 12, false))
+  c.update(snapshot('lighthouse', 'a', 13, true))
+  expect(play).toHaveBeenCalledOnce()
+})
 it.each([
   ['lighthouse', 'a', 'clock-power-on'],
   ['starline', 'b', 'echo-ready'],

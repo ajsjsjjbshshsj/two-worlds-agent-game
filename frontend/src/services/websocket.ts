@@ -7,6 +7,7 @@ export function connectSaveSocket(
   current: () => boolean,
   onSnapshot: (snapshot: GameSnapshot) => void,
   onClose: (code: number) => void,
+  onPong: () => void,
 ) {
   const url = new URL(`${apiBaseUrl()}/api/ws/saves/${identifier(id)}`, window.location.href)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -23,18 +24,23 @@ export function connectSaveSocket(
         Number.isSafeInteger(message.id) &&
         message.id > 0 &&
         socket.readyState === WebSocket.OPEN
-      )
+      ) {
         socket.send(JSON.stringify({ type: 'pong', id: message.id }))
+        onPong()
+      }
     } catch {
       // Malformed messages and a socket closing during a pong cannot update game state.
     }
   }
   socket.onclose = ({ code }) => {
+    socket.onmessage = null
+    socket.onclose = null
     if (current()) onClose(code)
   }
   return () => {
     socket.onmessage = null
     socket.onclose = null
-    socket.close()
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+      socket.close()
   }
 }

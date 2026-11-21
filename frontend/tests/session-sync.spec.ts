@@ -244,6 +244,38 @@ it('a newer peer change supersedes a pending verification and its old 401', asyn
   expect(fetch.mock.calls.filter(([url]) => url === '/api/me')).toHaveLength(4)
 })
 
+it('automatically retries a transient foreground identity failure on the game route', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    vi.stubGlobal('WebSocket', undefined)
+    const { pinia, identity, fetch } = await tab()
+    const router = createAppRouter(createMemoryHistory(), pinia)
+    const w = mount(App, { global: { plugins: [pinia, router] } })
+    cleanups.push(() => w.unmount())
+    fetch.mockResolvedValueOnce(json(gameFixture()))
+    await router.push('/saves/save_one')
+    await flushPromises()
+    expect(useGameStore(pinia).snapshot?.version).toBe(7)
+
+    fetch.mockResolvedValueOnce(fail(503))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(w.text()).toContain('暂时无法验证身份')
+    expect(useGameStore(pinia).snapshot).toBeNull()
+    fetch
+      .mockResolvedValueOnce(json(me))
+      .mockResolvedValueOnce(json({ ...gameFixture(), version: 9 }))
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+    expect(identity.authenticated).toBe(true)
+    expect(useGameStore(pinia).snapshot?.version).toBe(9)
+    expect(fetch.mock.calls.filter(([url]) => url === '/api/me')).toHaveLength(3)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('focus, visibility and pageshow coalesce with no polling or response echo when channel is absent', async () => {
   vi.stubGlobal('BroadcastChannel', undefined)
   const { identity, fetch } = await tab()

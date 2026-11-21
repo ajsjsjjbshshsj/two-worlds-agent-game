@@ -28,6 +28,8 @@ export interface GameSnapshot extends SaveEntry {
   audio_events?: OperationAudioEvent[]
   // Set by the store after accepting a socket snapshot, never read from the wire.
   from_realtime?: true
+  // The first verified frame after a gap restores the static scene.
+  restored?: true
   public: {
     clues: { id: string; text: string }[]
     ending: string | null
