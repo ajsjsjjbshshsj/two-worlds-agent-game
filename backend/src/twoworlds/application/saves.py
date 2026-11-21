@@ -185,11 +185,15 @@ class SaveService:
 
     @_fail_safely
     def read_save(self, actor_id, save_id) -> SaveSnapshot:
-        save = self._repository.get_save(save_id)
-        if save is None:
-            raise SaveError("SAVE_NOT_FOUND")
-        _, role = self._role(actor_id, save.pair_id)
+        save, _, role = self._authorized_save(actor_id, save_id)
         return self._snapshot(save, role)
+
+    @_fail_safely
+    def read_save_after(self, actor_id, save_id, version: int) -> SaveSnapshot | None:
+        save, _, role = self._authorized_save(actor_id, save_id)
+        if save.version > version:
+            return self._snapshot(save, role)
+        return None
 
     @_fail_safely
     def read_media(self, actor_id, save_id, asset_id) -> MediaContent:

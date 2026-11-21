@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 from websockets.sync.client import connect
 
-from tests.contracts.support import Platform, ok
+from tests.contracts.support import Platform, command, ok
 from tests.identity_support import (
     ORIGIN,
     ORIGIN_HEADER,
@@ -300,6 +300,23 @@ def test_reconnect_reads_a_new_projection_after_an_http_commit(open_game):
         assert ws.receive_json() == {"type": "snapshot", "save": next_save}
 
 
+@DUAL_STORAGE
+def test_revoked_connection_cannot_receive_an_update_before_its_next_ping(open_game):
+    game = open_game(
+        timing=WebSocketTiming(heartbeat_interval=5, snapshot_interval=0.02)
+    )
+    a, b, pair = game.pair()
+    save = game.save(a, pair)
+    with connect_save(game, save, a) as ws:
+        assert ws.receive_json() == {"type": "snapshot", "save": save}
+        assert (
+            game.http.delete("/api/sessions/current", headers=a.headers).status_code
+            == 204
+        )
+        game.accept(b, save, "inspect", {"target": "sea_chart"})
+        assert_close(ws, 4401)
+
+
 def first_ping(ws):
     assert ws.receive_json()["type"] == "snapshot"
     assert ws.receive_json() == {"type": "ping", "id": 1}
@@ -446,6 +463,79 @@ def register_over_tcp(http, console_path):
     return {"Cookie": f"tw_session={token}"}
 
 
+def assert_realtime_updates_over_tcp(http, address, a_cookie, pair, save, console_path):
+    a_headers = {**a_cookie, **ORIGIN_HEADER}
+    b_cookie = register_over_tcp(http, console_path)
+    b_headers = {**b_cookie, **ORIGIN_HEADER}
+    ok(
+        http.post(
+            "/api/pairs/join",
+            headers=b_headers,
+            json={"invite_token": pair["invite_token"]},
+        )
+    )
+    path = f"/api/saves/{save['id']}"
+    socket_url = f"ws://{address}/api/ws/saves/{save['id']}"
+    with (
+        connect(
+            socket_url,
+            origin=ORIGIN,
+            additional_headers=a_cookie,
+            proxy=None,
+            open_timeout=2,
+        ) as a_ws,
+        connect(
+            socket_url,
+            origin=ORIGIN,
+            additional_headers=b_cookie,
+            proxy=None,
+            open_timeout=2,
+        ) as b_ws,
+    ):
+        players = ((a_ws, a_headers, "a"), (b_ws, b_headers, "b"))
+
+        def assert_projections(version):
+            views = []
+            for ws, headers, role in players:
+                message = json.loads(ws.recv(timeout=3))
+                projected = ok(http.get(path, headers=headers))
+                assert message == {"type": "snapshot", "save": projected}
+                assert projected["version"] == version and projected["role"] == role
+                views.append(projected["personal"])
+            assert views[0]["devices"].keys().isdisjoint(views[1]["devices"])
+            return views
+
+        assert_projections(0)
+        for headers, target in (
+            (a_headers, "maintenance_log"),
+            (b_headers, "sea_chart"),
+        ):
+            payload = command(save, "inspect", {"target": target})
+            save = ok(http.post(f"{path}/commands", headers=headers, json=payload))[
+                "save"
+            ]
+            a_view, b_view = assert_projections(save["version"])
+        assert a_view["clues"] and b_view["clues"]
+        assert all(clue not in b_view["clues"] for clue in a_view["clues"])
+        assert all(clue not in a_view["clues"] for clue in b_view["clues"])
+
+        private_question = "only A can see this demo turn"
+        payload = command(save, "talk", {"question": private_question})
+        advanced = ok(http.post(f"{path}/commands", headers=a_headers, json=payload))
+        a_view, b_view = assert_projections(advanced["save"]["version"])
+        assert a_view["dialogue"][0]["question"] == private_question
+        assert b_view["dialogue"] == []
+        duplicate = ok(http.post(f"{path}/commands", headers=a_headers, json=payload))
+        assert duplicate["receipt"]["duplicate"] is True
+        for ws, headers, _ in players:
+            with pytest.raises(TimeoutError):
+                ws.recv(timeout=0.65)
+            assert (
+                ok(http.get(path, headers=headers))["version"]
+                == advanced["save"]["version"]
+            )
+
+
 @pytest.mark.parametrize("backend", ["sqlite", "mongo"])
 def test_dev_launcher_serves_real_websocket_over_loopback(tmp_path, request, backend):
     with socket.socket() as probe:
@@ -548,6 +638,12 @@ raise SystemExit(dev.main())
                 with pytest.raises(ConnectionClosed) as closed:
                     ws.recv(timeout=2)
                 assert closed.value.rcvd.code == 4404
+            with httpx.Client(
+                base_url=f"http://{address}", trust_env=False, timeout=3
+            ) as http:
+                assert_realtime_updates_over_tcp(
+                    http, address, cookie, pair, save, console_path
+                )
         finally:
             process.terminate()
             try:

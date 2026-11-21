@@ -61,7 +61,7 @@ function version(value: unknown): string {
 function role(value: unknown): Role {
   return value === 'a' || value === 'b' ? value : invalidResponse()
 }
-function date(value: unknown): string {
+export function date(value: unknown): string {
   const s = text(value, 40)
   return /(Z|[+-]\d{2}:\d{2})$/.test(s) && Number.isFinite(Date.parse(s)) ? s : invalidResponse()
 }

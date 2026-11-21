@@ -1,5 +1,5 @@
 import { isRecord } from '../services/http'
-import { identifier, invalidResponse, list, parseEntry, type SaveEntry } from './resources'
+import { date, identifier, invalidResponse, list, parseEntry, type SaveEntry } from './resources'
 export type Scalar = string | number | boolean
 export interface Parameter {
   id: string
@@ -26,6 +26,8 @@ export interface OperationAudioEvent {
 export interface GameSnapshot extends SaveEntry {
   // Ephemeral, validated command-response metadata; GET parsing never restores it.
   audio_events?: OperationAudioEvent[]
+  // Set by the store after accepting a socket snapshot, never read from the wire.
+  from_realtime?: true
   public: {
     clues: { id: string; text: string }[]
     ending: string | null
@@ -112,7 +114,15 @@ export function parseGame(v: unknown): GameSnapshot {
     for (const [key, value] of Object.entries(object(fields)))
       devices[id]![identifier(key)] = scalar(value)
   }
-  if (!Array.isArray(personal.dialogue) || personal.dialogue.length) return invalidResponse()
+  // The server can project the owner's demo turns. Game does not render them yet.
+  list(personal.dialogue, (value) => {
+    const turn = object(value)
+    if (turn.mode !== 'demo' && turn.mode !== 'provider' && turn.mode !== 'fallback')
+      return invalidResponse()
+    text(turn.question)
+    text(turn.answer)
+    date(turn.created_at)
+  })
   const actions = list(r.available_actions, (x) => {
     const a = object(x)
     return {

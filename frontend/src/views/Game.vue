@@ -14,7 +14,7 @@ const route = useRoute(),
 watch(
   () => route.params.saveId,
   (id) => {
-    void game.load(String(id))
+    if (typeof id === 'string') void game.open(id)
   },
   { immediate: true },
 )
@@ -43,11 +43,12 @@ function focusDevice(id: string) {
     ><p class="eyebrow">两个世界，彼此回响</p>
     <h1>我的世界</h1>
     <p v-if="game.loading" role="status">正在读取个人快照…</p>
+    <p v-if="game.realtime === 'offline'" role="status">实时连接已断开，可手动重新读取进度。</p>
     <p v-if="game.error" class="error" role="alert">{{ game.error }}</p>
     <button
       class="small-action"
       :disabled="game.busy || game.loading"
-      @click="game.load(String(route.params.saveId))"
+      @click="game.open(String(route.params.saveId))"
     >
       重新读取 / 获取搭档进度</button
     ><button v-if="game.pending" class="secondary" :disabled="game.busy" @click="game.retry">

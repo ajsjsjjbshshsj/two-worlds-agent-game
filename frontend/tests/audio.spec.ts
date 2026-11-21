@@ -90,6 +90,21 @@ it('new confirmed cues play once; same-version reads, retries and newer identica
   await flushPromises()
   expect(load).toHaveBeenCalledTimes(2)
 })
+it('updates audio authorization from a socket without playing unconfirmed one-shots', async () => {
+  manager.update(soundSnapshot(), 1)
+  manager.enable()
+  const pushed = soundSnapshot(2, ['ambience', 'sfx', 'narration'])
+  manager.update({ ...pushed, from_realtime: true }, 1)
+  await flushPromises()
+  expect(load.mock.calls.map(([, asset]) => asset)).toEqual(['ambience'])
+
+  manager.update(pushed, 1)
+  await flushPromises()
+  expect(load).toHaveBeenCalledTimes(1)
+  manager.replay('narration:narration')
+  await flushPromises()
+  expect(load.mock.calls.map(([, asset]) => asset)).toEqual(['ambience', 'narration'])
+})
 it('reconstructed page baselines current effects rather than replaying history', async () => {
   manager.update(soundSnapshot(8, ['sfx']), 1)
   manager.enable()

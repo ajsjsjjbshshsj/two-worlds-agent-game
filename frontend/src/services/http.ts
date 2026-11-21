@@ -63,8 +63,8 @@ function retryAfterSeconds(value: string | null): number | undefined {
   return Number.isSafeInteger(seconds) ? seconds : undefined
 }
 
-export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number } = {}) {
-  const base = (options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+export function apiBaseUrl(configured = import.meta.env.VITE_API_BASE_URL ?? ''): string {
+  const base = configured.replace(/\/$/, '')
   if (base) {
     const parsed = new URL(base, window.location.origin)
     if (
@@ -78,6 +78,11 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
       throw new ApiError(0, 'INVALID_CONFIGURATION', false)
     }
   }
+  return base
+}
+
+export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number } = {}) {
+  const base = apiBaseUrl(options.baseUrl)
   return {
     async request<T>(path: string, request: RequestOptions = {}): Promise<T> {
       if (!request.privateSession) return send<T>(path, request)
