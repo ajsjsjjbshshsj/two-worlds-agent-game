@@ -1,21 +1,41 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { onScopeDispose, ref, watch } from 'vue'
 import { useIdentityStore } from './identity'
 import { gameApi, type Command } from '../services/game'
 import { ApiError } from '../services/http'
+import { privateSessionLease } from '../services/session-sync'
+import { connectSaveSocket } from '../services/websocket'
 import { validParameter, type GameSnapshot } from '../types/game'
+
+function sameSave(a: GameSnapshot, b: GameSnapshot) {
+  return (
+    a.id === b.id &&
+    a.pair_id === b.pair_id &&
+    a.role === b.role &&
+    a.script_id === b.script_id &&
+    a.script_version === b.script_version
+  )
+}
+
 export const useGameStore = defineStore('game', () => {
   const identity = useIdentityStore(),
     snapshot = ref<GameSnapshot | null>(null),
     busy = ref(false),
     loading = ref(false),
     error = ref(''),
-    pending = ref<Command | null>(null)
+    pending = ref<Command | null>(null),
+    realtime = ref<'idle' | 'connecting' | 'live' | 'offline'>('idle')
   let generation = 0,
     readNumber = 0
+  let openedSave: string | null = null
+  let disconnect: (() => void) | undefined
   function reset() {
     generation++
     readNumber++
+    disconnect?.()
+    disconnect = undefined
+    openedSave = null
+    realtime.value = 'idle'
     snapshot.value = null
     pending.value = null
     busy.value = false
@@ -23,6 +43,59 @@ export const useGameStore = defineStore('game', () => {
     error.value = ''
   }
   watch(() => identity.sessionGeneration, reset, { flush: 'sync' })
+  onScopeDispose(reset)
+
+  async function open(id: string) {
+    if (!identity.authenticated) return
+    if (openedSave !== id) {
+      reset()
+      openedSave = id
+    }
+    const g = generation
+    await load(id)
+    const initial = snapshot.value
+    if (
+      g !== generation ||
+      !identity.authenticated ||
+      loading.value ||
+      disconnect ||
+      !initial ||
+      initial.id !== id
+    )
+      return
+
+    const accountId = identity.account?.id
+    const session = privateSessionLease()
+    let close: () => void
+    const current = () =>
+      close === disconnect &&
+      g === generation &&
+      identity.authenticated &&
+      identity.account?.id === accountId &&
+      session()
+    if (g !== generation || !session()) return
+    realtime.value = 'connecting'
+    try {
+      close = connectSaveSocket(
+        id,
+        current,
+        (next) => {
+          if (!sameSave(initial, next)) return
+          realtime.value = 'live'
+          if (snapshot.value && next.version > snapshot.value.version)
+            snapshot.value = { ...next, from_realtime: true }
+        },
+        (code) => {
+          disconnect = undefined
+          realtime.value = 'offline'
+          if (code === 4401) void identity.verifySession()
+        },
+      )
+      disconnect = close
+    } catch {
+      realtime.value = 'offline'
+    }
+  }
   function failure(cause: unknown) {
     const p = cause instanceof ApiError ? cause : new ApiError(0, 'NETWORK_ERROR', true)
     if (p.status === 401) identity.expireSession()
@@ -57,16 +130,10 @@ export const useGameStore = defineStore('game', () => {
       if (g !== generation || n !== readNumber) return
       if (
         next.id !== id ||
-        (old &&
-          old.id === id &&
-          (next.version < old.version ||
-            next.script_version !== old.script_version ||
-            next.script_id !== old.script_id ||
-            next.role !== old.role ||
-            next.pair_id !== old.pair_id))
+        (old && old.id === id && (next.version < old.version || !sameSave(old, next)))
       )
         throw new ApiError(200, 'INVALID_RESPONSE', false)
-      snapshot.value = next
+      if (!snapshot.value || next.version > snapshot.value.version) snapshot.value = next
     } catch (e) {
       if (g === generation && n === readNumber) failure(e)
     } finally {
@@ -103,16 +170,9 @@ export const useGameStore = defineStore('game', () => {
     try {
       const next = await gameApi.submit(s.id, command)
       if (g !== generation) return
-      if (
-        next.id !== s.id ||
-        next.pair_id !== s.pair_id ||
-        next.role !== s.role ||
-        next.script_id !== s.script_id ||
-        next.script_version !== s.script_version ||
-        next.version < s.version
-      )
+      if (!sameSave(s, next) || next.version < s.version)
         throw new ApiError(200, 'INVALID_RESPONSE', false)
-      snapshot.value = next
+      if (!snapshot.value || next.version >= snapshot.value.version) snapshot.value = next
       pending.value = null
     } catch (e) {
       if (g === generation) {
@@ -124,5 +184,17 @@ export const useGameStore = defineStore('game', () => {
       if (g === generation) busy.value = false
     }
   }
-  return { snapshot, busy, loading, error, pending, load, submit, retry: send, reset }
+  return {
+    snapshot,
+    busy,
+    loading,
+    error,
+    pending,
+    realtime,
+    open,
+    load,
+    submit,
+    retry: send,
+    reset,
+  }
 })

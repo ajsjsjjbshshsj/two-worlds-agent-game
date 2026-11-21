@@ -85,7 +85,11 @@ export class AudioManager {
       const fresh = !this.seen.has(cue.key)
       this.seen.add(cue.key) // Consume while muted, disabled or hidden as well.
       if (!this.state.enabled || this.state.paused || this.preferences.muted) continue
-      if (cue.channel === 'ambient' || (!initial && fresh && !cue.operation)) void this.start(cue)
+      if (
+        cue.channel === 'ambient' ||
+        (!snapshot.from_realtime && !initial && fresh && !cue.operation)
+      )
+        void this.start(cue)
     }
     this.notify()
   }

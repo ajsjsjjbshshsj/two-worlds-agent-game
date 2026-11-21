@@ -55,6 +55,7 @@ async def save_socket(websocket: WebSocket, save_id: str):
         await websocket.send_json(
             {"type": "snapshot", "save": snapshot.model_dump(mode="json")}
         )
+        version = snapshot.version
         del snapshot
         await serve_subscription(
             receive=receive_text,
@@ -62,6 +63,9 @@ async def save_socket(websocket: WebSocket, save_id: str):
             token=token,
             account_id=account_id,
             identity=state.identity_service,
+            saves=state.save_service,
+            save_id=save_id,
+            version=version,
             timing=state.websocket_timing,
         )
         return
@@ -73,6 +77,12 @@ async def save_socket(websocket: WebSocket, save_id: str):
         code = (
             CloseCode.UNAUTHENTICATED
             if error.code == "UNAUTHENTICATED"
+            else CloseCode.INTERNAL_ERROR
+        )
+    except SaveError as error:
+        code = (
+            CloseCode.SAVE_NOT_FOUND
+            if error.code == "SAVE_NOT_FOUND"
             else CloseCode.INTERNAL_ERROR
         )
     except Exception:

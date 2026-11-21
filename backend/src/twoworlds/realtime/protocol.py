@@ -13,9 +13,14 @@ MAX_CLIENT_MESSAGE_BYTES = 4096
 class WebSocketTiming:
     heartbeat_interval: float = 10
     pong_timeout: float = 5
+    snapshot_interval: float = 0.25
 
     def __post_init__(self):
-        for value in (self.heartbeat_interval, self.pong_timeout):
+        for value in (
+            self.heartbeat_interval,
+            self.pong_timeout,
+            self.snapshot_interval,
+        ):
             if not isfinite(value) or value <= 0:
                 raise ValueError("WebSocket deadlines must be finite and positive")
 

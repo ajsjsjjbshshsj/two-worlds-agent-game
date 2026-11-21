@@ -88,7 +88,7 @@ const labels = {
       }}<template v-if="audio.state.message"> · {{ audio.state.message }}</template>
     </p>
     <p class="help">
-      首次读档不重播历史声音；旁白可主动重播。正式音频尚未发布，缺失资源时可继续阅读授权文字。搭档进度需手动重新读取。
+      首次读档不重播历史声音；旁白可主动重播。正式音频尚未发布，缺失资源时可继续阅读授权文字。
     </p>
     <AudioSettings />
     <SubtitleDisplay
