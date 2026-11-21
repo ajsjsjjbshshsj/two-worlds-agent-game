@@ -311,6 +311,7 @@ it('a rejected HTTP command keeps the rendered confirmed snapshot and device eff
   await w.get('select[name=pattern]').setValue('1')
   await w.get('form').trigger('submit')
   expect(w.get('.beam').attributes('style')).toContain('rotate(0deg)')
+  await vi.waitFor(() => expect(resolve).toBeTypeOf('function'))
   resolve(
     json({ error: { code: 'INVALID_ARGUMENTS', message: 'rejected', retryable: false } }, 422),
   )

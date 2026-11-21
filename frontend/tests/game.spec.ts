@@ -92,6 +92,7 @@ it('sends UUID and confirmed version; no optimistic mutation before receipt', as
   vi.stubGlobal('fetch', fetch)
   const pending = s.submit('adjust', { angle: 90, pattern: 'pulse' })
   expect(s.snapshot).toEqual(previous)
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
   const body = JSON.parse(fetch.mock.calls[0]![1].body)
   expect(body).toMatchObject({
     expected_version: 7,

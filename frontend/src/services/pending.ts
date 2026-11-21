@@ -2,7 +2,8 @@ import { isRecord } from './http'
 import type { Command } from './game'
 import type { SaveEntry } from '../types/resources'
 
-export const PENDING_PREFIX = 'twoworlds.pending-command.v1.'
+export const PENDING_DATABASE = 'twoworlds.pending-command'
+const RECORDS = 'records'
 const LIFETIME = 24 * 60 * 60 * 1000
 const MAX_RECORDS = 32
 const MAX_LENGTH = 2048
@@ -92,7 +93,7 @@ export function pendingScope(accountId: string, save: SaveEntry): PendingScope {
 }
 
 function keyFor(scope: PendingScope) {
-  return PENDING_PREFIX + scope.account_id + '.' + scope.save_id
+  return scope.account_id + '.' + scope.save_id
 }
 
 function validScope(value: unknown): value is PendingScope {
@@ -122,9 +123,9 @@ function validCommand(value: unknown): value is Command {
   )
 }
 
-function parse(raw: string | null, key: string, now: number): ReadResult {
-  if (raw === null) return { status: 'empty' }
-  if (raw.length > MAX_LENGTH) return { status: 'invalid' }
+function parse(raw: unknown, key: string, now: number): ReadResult {
+  if (raw === undefined) return { status: 'empty' }
+  if (typeof raw !== 'string' || raw.length > MAX_LENGTH) return { status: 'invalid' }
   let value: unknown
   try {
     value = JSON.parse(raw)
@@ -157,84 +158,130 @@ function parse(raw: string | null, key: string, now: number): ReadResult {
   }
 }
 
-function read(storage: Storage, key: string, now: number) {
-  const result = parse(storage.getItem(key), key, now)
-  if (result.status === 'invalid' || result.status === 'expired') storage.removeItem(key)
+function resultOf<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function useRecords<T>(operation: (records: IDBObjectStore) => Promise<T>): Promise<T> {
+  const request = indexedDB.open(PENDING_DATABASE, 1)
+  request.onupgradeneeded = () => request.result.createObjectStore(RECORDS)
+  const database = await resultOf(request)
+  try {
+    // Wait for the strict commit before treating a command as durable enough to send.
+    const tx = database.transaction(RECORDS, 'readwrite', { durability: 'strict' })
+    if (tx.durability !== 'strict') {
+      tx.abort()
+      throw Error('Strict IndexedDB durability is unavailable')
+    }
+    const committed = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(tx.error ?? Error('Pending record transaction aborted'))
+    })
+    const [result] = await Promise.all([operation(tx.objectStore(RECORDS)), committed])
+    return result
+  } finally {
+    database.close()
+  }
+}
+
+async function read(records: IDBObjectStore, key: IDBValidKey, now: number) {
+  const result = parse(await resultOf(records.get(key)), String(key), now)
+  if (result.status === 'invalid' || result.status === 'expired')
+    await resultOf(records.delete(key))
   return result
 }
 
-export function readPending(scope: PendingScope): ReadResult {
+async function readScope(records: IDBObjectStore, scope: PendingScope) {
+  const key = keyFor(scope)
+  const result = await read(records, key, Date.now())
+  if (
+    result.status === 'ready' &&
+    (Object.keys(scope) as Array<keyof PendingScope>).some(
+      (key) => scope[key] !== result.record.scope[key],
+    )
+  ) {
+    await resultOf(records.delete(key))
+    return { status: 'invalid' } as const
+  }
+  return result
+}
+
+export async function readPending(scope: PendingScope): Promise<ReadResult> {
   if (!validScope(scope)) return { status: 'invalid' }
   try {
-    const storage = window.localStorage
-    const key = keyFor(scope)
-    const result = read(storage, key, Date.now())
-    if (
-      result.status === 'ready' &&
-      (Object.keys(scope) as Array<keyof PendingScope>).some(
-        (key) => scope[key] !== result.record.scope[key],
-      )
-    ) {
-      storage.removeItem(key)
-      return { status: 'invalid' }
-    }
-    return result
+    return await useRecords((records) => readScope(records, scope))
   } catch {
     return { status: 'unavailable' }
   }
 }
 
-export function savePending(
+export async function savePending(
   scope: PendingScope,
   command: Command,
-): 'saved' | 'existing' | 'full' | 'unavailable' {
+): Promise<'saved' | 'existing' | 'full' | 'unavailable'> {
   if (!validScope(scope) || !validCommand(command)) return 'unavailable'
   try {
-    const storage = window.localStorage
-    const now = Date.now()
-    const key = keyFor(scope)
-    if (read(storage, key, now).status === 'ready') return 'existing'
-    // Snapshot keys before deleting bad/expired records so adjacent entries are not skipped.
-    const keys = Array.from({ length: storage.length }, (_, i) => storage.key(i))
-    const count = keys.filter(
-      (entry) => entry?.startsWith(PENDING_PREFIX) && read(storage, entry, now).status === 'ready',
-    ).length
-    if (count >= MAX_RECORDS) return 'full'
-    const record: PendingRecord = { schema: 1, scope, created_at: now, phase: 'prepared', command }
-    storage.setItem(key, JSON.stringify(record))
-    return 'saved'
+    return await useRecords(async (records) => {
+      const now = Date.now()
+      const key = keyFor(scope)
+      if ((await read(records, key, now)).status === 'ready') return 'existing'
+      let count = 0
+      for (const entry of await resultOf(records.getAllKeys())) {
+        if ((await read(records, entry, now)).status === 'ready') count++
+      }
+      if (count >= MAX_RECORDS) return 'full'
+      const record: PendingRecord = {
+        schema: 1,
+        scope,
+        created_at: now,
+        phase: 'prepared',
+        command,
+      }
+      await resultOf(records.add(JSON.stringify(record), key))
+      return 'saved'
+    })
   } catch {
     return 'unavailable'
   }
 }
 
-export function markPendingSent(scope: PendingScope, command: Command) {
-  const current = readPending(scope)
-  if (
-    current.status !== 'ready' ||
-    current.record.command.request_id !== command.request_id ||
-    current.record.command.expected_version !== command.expected_version ||
-    current.record.command.kind !== command.kind ||
-    JSON.stringify(current.record.command.args, Object.keys(command.args).sort()) !==
-      JSON.stringify(command.args, Object.keys(command.args).sort())
-  )
-    return false
-  if (current.record.phase === 'sent') return true
+export async function markPendingSent(scope: PendingScope, command: Command) {
   try {
-    window.localStorage.setItem(keyFor(scope), JSON.stringify({ ...current.record, phase: 'sent' }))
-    return true
+    return await useRecords(async (records) => {
+      const current = await readScope(records, scope)
+      if (
+        current.status !== 'ready' ||
+        current.record.command.request_id !== command.request_id ||
+        current.record.command.expected_version !== command.expected_version ||
+        current.record.command.kind !== command.kind ||
+        JSON.stringify(current.record.command.args, Object.keys(command.args).sort()) !==
+          JSON.stringify(command.args, Object.keys(command.args).sort())
+      )
+        return false
+      if (current.record.phase !== 'sent') {
+        await resultOf(
+          records.put(JSON.stringify({ ...current.record, phase: 'sent' }), keyFor(scope)),
+        )
+      }
+      return true
+    })
   } catch {
     return false
   }
 }
 
-export function forgetPending(scope: PendingScope, requestId: string) {
-  const current = readPending(scope)
-  if (current.status === 'unavailable') return false
-  if (current.status !== 'ready' || current.record.command.request_id !== requestId) return true
+export async function forgetPending(scope: PendingScope, requestId: string) {
   try {
-    window.localStorage.removeItem(keyFor(scope))
-    return true
+    return await useRecords(async (records) => {
+      const current = await readScope(records, scope)
+      if (current.status === 'ready' && current.record.command.request_id === requestId) {
+        await resultOf(records.delete(keyFor(scope)))
+      }
+      return true
+    })
   } catch {
     return false
   }

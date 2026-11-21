@@ -1,7 +1,7 @@
 import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { registerPrivateSessionGuard } from '../src/services/session-sync'
-import { PENDING_PREFIX, pendingScope, readPending, savePending } from '../src/services/pending'
+import { pendingScope, readPending, savePending } from '../src/services/pending'
 import { useGameStore } from '../src/stores/game'
 import { useIdentityStore } from '../src/stores/identity'
 import { parseGame } from '../src/types/game'
@@ -33,8 +33,9 @@ class TestSocket {
 
 let pinia: ReturnType<typeof createPinia>
 beforeEach(() => {
-  vi.useFakeTimers()
-  localStorage.clear()
+  vi.useFakeTimers({
+    toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  })
   pinia = createPinia()
   setActivePinia(pinia)
   const identity = useIdentityStore()
@@ -165,6 +166,7 @@ it('keeps a newer socket version across late HTTP reads and command acknowledgem
   const response = deferred<Response>()
   fetch.mockReturnValueOnce(response.promise)
   const submission = store.submit('adjust', { angle: 90, pattern: 'pulse' })
+  await vi.waitFor(() => expect(store.pendingState).toBe('sending'))
   const pending = store.pending!
   expect(pending.expected_version).toBe(9)
   socket.snapshot({ ...game(), version: 11, audio_events: [{ accepted_version: 10 }] })
@@ -388,6 +390,7 @@ it('does not restore private state from a command response after access was deni
   const reply = deferred<Response>()
   fetch.mockReturnValueOnce(reply.promise)
   const writing = store.submit('adjust', { angle: 90, pattern: 'pulse' })
+  await vi.waitFor(() => expect(store.pendingState).toBe('sending'))
   const requestId = store.pending!.request_id
   socket.end(4404)
   reply.resolve(
@@ -422,18 +425,21 @@ it.each([503, 'timeout'])(
     const { store, socket, fetch } = await open()
     socket.snapshot(game())
     const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue(pendingCommand.request_id)
-    let savedAtDispatch: ReturnType<typeof readPending> | undefined
+    let savedAtDispatch: Awaited<ReturnType<typeof readPending>> | undefined
     let sent: unknown
     fetch.mockImplementationOnce(async (_url, request: RequestInit) => {
       sent = JSON.parse(String(request.body))
-      savedAtDispatch = readPending(scope)
+      savedAtDispatch = await readPending(scope)
       if (outcome === 503) return fail(503, 'SERVICE_UNAVAILABLE')
       return new Promise<Response>((_resolve, reject) => {
         request.signal?.addEventListener('abort', () => reject(Error('timed out')), { once: true })
       })
     })
     const sending = store.submit('adjust', pendingCommand.args)
-    if (outcome === 'timeout') await vi.advanceTimersByTimeAsync(15000)
+    if (outcome === 'timeout') {
+      await vi.waitFor(() => expect(savedAtDispatch).toBeDefined())
+      await vi.advanceTimersByTimeAsync(15000)
+    }
     await sending
     expect(sent).toEqual(pendingCommand)
     expect(savedAtDispatch).toMatchObject({
@@ -442,7 +448,7 @@ it.each([503, 'timeout'])(
     })
     expect(uuid).toHaveBeenCalledOnce()
     expect(store.pendingState).toBe('unknown')
-    expect(readPending(scope)).toMatchObject({ record: { command: pendingCommand } })
+    expect(await readPending(scope)).toMatchObject({ record: { command: pendingCommand } })
     expect(store.pending).toEqual(pendingCommand)
   },
 )
@@ -471,12 +477,12 @@ it('reloads the same UUID, coalesces checks and settles only on its matching rec
   expect(next.pendingState).toBe('checking')
   expect(fetch.mock.calls.filter(([url]) => url === receiptPath)).toHaveLength(1)
   reloaded.resolve(json(accepted))
-  await vi.advanceTimersByTimeAsync(0)
+  await vi.waitFor(() => expect(next.pendingState).toBe('accepted'))
   expect(next.pending).toBeNull()
   expect(next.pendingState).toBe('accepted')
   expect(next.snapshot).toMatchObject({ version: 9, restored: true })
   expect(next.snapshot).not.toHaveProperty('audio_events')
-  expect(readPending(scope)).toEqual({ status: 'empty' })
+  expect(await readPending(scope)).toEqual({ status: 'empty' })
   newSocket.snapshot({ ...game(), version: 9 })
   await next.retry()
   expect(next.snapshot).not.toHaveProperty('audio_events')
@@ -485,7 +491,7 @@ it('reloads the same UUID, coalesces checks and settles only on its matching rec
 })
 
 it('blocks new commands after a receipt until its version is visible, then uses a static baseline', async () => {
-  expect(savePending(scope, pendingCommand)).toBe('saved')
+  expect(await savePending(scope, pendingCommand)).toBe('saved')
   const confirm = deferred<Response>()
   const latest = deferred<Response>()
   const fetch = vi
@@ -498,7 +504,7 @@ it('blocks new commands after a receipt until its version is visible, then uses 
   await store.open('save_one')
   TestSocket.instances[0]!.snapshot(game())
   confirm.resolve(json(accepted))
-  await vi.advanceTimersByTimeAsync(0)
+  await vi.waitFor(() => expect(store.pendingState).toBe('accepted'))
   expect(store.pending).toBeNull()
   expect(store.canAct).toBe(false)
   expect(store.snapshot?.version).toBe(7)
@@ -512,7 +518,7 @@ it('blocks new commands after a receipt until its version is visible, then uses 
 })
 
 it('keeps absent or malformed receipts unresolved even when WS has a higher version', async () => {
-  expect(savePending(scope, pendingCommand)).toBe('saved')
+  expect(await savePending(scope, pendingCommand)).toBe('saved')
   const receipt = deferred<Response>()
   const fetch = vi.fn().mockResolvedValueOnce(json(game())).mockReturnValueOnce(receipt.promise)
   vi.stubGlobal('fetch', fetch)
@@ -527,12 +533,12 @@ it('keeps absent or malformed receipts unresolved even when WS has a higher vers
   await store.retry()
   expect(store.pendingState).toBe('unknown')
   expect(store.pending?.request_id).toBe(pendingCommand.request_id)
-  expect(readPending(scope).status).toBe('ready')
+  expect((await readPending(scope)).status).toBe('ready')
   expect(fetch.mock.calls.every(([, r]) => r.method === 'GET')).toBe(true)
 })
 
 it('only retries a restored command after explicit confirmation, with the exact original payload', async () => {
-  expect(savePending(scope, pendingCommand)).toBe('saved')
+  expect(await savePending(scope, pendingCommand)).toBe('saved')
   const receipt = deferred<Response>()
   const fetch = vi.fn().mockResolvedValueOnce(json(game())).mockReturnValueOnce(receipt.promise)
   vi.stubGlobal('fetch', fetch)
@@ -550,11 +556,11 @@ it('only retries a restored command after explicit confirmation, with the exact 
   expect(uuid).not.toHaveBeenCalled()
   expect(store.pendingState).toBe('rejected')
   expect(store.pendingNotice).not.toContain('PRIVATE_TEST_RESPONSE')
-  expect(readPending(scope)).toEqual({ status: 'empty' })
+  expect(await readPending(scope)).toEqual({ status: 'empty' })
 })
 
 it('ignores old receipts and socket frames after switching save or account', async () => {
-  expect(savePending(scope, pendingCommand)).toBe('saved')
+  expect(await savePending(scope, pendingCommand)).toBe('saved')
   const receipt = deferred<Response>()
   const fetch = vi.fn().mockResolvedValueOnce(json(game())).mockReturnValueOnce(receipt.promise)
   vi.stubGlobal('fetch', fetch)
@@ -577,7 +583,7 @@ it('ignores old receipts and socket frames after switching save or account', asy
   expect(store.snapshot?.role).toBe('b')
   expect(store.pending).toBeNull()
   expect(fetch.mock.calls.filter(([url]) => url === receiptPath)).toHaveLength(1)
-  expect(readPending(scope).status).toBe('ready')
+  expect((await readPending(scope)).status).toBe('ready')
 })
 
 it('does not persist NPC dialogue and discloses that it cannot survive a refresh', async () => {
@@ -598,7 +604,8 @@ it('does not persist NPC dialogue and discloses that it cannot survive a refresh
   TestSocket.instances[0]!.snapshot(privateGame)
   await store.submit('ask', { question: 'PRIVATE_NPC_TEXT' })
   expect(JSON.parse(fetch.mock.calls[1]![1].body).args.question).toBe('PRIVATE_NPC_TEXT')
-  expect(Object.keys(localStorage).filter((key) => key.startsWith(PENDING_PREFIX))).toEqual([])
+  expect(await readPending(scope)).toEqual({ status: 'empty' })
+  expect(JSON.stringify(localStorage)).not.toContain('PRIVATE_NPC_TEXT')
   expect(JSON.stringify(sessionStorage)).not.toContain('PRIVATE_NPC_TEXT')
   expect(store.pendingNotice).toContain('仅可在本页')
 })
@@ -606,7 +613,7 @@ it('does not persist NPC dialogue and discloses that it cannot survive a refresh
 it('does not send a persistable operation when durable storage fails', async () => {
   const { store, socket, fetch } = await open()
   socket.snapshot(game())
-  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+  vi.spyOn(indexedDB, 'open').mockImplementation(() => {
     throw Error('quota exceeded')
   })
   await store.submit('adjust', pendingCommand.args)
