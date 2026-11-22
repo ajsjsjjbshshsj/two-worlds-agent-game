@@ -11,6 +11,7 @@ import {
 import { animatePerformance } from '../../services/performance-animation'
 import LighthouseScene from './LighthouseScene.vue'
 import StarlineScene from './StarlineScene.vue'
+import { deviceLabel } from './device-labels'
 const props = defineProps<{ snapshot: GameSnapshot; sessionGeneration?: number }>(),
   emit = defineEmits<{ focusDevice: [id: string]; sessionExpired: [generation: number] }>()
 const svg = ref<SVGSVGElement | null>(null)
@@ -210,9 +211,14 @@ const visual = computed(() =>
         v-for="(fields, id) in snapshot.personal.devices"
         :key="id"
         class="device-hotspot"
+        type="button"
+        :aria-controls="'device-' + id"
         @click="emit('focusDevice', String(id))"
       >
-        {{ id }}<span v-for="(value, key) in fields" :key="key">{{ key }}：{{ value }}</span>
+        {{ deviceLabel(String(id))
+        }}<span v-for="(value, key) in fields" :key="key"
+          >{{ key }}：{{ typeof value === 'boolean' ? (value ? '开启' : '关闭') : value }}</span
+        >
       </button>
     </div>
     <p
@@ -247,8 +253,7 @@ const visual = computed(() =>
   padding: 0 1.5rem 1rem;
 }
 .key-performance button {
-  position: fixed;
-  right: 1rem;
+  position: sticky;
   bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   z-index: 30;
   background: #142f44;
