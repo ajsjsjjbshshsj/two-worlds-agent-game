@@ -234,3 +234,70 @@ def test_main_cli_parses_host_and_port(tmp_path, monkeypatch):
     assert recorded["port"] == 8888
     assert recorded["proxy_headers"] is True
     assert recorded["server_header"] is False
+
+
+# ---------------------------------------------------------------------------
+# SMTP Email Mode Validation (compose.yml production default = smtp)
+# ---------------------------------------------------------------------------
+
+
+def test_production_smtp_mode_rejects_missing_smtp_host():
+    """Production + TWOWORLDS_EMAIL_MODE=smtp must reject when SMTP_HOST is absent.
+
+    This is the key guard for compose.yml defaulting to smtp: without SMTP_HOST
+    and SMTP_FROM the backend refuses to start rather than silently using no-op email.
+    """
+    env = {
+        "TWOWORLDS_MODE": "production",
+        "TWOWORLDS_STORAGE_BACKEND": "mongo",
+        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "smtp",
+        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
+        "MONGO_URI": "mongodb://127.0.0.1:27017",
+        "MONGO_DATABASE": "twoworlds",
+        # SMTP_HOST and SMTP_FROM intentionally omitted
+    }
+    with pytest.raises(ValueError, match="SMTP"):
+        create_server_app(env)
+
+
+def test_production_smtp_mode_accepts_full_smtp_config(mongo_database):
+    """Production + smtp + complete SMTP config must pass email validation.
+
+    Uses a fake SMTP host — no real connection is made during app construction.
+    """
+    database, uri = mongo_database
+    env = {
+        "TWOWORLDS_MODE": "production",
+        "TWOWORLDS_STORAGE_BACKEND": "mongo",
+        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "smtp",
+        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
+        "MONGO_URI": uri,
+        "MONGO_DATABASE": database.name,
+        # Minimal valid SMTP config (no password required when no username set)
+        "SMTP_HOST": "mail.example.com",
+        "SMTP_PORT": "587",
+        "SMTP_FROM": "noreply@example.com",
+    }
+    # Should not raise — email sender is validated at construction, not at send time
+    app = create_server_app(env)
+    assert app is not None
+
+
+def test_demo_mode_console_email_unaffected_by_smtp_compose_default(tmp_path):
+    """Demo mode with explicit console email must succeed without any SMTP_* vars.
+
+    compose.demo.yml keeps TWOWORLDS_EMAIL_MODE=console so this path is safe.
+    """
+    db_path = tmp_path / "demo.sqlite"
+    env = {
+        "TWOWORLDS_MODE": "demo",
+        "TWOWORLDS_STORAGE_BACKEND": "sqlite",
+        "TWOWORLDS_SQLITE_PATH": str(db_path),
+        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "console",
+        # No SMTP_* vars — console mode must not require them
+    }
+    app = create_server_app(env)
+    assert app is not None

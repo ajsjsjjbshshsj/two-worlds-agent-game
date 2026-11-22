@@ -194,7 +194,29 @@
 
 ---
 
-## 七、代码与配置阅读建议
+## 七、T15.1.1 安全配置审查修复
+
+在 PR #49 初次审查中识别并修复了三项安全配置缺陷：
+
+1. **Nginx PWA 缓存匹配优先级修复 (`frontend/nginx.conf`)**：
+   - **问题**：原配置中通用静态规则（`location ~* \.(?:ico|css|js...)$`）排在 PWA 特殊规则之前。Nginx 对正则 location 采用“先声明者优先匹配（first-match wins）”策略，导致未带内容哈希的 `sw.js` 与 `manifest.webmanifest` 命中长达 1 年的不可变强缓存，导致 PWA 更新无法下发。
+   - **修复**：将 PWA 特殊规则块（匹配 `sw.js`、`worker.js`、`manifest.webmanifest`、`offline.html`、`offline.js`、`offline.css`）前移至通用静态规则之前，配置 `expires -1` 与 `Cache-Control: no-store, no-cache, must-revalidate`。
+   - **验证**：真实构建镜像并启动容器实测：
+     - `sw.js`：返回 `Cache-Control: no-store, no-cache, must-revalidate`，未命中 1 年缓存。
+     - `offline.html`：返回 `Cache-Control: no-store, no-cache, must-revalidate`。
+     - `assets/index-*.js`（带哈希静态包）：返回 `Cache-Control: max-age=31536000, public, immutable`。
+
+2. **生产默认密钥防弱密码泄露 (`.env.example`)**：
+   - **问题**：示例文件中给出了一个 50 字符的伪密钥示例（`replace-with-a-secure-random-secret-at-least-16-chars`），若被直接复制部署，将绕过 `server.py` 的 16 字符安全长度检查。
+   - **修复**：将 `.env.example` 中的 `TWOWORLDS_VERIFICATION_SECRET` 留空，并注释明确指引使用 `openssl rand -hex 32` 生成高熵密钥。因后端对生产环境空或短于 16 字符的密钥会坚决拒绝启动，任何直接照抄示例文件的行为都将在启动时被明确拦截。
+
+3. **生产邮件服务安全默认值与配置注入 (`compose.yml`)**：
+   - **问题**：生产编排中 `TWOWORLDS_EMAIL_MODE` 默认回退到 `console`，可能导致生产验证码直接打印到容器标准输出日志中。
+   - **修复**：`compose.yml` 中生产默认值调整为 `smtp`，并在环境变量块中完整声明 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`；同时在 `backend/tests/api/test_server.py` 中补充测试验证生产模式下缺少 SMTP 配置时坚决报错退出（`ValueError: Explicit SMTP host, port and from address required`），而 `compose.demo.yml` 维持 `console` 模式不受影响。
+
+---
+
+## 八、代码与配置阅读建议
 
 建议按如下顺序阅读本次新增与修改的配置与代码：
 
