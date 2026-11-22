@@ -429,7 +429,12 @@ export const useGameStore = defineStore('game', () => {
       if (g === generation) {
         const p = failure(e)
         if (g !== generation) return
-        if ([400, 409, 422].includes(p.status) && p.code !== 'INVALID_RESPONSE') {
+        if (
+          p.code !== 'INVALID_RESPONSE' &&
+          ([400, 409, 422].includes(p.status) ||
+            p.code === 'NARRATIVE_BUDGET_EXCEEDED' ||
+            p.code === 'NARRATIVE_CONSENT_CHANGED')
+        ) {
           const conflict = p.code === 'VERSION_CONFLICT'
           if (conflict)
             requiredVersion.value = Math.max(requiredVersion.value, command.expected_version + 1)

@@ -14,6 +14,7 @@ from twoworlds.domain.persistence import (
     AccountRecord,
     CommandReceipt,
     Digest,
+    NarrativeBudgetRecord,
     PairRecord,
     RateLimitRecord,
     SaveRecord,
@@ -59,6 +60,9 @@ def _values(value):
 def _document(record):
     result = _values(record.model_dump(mode="python", warnings=False))
     result["_id"] = result.pop("id")
+    # Keep pre-consent account documents canonical and compatible.
+    if isinstance(record, AccountRecord) and record.narrative_consent is None:
+        result.pop("narrative_consent")
     return result
 
 
@@ -214,6 +218,31 @@ class MongoRepository:
             candidate = _candidate(candidate, AccountRecord)
             _transition(current, candidate, ("id", "email", "created_at"))
             return self._replace("accounts", account_id, expected_version, candidate)
+
+    def get_narrative_budget(self, day_id: str) -> NarrativeBudgetRecord | None:
+        with self._operation():
+            return self._read(
+                "narrative_budgets", {"_id": _key(day_id)}, NarrativeBudgetRecord
+            )
+
+    def compare_and_swap_narrative_budget(
+        self, candidate: NarrativeBudgetRecord, expected: int | None
+    ) -> bool:
+        candidate = _candidate(candidate, NarrativeBudgetRecord)
+        if expected is not None:
+            _expected(expected)
+        if candidate.version != (0 if expected is None else expected + 1):
+            raise InvalidRepositoryTransition("Invalid narrative budget version")
+        try:
+            with self._operation():
+                if expected is None:
+                    self._database.narrative_budgets.insert_one(_document(candidate))
+                    return True
+                return self._replace(
+                    "narrative_budgets", candidate.id, expected, candidate
+                )
+        except DuplicateRecord:
+            return False
 
     def create_verification_code(
         self, record: VerificationCodeRecord

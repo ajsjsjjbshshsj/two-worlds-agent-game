@@ -5,7 +5,7 @@ from functools import wraps
 import secrets
 from threading import Lock
 from typing import Callable, Literal
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -18,6 +18,7 @@ from twoworlds.application.dialogue import (
     build_narrative_context,
 )
 from twoworlds.application.media import MediaContent, media_content
+from twoworlds.application.narrative_gateway import GatewayRejected, NarrativeGateway
 from twoworlds.ports.narrative import (
     NarrativeProvider,
     NarrativeRequest,
@@ -40,7 +41,12 @@ from twoworlds.content.schema import (
 )
 from twoworlds.domain.engine import apply_command, create_initial_state
 from twoworlds.domain.errors import DomainError
-from twoworlds.domain.persistence import CommandReceipt, SaveRecord, UTCDateTime
+from twoworlds.domain.persistence import (
+    AccountRecord,
+    CommandReceipt,
+    SaveRecord,
+    UTCDateTime,
+)
 from twoworlds.domain.projection import PlayerSnapshot, project_save
 from twoworlds.domain.recap import PublicHistory, append_public_history
 from twoworlds.ports.repository import (
@@ -67,6 +73,9 @@ class SaveError(RuntimeError):
                 "GENERATION_FAILED": "无法生成存档标识。",
                 "NARRATIVE_IN_PROGRESS": "原对话请求仍在处理中，请查询回执。",
                 "NARRATIVE_UNAVAILABLE": "NPC 暂时无法提供回复。",
+                "NARRATIVE_BUDGET_EXCEEDED": "今日外部 AI 额度已用完。",
+                "NARRATIVE_REQUEST_LIMIT": "对话超出外部 AI 调用上限。",
+                "NARRATIVE_CONSENT_CHANGED": "外部 AI 授权已变更，本次对话未保存。",
                 "CLOCK_ERROR": "存档服务时间无效。",
             }[code]
         )
@@ -139,6 +148,7 @@ class SaveService:
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         narrative_provider: NarrativeProvider | None = None,
         narrative_limits: NarrativeLimits = NarrativeLimits(),
+        narrative_gateway: NarrativeGateway | None = None,
     ):
         self._repository = repository
         self._publications = publication_store
@@ -149,6 +159,7 @@ class SaveService:
             else _DemoNarrativeProvider()
         )
         self._narrative = NarrativeWorkflow(provider, narrative_limits)
+        self._narrative_gateway = narrative_gateway
         self._narrative_lock = Lock()
         self._narrative_in_flight: dict[tuple[str, str, UUID], str] = {}
 
@@ -314,7 +325,7 @@ class SaveService:
         save_id,
         command: GameCommand,
         *,
-        reauthorize: Callable[[], None] | None = None,
+        reauthorize: Callable[[], AccountRecord | None] | None = None,
     ) -> CommandResponse:
         if not isinstance(command, GameCommand):
             raise CommandError("INVALID_COMMAND")
@@ -452,11 +463,29 @@ class SaveService:
         )
         # Repository reads above have completed. The workflow receives only the
         # projected DTO and runs outside any repository transaction.
-        run = self._narrative.run(NarrativeRequest(context=context))
+        request = NarrativeRequest(context=context)
+        run = None
+        if self._narrative_gateway is not None and reauthorize is not None:
+            reservation_id = uuid5(
+                NAMESPACE_URL,
+                f"twoworlds:npc:{current.id}:{actor_id}:{command.request_id}",
+            )
+            try:
+                run = self._narrative_gateway.run(request, reauthorize, reservation_id)
+            except GatewayRejected as error:
+                raise SaveError(error.code) from None
+        if run is None:
+            run = self._narrative.run(request)
         disposition = "rejected"
         try:
             if reauthorize is not None:
-                reauthorize()
+                account = reauthorize()
+                if (
+                    run.model is not None
+                    and self._narrative_gateway is not None
+                    and not self._narrative_gateway.has_consent(account)
+                ):
+                    raise SaveError("NARRATIVE_CONSENT_CHANGED")
             latest, pair, latest_role = self._authorized_save(actor_id, current.id)
             if role != latest_role:
                 raise SaveError("SAVE_NOT_FOUND")
