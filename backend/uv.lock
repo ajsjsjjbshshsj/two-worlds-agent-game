@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -1110,14 +1110,14 @@ dependencies = [
     { name = "langgraph" },
     { name = "pydantic" },
     { name = "pymongo" },
+    { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
-    { name = "uvicorn" },
-    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -1128,14 +1128,14 @@ requires-dist = [
     { name = "langgraph", specifier = "==1.2.24" },
     { name = "pydantic", specifier = "==2.14.1" },
     { name = "pymongo", specifier = "==4.19.0" },
+    { name = "uvicorn", specifier = "==0.54.0" },
+    { name = "websockets", specifier = "==16.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = "==9.0.2" },
     { name = "ruff", specifier = "==0.15.4" },
-    { name = "uvicorn", specifier = "==0.54.0" },
-    { name = "websockets", specifier = "==16.0" },
 ]
 
 [[package]]

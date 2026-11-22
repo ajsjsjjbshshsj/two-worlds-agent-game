@@ -1,0 +1,63 @@
+# TwoWorlds Formal Production Path Docker Compose
+# Usage:
+#   docker compose up -d
+# Notes:
+#   Requires a secure TWOWORLDS_VERIFICATION_SECRET (at least 16 characters).
+#   MongoDB is mandatory; missing MongoDB causes immediate exit without SQLite fallback.
+
+services:
+  mongo:
+    image: mongo:7.0.48
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - twoworlds-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      TWOWORLDS_MODE: production
+      TWOWORLDS_STORAGE_BACKEND: mongo
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: ${MONGO_DATABASE:-twoworlds}
+      TWOWORLDS_VERIFICATION_SECRET: ${TWOWORLDS_VERIFICATION_SECRET:-}
+      TWOWORLDS_EMAIL_MODE: ${TWOWORLDS_EMAIL_MODE:-console}
+      TWOWORLDS_ALLOWED_ORIGINS: ${TWOWORLDS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      TWOWORLDS_HOST: 0.0.0.0
+      TWOWORLDS_PORT: 8000
+    ports:
+      - "8000:8000"
+    networks:
+      - twoworlds-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - twoworlds-net
+
+volumes:
+  mongo_data:
+
+networks:
+  twoworlds-net:
+    driver: bridge
