@@ -3,10 +3,13 @@
 from datetime import datetime, timezone
 from functools import wraps
 import secrets
+from threading import Lock
 from typing import Callable, Literal
+from uuid import UUID
 
 from pydantic import TypeAdapter, ValidationError
 
+from twoworlds.ai.graph import NarrativeLimits, NarrativeWorkflow
 from twoworlds.application.audio import OperationAudio, project_operation_audio
 from twoworlds.application.dialogue import (
     TalkArgs,
@@ -62,6 +65,8 @@ class SaveError(RuntimeError):
                 "INVALID_SAVE": "存档暂时无法读取。",
                 "DEPENDENCY_UNAVAILABLE": "存档存储暂不可用。",
                 "GENERATION_FAILED": "无法生成存档标识。",
+                "NARRATIVE_IN_PROGRESS": "原对话请求仍在处理中，请查询回执。",
+                "NARRATIVE_UNAVAILABLE": "NPC 暂时无法提供回复。",
                 "CLOCK_ERROR": "存档服务时间无效。",
             }[code]
         )
@@ -133,16 +138,19 @@ class SaveService:
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         narrative_provider: NarrativeProvider | None = None,
+        narrative_limits: NarrativeLimits = NarrativeLimits(),
     ):
         self._repository = repository
         self._publications = publication_store
         self._clock = clock
-        # 默认使用 DemoNarrativeProvider；真实 Provider 由 T14.2/T14.3 注入。
-        self._provider: NarrativeProvider = (
+        provider = (
             narrative_provider
             if narrative_provider is not None
             else _DemoNarrativeProvider()
         )
+        self._narrative = NarrativeWorkflow(provider, narrative_limits)
+        self._narrative_lock = Lock()
+        self._narrative_in_flight: dict[tuple[str, str, UUID], str] = {}
 
     def _role(self, actor_id, pair_id):
         pair = self._repository.get_pair(pair_id)
@@ -301,7 +309,12 @@ class SaveService:
 
     @_fail_safely
     def submit_command(
-        self, actor_id, save_id, command: GameCommand
+        self,
+        actor_id,
+        save_id,
+        command: GameCommand,
+        *,
+        reauthorize: Callable[[], None] | None = None,
     ) -> CommandResponse:
         if not isinstance(command, GameCommand):
             raise CommandError("INVALID_COMMAND")
@@ -309,10 +322,44 @@ class SaveService:
             command = GameCommand.model_validate(command.model_dump(warnings=False))
         except (ValidationError, TypeError, ValueError):
             raise CommandError("INVALID_COMMAND") from None
-        current, pair, role = self._authorized_save(actor_id, save_id)
         fingerprint = command.fingerprint()
-        duplicate = self._duplicate(current, role, actor_id, command, fingerprint)
-        if duplicate is not None:
+        if command.kind != "talk":
+            return self._submit_command(actor_id, save_id, command, fingerprint)
+
+        key = (save_id, actor_id, command.request_id)
+        with self._narrative_lock:
+            running = self._narrative_in_flight.get(key)
+            if running is None:
+                self._narrative_in_flight[key] = fingerprint
+        if running is not None:
+            save, _, role = self._authorized_save(actor_id, save_id)
+            if duplicate := self._duplicate(save, role, actor_id, command, fingerprint):
+                return duplicate
+            if running != fingerprint:
+                raise CommandError("REQUEST_ID_REUSED")
+            raise SaveError("NARRATIVE_IN_PROGRESS")
+        try:
+            return self._submit_command(
+                actor_id, save_id, command, fingerprint, reauthorize=reauthorize
+            )
+        finally:
+            with self._narrative_lock:
+                del self._narrative_in_flight[key]
+
+    def _command_time(self, save, pair):
+        try:
+            now = TypeAdapter(UTCDateTime).validate_python(self._clock())
+        except Exception:
+            raise SaveError("CLOCK_ERROR") from None
+        if now < max(save.updated_at, pair.updated_at):
+            raise SaveError("CLOCK_ERROR")
+        return now
+
+    def _submit_command(
+        self, actor_id, save_id, command, fingerprint, *, reauthorize=None
+    ):
+        current, pair, role = self._authorized_save(actor_id, save_id)
+        if duplicate := self._duplicate(current, role, actor_id, command, fingerprint):
             return duplicate
         if command.expected_version != current.version:
             raise CommandError("VERSION_CONFLICT")
@@ -320,102 +367,155 @@ class SaveService:
             raise CommandError("SAVE_COMMAND_LIMIT")
         if pair.member_b is None:
             raise CommandError("PAIR_NOT_READY")
-        try:
-            now = TypeAdapter(UTCDateTime).validate_python(self._clock())
-        except Exception:
-            raise SaveError("CLOCK_ERROR") from None
-        if now < max(current.updated_at, pair.updated_at):
-            raise SaveError("CLOCK_ERROR")
+        now = self._command_time(current, pair)
         script = self._publications.load(current.script_id, current.script_version)
         if command.kind == "talk":
-            # 完成档整体只读（_timeline把完成里程碑版本钉在水位上）；
-            # docs/01允许完成后继续NPC对话，与领域冻结的冲突留待T14裁决。
-            if current.state.completed:
-                raise CommandError("SAVE_COMPLETED")
-            # Provider 是应用层表达：只写本人私聊，不进规则引擎、不产生公共事件。
-            try:
-                args = TalkArgs.model_validate(command.args)
-            except ValidationError:
-                raise CommandError("INVALID_COMMAND") from None
-            # 1. 构造安全 NarrativeContext（白名单字段，不含搭档秘密）
-            snapshot_for_ctx = project_save(
+            return self._submit_talk(
+                actor_id, current, role, script, command, fingerprint, reauthorize
+            )
+        try:
+            state, events = apply_command(
                 current.state,
                 script,
                 role,
-                current.public_history,
-                dialogues=current.dialogues,
+                {"kind": command.kind, "args": command.args},
             )
-            persona_name = script.metadata.id
-            persona_bio = (
-                "剧本NPC，提供氛围引导与通用建议，不掌握谜底，不改动游戏事实。"
-            )
-            context = build_narrative_context(
-                script_id=current.script_id,
-                script_version=current.script_version,
-                scene_id=current.state.scene_id,
-                role=role,
-                personal_clues=[
-                    {"id": c.id, "text": c.text}
-                    for c in snapshot_for_ctx.personal.clues
-                ],
-                shared_clues=[
-                    {"id": c.id, "text": c.text} for c in snapshot_for_ctx.public.clues
-                ],
-                personal_devices=[
-                    {
-                        "id": d.id,
-                        "fields": [{"id": f.id, "value": f.value} for f in d.fields],
-                    }
-                    for d in snapshot_for_ctx.personal.devices
-                ],
-                public_milestones=[
-                    {"kind": m.kind, "subject_id": m.subject_id}
-                    for m in snapshot_for_ctx.public.recap.milestones
-                ],
-                recent_dialogue=list(current.dialogues),
-                question=args.question,
-                persona_name=persona_name,
-                persona_bio=persona_bio,
-            )
-            # 2. 调用 Provider（DemoProvider 在演示模式，不调用外部服务）
-            request = NarrativeRequest(context=context)
-            response = self._provider.generate(request)
-            # 3. 持久化对话（沿用现有格式，不产生公共事件）
+        except DomainError as error:
+            if error.code in {
+                "INVALID_STATE",
+                "INVALID_SCRIPT",
+                "SCRIPT_MISMATCH",
+                "SCRIPT_UNSUPPORTED",
+            }:
+                raise
+            raise CommandError(error.code) from None
+        history = append_public_history(
+            current.public_history, script, state.version, events
+        )
+        return self._commit_command(
+            current,
+            role,
+            actor_id,
+            command,
+            fingerprint,
+            now,
+            state=state,
+            history=history,
+            dialogues=current.dialogues,
+            events=events,
+        )
+
+    def _submit_talk(
+        self, actor_id, current, role, script, command, fingerprint, reauthorize
+    ):
+        # Completion freezes the history watermark and the save as a whole.
+        if current.state.completed:
+            raise CommandError("SAVE_COMPLETED")
+        try:
+            args = TalkArgs.model_validate(command.args)
+        except ValidationError:
+            raise CommandError("INVALID_COMMAND") from None
+        snapshot = project_save(
+            current.state,
+            script,
+            role,
+            current.public_history,
+            dialogues=current.dialogues,
+        )
+        context = build_narrative_context(
+            script_id=current.script_id,
+            script_version=current.script_version,
+            scene_id=current.state.scene_id,
+            role=role,
+            personal_clues=[
+                {"id": c.id, "text": c.text} for c in snapshot.personal.clues
+            ],
+            shared_clues=[{"id": c.id, "text": c.text} for c in snapshot.public.clues],
+            personal_devices=[
+                {
+                    "id": device.id,
+                    "fields": [
+                        {"id": field.id, "value": field.value}
+                        for field in device.fields
+                    ],
+                }
+                for device in snapshot.personal.devices
+            ],
+            public_milestones=[
+                {"kind": m.kind, "subject_id": m.subject_id}
+                for m in snapshot.public.recap.milestones
+            ],
+            recent_dialogue=list(current.dialogues),
+            question=args.question,
+            persona_name=script.metadata.id,
+            persona_bio="剧本NPC，提供氛围引导与通用建议，不掌握谜底，不改动游戏事实。",
+        )
+        # Repository reads above have completed. The workflow receives only the
+        # projected DTO and runs outside any repository transaction.
+        run = self._narrative.run(NarrativeRequest(context=context))
+        disposition = "rejected"
+        try:
+            if reauthorize is not None:
+                reauthorize()
+            latest, pair, latest_role = self._authorized_save(actor_id, current.id)
+            if role != latest_role:
+                raise SaveError("SAVE_NOT_FOUND")
+            if duplicate := self._duplicate(
+                latest, role, actor_id, command, fingerprint
+            ):
+                disposition = "duplicate"
+                return duplicate
+            if latest.version != command.expected_version:
+                raise CommandError("VERSION_CONFLICT")
+            if latest.state.completed:
+                raise CommandError("SAVE_COMPLETED")
+            if pair.member_b is None:
+                raise CommandError("PAIR_NOT_READY")
+            if run.response is None:
+                raise SaveError("NARRATIVE_UNAVAILABLE")
+            now = self._command_time(latest, pair)
             dialogues = append_provider_turn(
-                current.dialogues, role, args.question, response, now
+                latest.dialogues, role, args.question, run.response, now
             )
-            # SaveRecord要求存档/状态/历史水位三方一致：talk同样推进版本，
-            # 但事实、公共事件与里程碑全部原样保留。
-            state = current.state.model_copy(update={"version": current.version + 1})
+            state = latest.state.model_copy(update={"version": latest.version + 1})
             history = PublicHistory.model_validate(
-                current.public_history.model_dump()
-                | {"through_version": current.version + 1}
+                latest.public_history.model_dump() | {"through_version": state.version}
             )
-            events = ()
-        else:
-            try:
-                state, events = apply_command(
-                    current.state,
-                    script,
-                    role,
-                    {
-                        "kind": command.kind,
-                        "args": command.args,
-                    },
-                )
-            except DomainError as error:
-                if error.code in {
-                    "INVALID_STATE",
-                    "INVALID_SCRIPT",
-                    "SCRIPT_MISMATCH",
-                    "SCRIPT_UNSUPPORTED",
-                }:
-                    raise
-                raise CommandError(error.code) from None
-            dialogues = current.dialogues
-            history = append_public_history(
-                current.public_history, script, state.version, events
+            result = self._commit_command(
+                latest,
+                role,
+                actor_id,
+                command,
+                fingerprint,
+                now,
+                state=state,
+                history=history,
+                dialogues=dialogues,
             )
+            disposition = "duplicate" if result.receipt.duplicate else "committed"
+            return result
+        except CommandError as error:
+            if error.code == "VERSION_CONFLICT":
+                disposition = "stale"
+            raise
+        finally:
+            run.record(disposition)
+
+    def _commit_command(
+        self,
+        current,
+        role,
+        actor_id,
+        command,
+        fingerprint,
+        now,
+        *,
+        state,
+        history,
+        dialogues,
+        events=(),
+    ):
+        save_id = current.id
         receipt = CommandReceipt(
             actor_id=actor_id,
             request_id=command.request_id,
