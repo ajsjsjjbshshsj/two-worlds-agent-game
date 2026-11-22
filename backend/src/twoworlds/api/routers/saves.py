@@ -80,6 +80,7 @@ def submit_command(
         account = request.app.state.identity_service.authenticate(identity.token)
         if account.id != identity.account.id:
             raise IdentityError("UNAUTHENTICATED")
+        return account
 
     return request.app.state.save_service.submit_command(
         identity.account.id, save_id, body, reauthorize=reauthorize

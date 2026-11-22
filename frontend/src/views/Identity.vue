@@ -43,6 +43,7 @@
           <h2 class="account-name">{{ identity.account?.display_name }}</h2>
           <p>{{ identity.account?.email }}</p>
           <p v-if="identity.error" class="error" role="alert">{{ identity.error.message }}</p>
+          <NarrativeConsent :key="identity.sessionGeneration" />
           <RouterLink class="action-link" to="/pairs">进入我的房间 →</RouterLink>
           <button class="secondary" type="button" :disabled="pending" @click="identity.logout()">
             {{ pending ? '正在登出…' : '登出' }}
@@ -196,6 +197,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, routerKey } from 'vue-router'
+import NarrativeConsent from '../components/NarrativeConsent.vue'
 import { useIdentityStore } from '../stores/identity'
 import { usePairsStore } from '../stores/pairs'
 import { normalizeEmail, validEmail } from '../types/api'

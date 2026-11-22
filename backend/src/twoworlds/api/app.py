@@ -9,7 +9,9 @@ from starlette.datastructures import MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 
 from twoworlds.ai.graph import NarrativeLimits
+from twoworlds.ai.providers.config import ProviderConfig
 from twoworlds.application.identity import IdentityService
+from twoworlds.application.narrative_gateway import NarrativeGateway
 from twoworlds.application.pairs import PairService
 from twoworlds.application.rate_limit import RateLimitPolicy, SharedRateLimiter
 from twoworlds.application.saves import SaveService
@@ -22,6 +24,7 @@ from twoworlds.realtime.protocol import WebSocketTiming
 from .errors import failure, install_handlers
 from .routers import (
     accounts,
+    narrative,
     pairs,
     password_resets,
     saves,
@@ -155,6 +158,8 @@ def create_app(
     rate_max_keys=10000,
     websocket_timing: WebSocketTiming | None = None,
     narrative_limits: NarrativeLimits = NarrativeLimits(),
+    narrative_config: ProviderConfig | None = None,
+    narrative_transport=None,
 ):
     origins = list(allowed_origins)
     for origin in origins:
@@ -172,9 +177,20 @@ def create_app(
             raise ValueError("CORS origins must be exact HTTP origins")
     if type(cookie_secure) is not bool:
         raise ValueError("cookie_secure must be a boolean")
-    if ai_mode != "demo":
-        # The local graph is always available. Real providers require a later integration.
-        raise ValueError("only demo AI mode is implemented")
+    if ai_mode not in {"demo", "provider"} or (
+        ai_mode == "provider" and not isinstance(narrative_config, ProviderConfig)
+    ):
+        raise ValueError("Provider mode requires validated server AI settings")
+    gateway = (
+        NarrativeGateway(
+            repository,
+            narrative_config,
+            narrative_limits.max_concurrent,
+            transport=narrative_transport,
+        )
+        if ai_mode == "provider"
+        else None
+    )
     policies = dict(DEFAULT_RATE_POLICIES)
     if rate_policies is not None:
         for name, policy in rate_policies.items():
@@ -200,6 +216,7 @@ def create_app(
                     repository,
                     store,
                     narrative_limits=narrative_limits,
+                    narrative_gateway=gateway,
                     **({"clock": clock} if clock is not None else {}),
                 )
                 yield
@@ -229,12 +246,14 @@ def create_app(
     )
     app.state.rate_policies = policies
     app.state.cookie_secure = cookie_secure
+    app.state.narrative_gateway = gateway
     clock = pair_clock if pair_clock is not None else identity_clock
     app.state.pair_service = PairService(
         repository, **({"clock": clock} if clock is not None else {})
     )
     install_handlers(app)
     app.include_router(accounts.router)
+    app.include_router(narrative.router)
     app.include_router(sessions.router)
     app.include_router(verification.router)
     app.include_router(password_resets.router)

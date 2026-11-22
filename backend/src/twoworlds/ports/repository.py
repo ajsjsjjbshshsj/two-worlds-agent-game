@@ -8,6 +8,7 @@ from twoworlds.domain.persistence import (
     AccountRecord,
     CommandReceipt,
     Digest,
+    NarrativeBudgetRecord,
     PairRecord,
     RateLimitRecord,
     SaveRecord,
@@ -51,6 +52,13 @@ class Repository(Protocol):
     def compare_and_swap_account(
         self, account_id: str, expected_version: int, candidate: AccountRecord
     ) -> bool: ...
+
+    def get_narrative_budget(self, day_id: str) -> NarrativeBudgetRecord | None: ...
+    def compare_and_swap_narrative_budget(
+        self, candidate: NarrativeBudgetRecord, expected: int | None
+    ) -> bool:
+        """Create a new UTC day or replace only the supplied existing version."""
+        ...
 
     def create_verification_code(
         self, code: VerificationCodeRecord

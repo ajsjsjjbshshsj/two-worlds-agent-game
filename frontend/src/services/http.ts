@@ -24,6 +24,9 @@ const resourceMessages: Record<string, string> = {
   CODE_EXPIRED: '验证码已过期，请重新申请。',
   CODE_LOCKED: '验证码尝试次数已达上限，请重新申请。',
   DEPENDENCY_UNAVAILABLE: '服务暂时不可用，请稍后再试。',
+  NARRATIVE_REQUEST_LIMIT: '这次对话超出外部 AI 调用上限。',
+  NARRATIVE_BUDGET_EXCEEDED: '今日外部 AI 额度已用完。',
+  NARRATIVE_CONSENT_CHANGED: '外部 AI 授权已变更，本次对话未保存。',
 }
 
 export class ApiError extends Error {

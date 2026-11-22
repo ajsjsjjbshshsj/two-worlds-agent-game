@@ -15,6 +15,7 @@ from langsmith import tracing_context
 from pydantic import TypeAdapter
 
 from twoworlds.ai.fallback import fallback_reply
+from twoworlds.ai.providers.base import ProviderFailure
 from twoworlds.ai.validation import validate_response
 from twoworlds.content.schema import Identifier
 from twoworlds.ports.narrative import (
@@ -52,6 +53,7 @@ class _Output(TypedDict, total=False):
     error: str | None
     fallback: bool
     calls: int
+    metered_usage: dict[str, int] | None
 
 
 class _State(_Input, _Output, total=False):
@@ -69,6 +71,12 @@ class NarrativeRun:
     calls: int
     fallback: bool
     error: str | None
+    metered_usage: dict[str, int] | None = None
+    provider_name: str | None = None
+    model: str | None = None
+    price_version: str | None = None
+    reserved_micros: int | None = None
+    charged_micros: int | None = None
 
     def record(self, disposition: str):
         # Allowlist only metadata. The provider exception, state and reply are
@@ -77,7 +85,7 @@ class NarrativeRun:
             logger.info(
                 "npc_workflow trace_id=%s prompt_version=%s provider_mode=%s "
                 "started_at=%s finished_at=%s elapsed_ms=%d calls=%d fallback=%s "
-                "error=%s usage=%s disposition=%s",
+                "error=%s usage=%s disposition=%s provider=%s model=%s price_version=%s reserved_usd_micros=%s charged_usd_micros=%s",
                 self.trace_id,
                 PROMPT_VERSION,
                 self.provider_mode,
@@ -87,10 +95,13 @@ class NarrativeRun:
                 self.calls,
                 self.fallback,
                 self.error or "none",
-                self.response.usage
-                if self.response and self.response.usage
-                else "unknown",
+                self.metered_usage or "unknown",
                 disposition,
+                self.provider_name,
+                self.model,
+                self.price_version,
+                self.reserved_micros,
+                self.charged_micros,
             )
         except Exception:
             # Observability can never change a command's outcome.
@@ -144,16 +155,22 @@ class NarrativeWorkflow:
         if not self._slots.acquire(blocking=False):
             return {"calls": 0, "error": "capacity"}
         request = state["request"]
-        future: Future[tuple[object, str | None]] = Future()
+        future: Future[tuple[object, str | None, dict[str, int] | None]] = Future()
 
         def run():
             # This thread can outlive the request. It holds one slot until it
             # actually exits and has no route back into the graph or repository.
             try:
                 with tracing_context(enabled=False):
-                    result = self._provider.generate(request), None
+                    result = self._provider.generate(request), None, None
+            except ProviderFailure as error:
+                result = (
+                    None,
+                    error.kind.value,
+                    error.usage.as_dict() if error.usage else None,
+                )
             except BaseException:
-                result = None, "provider_error"
+                result = None, "provider_error", None
             finally:
                 self._slots.release()
             future.set_result(result)
@@ -164,10 +181,10 @@ class NarrativeWorkflow:
             self._slots.release()
             return {"calls": 0, "error": "provider_unavailable"}
         try:
-            raw, error = future.result(timeout=self._timeout)
+            raw, error, usage = future.result(timeout=self._timeout)
         except TimeoutError:
             return {"calls": 1, "error": "timeout"}
-        return {"raw": raw, "calls": 1, "error": error}
+        return {"raw": raw, "calls": 1, "error": error, "metered_usage": usage}
 
     def _validate(self, state: _State):
         if state["error"]:
@@ -179,6 +196,7 @@ class NarrativeWorkflow:
             "response": response,
             "error": None if response else "invalid_output",
             "raw": None,
+            "metered_usage": response.usage if response and response.usage else None,
         }
 
     @staticmethod
@@ -218,4 +236,6 @@ class NarrativeWorkflow:
             calls=output.get("calls", 0),
             fallback=output.get("fallback", False),
             error=output.get("error"),
+            metered_usage=output.get("metered_usage"),
+            provider_name=self._name,
         )

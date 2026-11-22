@@ -81,6 +81,7 @@ class AccountRecord(_Record):
     password_hash: PasswordHash = Field(repr=False)
     display_name: DisplayName
     sessions: Annotated[tuple[SessionRecord, ...], Field(max_length=5)] = ()
+    narrative_consent: Digest | None = None
     version: Annotated[StrictInt, Field(ge=0)] = 0
     created_at: UTCDateTime
     updated_at: UTCDateTime
@@ -95,6 +96,37 @@ class AccountRecord(_Record):
         if len(digests) != len(set(digests)):
             raise ValueError("duplicate session digest")
         return self
+
+
+BudgetMicros = Annotated[StrictInt, Field(ge=0, le=10**13)]
+
+
+class NarrativeReservation(_Record):
+    id: UUID
+    price_version: Identifier
+    reserved_micros: Annotated[BudgetMicros, Field(gt=0)]
+    charged_micros: BudgetMicros | None = None
+
+
+class NarrativeBudgetRecord(_Record):
+    id: Annotated[
+        StrictStr, StringConstraints(pattern=r"^ai_budget_[0-9]{4}_[0-9]{2}_[0-9]{2}$")
+    ]
+    version: Annotated[StrictInt, Field(ge=0)] = 0
+    reservations: Annotated[tuple[NarrativeReservation, ...], Field(max_length=1000)]
+
+    @model_validator(mode="after")
+    def check_ids(self):
+        if len({item.id for item in self.reservations}) != len(self.reservations):
+            raise ValueError("duplicate budget reservation")
+        return self
+
+    @property
+    def committed_micros(self):
+        return sum(
+            item.reserved_micros if item.charged_micros is None else item.charged_micros
+            for item in self.reservations
+        )
 
 
 class VerificationCodeRecord(_Record):

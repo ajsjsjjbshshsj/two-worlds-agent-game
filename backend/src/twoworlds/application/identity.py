@@ -271,6 +271,30 @@ class IdentityService:
         return current
 
     @_storage_errors
+    def set_narrative_consent(
+        self, token: str, disclosure: str | None
+    ) -> AccountRecord:
+        digest = self._digest(token, "session")
+        for _ in range(self._attempts):
+            now = self._now()
+            current = self._authenticated(digest, now)
+            if current.narrative_consent == disclosure:
+                return current
+            candidate = AccountRecord.model_validate(
+                current.model_dump()
+                | {
+                    "narrative_consent": disclosure,
+                    "version": current.version + 1,
+                    "updated_at": now,
+                }
+            )
+            if self._repository.compare_and_swap_account(
+                current.id, current.version, candidate
+            ):
+                return candidate
+        raise IdentityError("CONCURRENT_UPDATE")
+
+    @_storage_errors
     def revoke(self, token: str) -> None:
         digest = self._digest(token, "session")
         for _ in range(self._attempts):

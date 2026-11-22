@@ -12,6 +12,7 @@ from twoworlds.domain.persistence import (
     AccountRecord,
     CommandReceipt,
     Digest,
+    NarrativeBudgetRecord,
     PairRecord,
     RateLimitRecord,
     SaveRecord,
@@ -57,6 +58,11 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     expires_at REAL NOT NULL,
     document TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS narrative_budgets (
+    day_id TEXT PRIMARY KEY NOT NULL,
+    version INTEGER NOT NULL CHECK(version >= 0),
+    document TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pairs (
     pair_id TEXT PRIMARY KEY NOT NULL,
     invite_digest TEXT UNIQUE NOT NULL,
@@ -79,6 +85,7 @@ CREATE TABLE IF NOT EXISTS saves (
 );
 """
 _INDEX_FIELDS = {
+    NarrativeBudgetRecord: {"day_id": "id", "version": "version"},
     AccountRecord: {
         "account_id": "id",
         "email": "email",
@@ -331,6 +338,40 @@ class SQLiteRepository:
                 return False
             self._sessions(connection, candidate)
             return True
+
+    def get_narrative_budget(self, day_id: str) -> NarrativeBudgetRecord | None:
+        with self._transaction() as connection:
+            return _decode(
+                connection.execute(
+                    "SELECT * FROM narrative_budgets WHERE day_id=?", (day_id,)
+                ).fetchone(),
+                NarrativeBudgetRecord,
+            )
+
+    def compare_and_swap_narrative_budget(
+        self, candidate: NarrativeBudgetRecord, expected: int | None
+    ) -> bool:
+        candidate = _candidate(candidate, NarrativeBudgetRecord)
+        if expected is not None:
+            _expected(expected)
+        if candidate.version != (0 if expected is None else expected + 1):
+            raise InvalidRepositoryTransition("Invalid narrative budget version")
+        with self._transaction(write=True) as connection:
+            if expected is None:
+                return (
+                    connection.execute(
+                        "INSERT INTO narrative_budgets(day_id,version,document) VALUES (?,?,?) ON CONFLICT(day_id) DO NOTHING",
+                        (candidate.id, candidate.version, dumps(candidate)),
+                    ).rowcount
+                    == 1
+                )
+            return (
+                connection.execute(
+                    "UPDATE narrative_budgets SET version=?,document=? WHERE day_id=? AND version=?",
+                    (candidate.version, dumps(candidate), candidate.id, expected),
+                ).rowcount
+                == 1
+            )
 
     def create_verification_code(
         self, record: VerificationCodeRecord

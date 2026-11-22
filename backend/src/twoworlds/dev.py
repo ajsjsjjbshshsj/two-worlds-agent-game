@@ -47,10 +47,12 @@ def create_dev_app(environ: Mapping[str, str] | None = None, *, publication_stor
 
     # All concrete adapters are constructed only inside this explicit factory.
     # The existing app lifespan owns closing the repository.
+    from twoworlds.ai.providers.config import load_provider_config
     from twoworlds.api.app import create_app
     from twoworlds.storage.mongo import MongoRepository
     from twoworlds.storage.sqlite import SQLiteRepository
 
+    narrative_config = load_provider_config(env)
     repository = None
     try:
         repository = (
@@ -60,6 +62,8 @@ def create_dev_app(environ: Mapping[str, str] | None = None, *, publication_stor
         )
         return create_app(
             repository=repository,
+            ai_mode="provider" if narrative_config is not None else "demo",
+            narrative_config=narrative_config,
             allowed_origins=origins,
             publication_store=publication_store,
             email_sender=sender,
