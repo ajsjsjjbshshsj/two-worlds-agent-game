@@ -6,13 +6,14 @@ Supports two strictly separated execution modes:
    - Requires MONGO_URI and MONGO_DATABASE
    - Requires TWOWORLDS_VERIFICATION_SECRET (explicit durable secret; no ephemeral dev fallback)
    - Requires TWOWORLDS_ALLOWED_ORIGINS (exact HTTP/HTTPS origins; no wildcard)
-   - Requires TWOWORLDS_EMAIL_MODE ('smtp' or 'console')
+   - Requires TWOWORLDS_EMAIL_MODE=smtp and valid SMTP settings
    - Validates AI mode ('demo' or 'provider' with valid ProviderConfig)
    - Connects to MongoRepository (with ping check). If unreachable, fails immediately without fallback.
 2. 'demo':
    - Requires TWOWORLDS_STORAGE_BACKEND=sqlite
    - Requires TWOWORLDS_SQLITE_PATH
    - Requires TWOWORLDS_ALLOWED_ORIGINS
+   - Allows TWOWORLDS_EMAIL_MODE=console for local verification codes
    - Enforces TWOWORLDS_AI_MODE=demo (forbids external AI provider)
    - Connects to SQLiteRepository.
 
@@ -55,6 +56,10 @@ def create_server_app(
     if mode not in VALID_MODES:
         raise ValueError("Explicit TWOWORLDS_MODE required: 'production' or 'demo'")
 
+    production = mode in {"production", "formal"}
+    if production and env.get("TWOWORLDS_EMAIL_MODE") != "smtp":
+        raise ValueError("Production mode requires TWOWORLDS_EMAIL_MODE=smtp")
+
     backend = env.get("TWOWORLDS_STORAGE_BACKEND")
     raw_origins = env.get("TWOWORLDS_ALLOWED_ORIGINS", "")
     origins = validate_origins(raw_origins)
@@ -68,7 +73,7 @@ def create_server_app(
     sender = build_email_sender(env)
     secure = env.get("TWOWORLDS_COOKIE_SECURE", "").lower() in {"1", "true"}
 
-    if mode in {"production", "formal"}:
+    if production:
         if backend != "mongo":
             raise ValueError("Production mode requires TWOWORLDS_STORAGE_BACKEND=mongo")
         mongo_uri = env.get("MONGO_URI")
