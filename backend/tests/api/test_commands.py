@@ -384,6 +384,96 @@ def test_independent_apps_compete_at_real_database_cas(
             )
 
 
+@pytest.mark.parametrize("case", ["same", "changed", "different"])
+def test_two_sessions_of_one_account_compete_at_real_cas(
+    world, save_repository_factory, case
+):
+    game, a, _, _, save, repo, factory, _, _ = world
+    save = game.accept(a, save, "inspect", {"target": "maintenance_log"})
+    original = command(save, "set_emitter", {"angle": 90, "pattern": "pulse"})
+    competing = (
+        original
+        if case == "same"
+        else command(
+            save,
+            "set_emitter",
+            {"angle": 180, "pattern": "pulse"},
+            original["request_id"] if case == "changed" else None,
+        )
+    )
+    other_repo = save_repository_factory()
+    assert other_repo is not repo
+    device_b = game.login(a)
+    assert device_b.account_id == a.account_id and device_b.token != a.token
+    barrier = Barrier(2)
+    devices = [
+        Platform(factory(CommitBarrier(repository, barrier))[0], lambda: None)
+        for repository in (repo, other_repo)
+    ]
+    with ThreadPoolExecutor(2) as pool:
+        futures = [
+            pool.submit(device.post, actor, save, body)
+            for device, actor, body in zip(
+                devices, (a, device_b), (original, competing), strict=True
+            )
+        ]
+        responses = [f.result(timeout=25) for f in futures]
+    expected = [200, 200] if case == "same" else [200, 409]
+    assert sorted(r.status_code for r in responses) == expected
+
+    current = repo.get_save(save["id"])
+    assert other_repo.get_save(save["id"]) == current
+    assert (
+        current.version
+        == current.state.version
+        == current.public_history.through_version
+        == 2
+    )
+    assert len(current.receipts) == 2
+    receipt = current.receipts[-1]
+    assert receipt.actor_id == a.account_id and receipt.accepted_version == 2
+
+    winner = next(
+        r.json()
+        for r in responses
+        if r.status_code == 200 and not r.json()["receipt"]["duplicate"]
+    )
+    winner_angle = winner["save"]["personal"]["devices"]["emitter"]["angle"]
+    assert winner_angle == current.state.device("emitter", "angle")
+    assert str(receipt.request_id) == winner["receipt"]["request_id"]
+    assert [event["asset_id"] for event in winner["audio_events"]] == ["emitter_click"]
+    assert devices[0].read(a, save) == devices[1].read(device_b, save) == winner["save"]
+    expected_receipt = {
+        "accepted": True,
+        "request_id": str(receipt.request_id),
+        "accepted_version": 2,
+    }
+    assert devices[0].receipt(a, save, str(receipt.request_id)) == expected_receipt
+    assert (
+        devices[1].receipt(device_b, save, str(receipt.request_id)) == expected_receipt
+    )
+
+    if case == "same":
+        replay = next(r.json() for r in responses if r.json()["receipt"]["duplicate"])
+        assert replay["receipt"] == winner["receipt"] | {"duplicate": True}
+        assert replay["save"] == winner["save"] and replay["audio_events"] == []
+    else:
+        loser_index = next(
+            i for i, response in enumerate(responses) if response.status_code == 409
+        )
+        loser = responses[loser_index]
+        assert not error(
+            loser, 409, "REQUEST_ID_REUSED" if case == "changed" else "VERSION_CONFLICT"
+        )["retryable"]
+        assert "audio_events" not in loser.json()
+        if case == "different":
+            missing = (original, competing)[loser_index]["request_id"]
+            assert devices[loser_index].receipt(device_b, save, missing) == {
+                "accepted": False
+            }
+    assert repo.get_save(save["id"]) == current
+
+
 @pytest.mark.parametrize("ending", ["guide_now", "wait_tide"])
 def test_full_lighthouse_http_cooperation_both_endings(world, ending):
     game, a, b, _, save, repo, _, script, _ = world

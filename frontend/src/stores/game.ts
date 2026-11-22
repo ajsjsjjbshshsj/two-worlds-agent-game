@@ -430,7 +430,16 @@ export const useGameStore = defineStore('game', () => {
         const p = failure(e)
         if (g !== generation) return
         if ([400, 409, 422].includes(p.status) && p.code !== 'INVALID_RESPONSE') {
-          await clearPending('rejected', '服务器明确拒绝了这次操作。')
+          const conflict = p.code === 'VERSION_CONFLICT'
+          if (conflict)
+            requiredVersion.value = Math.max(requiredVersion.value, command.expected_version + 1)
+          await clearPending(
+            'rejected',
+            conflict
+              ? '存档版本已变化，原操作未执行。请核对最新进度后重新选择操作。'
+              : '服务器明确拒绝了这次操作。',
+          )
+          if (conflict && g === generation) void recovery?.open()
         } else {
           pendingState.value = 'unknown'
           pendingNotice.value = persisted.value
