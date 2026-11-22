@@ -261,11 +261,14 @@ export class AudioManager {
       }
       if (this.state.status !== 'blocked' && this.state.status !== 'error')
         this.state.status = 'playing'
-    } catch {
+    } catch (cause) {
       if (this.tracks.get(track.cue.key) !== track) return
       this.failed.add(track.cue.key)
-      this.state.status = 'blocked'
-      this.state.message = '浏览器拒绝播放，请主动启用声音或继续阅读字幕。'
+      const unsupported = cause instanceof DOMException && cause.name === 'NotSupportedError'
+      this.state.status = unsupported ? 'error' : 'blocked'
+      this.state.message = unsupported
+        ? '音频格式不受支持；字幕与操作仍可使用。'
+        : '浏览器拒绝播放，请主动启用声音或继续阅读字幕。'
       this.tracks.delete(track.cue.key)
       this.release(track)
     }

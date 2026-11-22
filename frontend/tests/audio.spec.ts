@@ -286,6 +286,25 @@ it('resource failure is reported without losing authorized subtitle text', async
   expect(manager.state.status).toBe('error')
   expect(audioCues(s)[0]?.text).toContain('TEST-ONLY')
 })
+it('reports an unsupported audio format without suggesting an autoplay permission issue', async () => {
+  const unsupported = new AudioManager(() => {}, {
+    load,
+    element: () => {
+      const sound = new Sound()
+      sound.play.mockRejectedValue(new DOMException('unsupported', 'NotSupportedError'))
+      return sound as unknown as HTMLAudioElement
+    },
+  })
+  unsupported.update(soundSnapshot(1, ['ambience', 'narration']), 1)
+  unsupported.enable()
+  await flushPromises()
+  expect(unsupported.state.status).toBe('error')
+  expect(unsupported.state.message).toContain('格式不受支持')
+  expect(dispose).toHaveBeenCalledOnce()
+  unsupported.update(soundSnapshot(2, ['ambience', 'narration']), 1)
+  await flushPromises()
+  expect(load).toHaveBeenCalledOnce()
+})
 it('media decode error is handled and releases URL', async () => {
   manager.update(soundSnapshot(), 1)
   manager.enable()

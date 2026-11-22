@@ -56,6 +56,7 @@ h2 {
   color: #e3bd7a;
 }
 p {
+  font-size: inherit;
   line-height: 1.7;
 }
 [data-active='true'] {

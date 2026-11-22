@@ -5,7 +5,7 @@ Uses existing Python Playwright/httpx, project Python 3.12 child API and tempora
 TEST-ONLY sealed publications. No API/WS response mocks or offline rule execution.
 """
 
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, contextmanager
 from pathlib import Path
 import json
 import os
@@ -25,7 +25,8 @@ from pwa_cache import ROOT, OUT, free_port, wait_url
 BACKEND = ROOT.parent / "backend"
 
 
-def run():
+@contextmanager
+def sqlite_preview():
     OUT.mkdir(parents=True, exist_ok=True)
     with (
         tempfile.TemporaryDirectory(prefix="sqlite-", dir=OUT) as directory,
@@ -129,7 +130,6 @@ uvicorn.run(app,host="127.0.0.1",port=int(sys.argv[2]),access_log=False,log_leve
                 pair_id=pair["id"], script_id="lighthouse", script_version="1.0.0"
             ),
         ).json()
-        save_path = "/api/saves/" + save["id"]
         settings = folder / "preview.config.mjs"
         settings.write_text(
             "export default "
@@ -162,6 +162,12 @@ uvicorn.run(app,host="127.0.0.1",port=int(sys.argv[2]),access_log=False,log_leve
         )
         stack.callback(stop, vite)
         wait_url(base)
+        yield folder, base, owner, partner, email, password, save
+
+
+def run():
+    with sqlite_preview() as (folder, base, owner, partner, email, password, save):
+        save_path = "/api/saves/" + save["id"]
         with sync_playwright() as p:
             profile = folder / "profile"
             browser = p.chromium.launch_persistent_context(
