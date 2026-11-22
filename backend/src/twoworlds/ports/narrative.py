@@ -20,9 +20,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Annotated, Literal
 
-from pydantic import Field, StrictStr, StringConstraints
+from pydantic import Field, StrictInt, StrictStr, StringConstraints
 
 from twoworlds.content.schema import ContentModel, Identifier, Scalar, Text, Version
+
+PROMPT_VERSION = "1.0"
 
 # ------------------------------------------------------------------
 # 白名单字段类型
@@ -181,7 +183,7 @@ class NarrativeRequest(ContentModel):
     model_config = {"frozen": True}
 
     context: NarrativeContext
-    prompt_version: StrictStr = "1.0"
+    prompt_version: StrictStr = PROMPT_VERSION
 
 
 class NarrativeResponse(ContentModel):
@@ -200,9 +202,9 @@ class NarrativeResponse(ContentModel):
     text: Text
     mode: Literal["demo", "provider", "fallback"]
     provider_name: Identifier
-    prompt_version: StrictStr = "1.0"
+    prompt_version: StrictStr = PROMPT_VERSION
     # 预留：未来 usage 计量
-    usage: dict[str, int] = {}
+    usage: dict[str, StrictInt] = Field(default_factory=dict)
     # 预留：未来超时追踪（毫秒）
     timeout_ms: int | None = None
     # 预留：未来错误码（None 表示正常）

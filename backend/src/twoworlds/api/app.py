@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 
+from twoworlds.ai.graph import NarrativeLimits
 from twoworlds.application.identity import IdentityService
 from twoworlds.application.pairs import PairService
 from twoworlds.application.rate_limit import RateLimitPolicy, SharedRateLimiter
@@ -153,6 +154,7 @@ def create_app(
     rate_policies=None,
     rate_max_keys=10000,
     websocket_timing: WebSocketTiming | None = None,
+    narrative_limits: NarrativeLimits = NarrativeLimits(),
 ):
     origins = list(allowed_origins)
     for origin in origins:
@@ -171,7 +173,7 @@ def create_app(
     if type(cookie_secure) is not bool:
         raise ValueError("cookie_secure must be a boolean")
     if ai_mode != "demo":
-        # 诚实交付：真实NarrativeProvider/LangGraph尚未接入，不静默退回demo。
+        # The local graph is always available. Real providers require a later integration.
         raise ValueError("only demo AI mode is implemented")
     policies = dict(DEFAULT_RATE_POLICIES)
     if rate_policies is not None:
@@ -197,6 +199,7 @@ def create_app(
                 app.state.save_service = SaveService(
                     repository,
                     store,
+                    narrative_limits=narrative_limits,
                     **({"clock": clock} if clock is not None else {}),
                 )
                 yield

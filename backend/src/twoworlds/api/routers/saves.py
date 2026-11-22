@@ -4,6 +4,7 @@ from twoworlds.api.auth import Authenticated, current_identity
 from twoworlds.api.schemas.saves import CreateSave
 from twoworlds.api.schemas.commands import SubmitCommand
 from twoworlds.application.commands import RequestId, ReceiptFound, ReceiptMissing
+from twoworlds.application.identity import IdentityError
 from twoworlds.application.saves import (
     CommandResponse,
     SaveSnapshot,
@@ -75,8 +76,13 @@ def submit_command(
     request: Request,
     identity: Authenticated = Depends(current_identity),
 ):
+    def reauthorize():
+        account = request.app.state.identity_service.authenticate(identity.token)
+        if account.id != identity.account.id:
+            raise IdentityError("UNAUTHENTICATED")
+
     return request.app.state.save_service.submit_command(
-        identity.account.id, save_id, body
+        identity.account.id, save_id, body, reauthorize=reauthorize
     )
 
 
