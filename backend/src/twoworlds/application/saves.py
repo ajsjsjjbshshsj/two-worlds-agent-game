@@ -8,8 +8,17 @@ from typing import Callable, Literal
 from pydantic import TypeAdapter, ValidationError
 
 from twoworlds.application.audio import OperationAudio, project_operation_audio
-from twoworlds.application.dialogue import TalkArgs, append_demo_turn
+from twoworlds.application.dialogue import (
+    TalkArgs,
+    DemoNarrativeProvider as _DemoNarrativeProvider,
+    append_provider_turn,
+    build_narrative_context,
+)
 from twoworlds.application.media import MediaContent, media_content
+from twoworlds.ports.narrative import (
+    NarrativeProvider,
+    NarrativeRequest,
+)
 from twoworlds.application.commands import (
     AcceptedReceipt,
     CommandError,
@@ -123,10 +132,17 @@ class SaveService:
         publication_store: PublicationStore,
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        narrative_provider: NarrativeProvider | None = None,
     ):
         self._repository = repository
         self._publications = publication_store
         self._clock = clock
+        # 默认使用 DemoNarrativeProvider；真实 Provider 由 T14.2/T14.3 注入。
+        self._provider: NarrativeProvider = (
+            narrative_provider
+            if narrative_provider is not None
+            else _DemoNarrativeProvider()
+        )
 
     def _role(self, actor_id, pair_id):
         pair = self._repository.get_pair(pair_id)
@@ -316,12 +332,58 @@ class SaveService:
             # docs/01允许完成后继续NPC对话，与领域冻结的冲突留待T14裁决。
             if current.state.completed:
                 raise CommandError("SAVE_COMPLETED")
-            # demo NPC是应用层表达：只写本人私聊，不进规则引擎、不产生公共事件。
+            # Provider 是应用层表达：只写本人私聊，不进规则引擎、不产生公共事件。
             try:
                 args = TalkArgs.model_validate(command.args)
             except ValidationError:
                 raise CommandError("INVALID_COMMAND") from None
-            dialogues = append_demo_turn(current.dialogues, role, args.question, now)
+            # 1. 构造安全 NarrativeContext（白名单字段，不含搭档秘密）
+            snapshot_for_ctx = project_save(
+                current.state,
+                script,
+                role,
+                current.public_history,
+                dialogues=current.dialogues,
+            )
+            persona_name = script.metadata.id
+            persona_bio = (
+                "剧本NPC，提供氛围引导与通用建议，不掌握谜底，不改动游戏事实。"
+            )
+            context = build_narrative_context(
+                script_id=current.script_id,
+                script_version=current.script_version,
+                scene_id=current.state.scene_id,
+                role=role,
+                personal_clues=[
+                    {"id": c.id, "text": c.text}
+                    for c in snapshot_for_ctx.personal.clues
+                ],
+                shared_clues=[
+                    {"id": c.id, "text": c.text} for c in snapshot_for_ctx.public.clues
+                ],
+                personal_devices=[
+                    {
+                        "id": d.id,
+                        "fields": [{"id": f.id, "value": f.value} for f in d.fields],
+                    }
+                    for d in snapshot_for_ctx.personal.devices
+                ],
+                public_milestones=[
+                    {"kind": m.kind, "subject_id": m.subject_id}
+                    for m in snapshot_for_ctx.public.recap.milestones
+                ],
+                recent_dialogue=list(current.dialogues),
+                question=args.question,
+                persona_name=persona_name,
+                persona_bio=persona_bio,
+            )
+            # 2. 调用 Provider（DemoProvider 在演示模式，不调用外部服务）
+            request = NarrativeRequest(context=context)
+            response = self._provider.generate(request)
+            # 3. 持久化对话（沿用现有格式，不产生公共事件）
+            dialogues = append_provider_turn(
+                current.dialogues, role, args.question, response, now
+            )
             # SaveRecord要求存档/状态/历史水位三方一致：talk同样推进版本，
             # 但事实、公共事件与里程碑全部原样保留。
             state = current.state.model_copy(update={"version": current.version + 1})
