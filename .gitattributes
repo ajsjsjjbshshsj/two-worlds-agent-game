@@ -9,6 +9,7 @@
 .gitignore text eol=lf
 .gitattributes text eol=lf
 *.png binary
+/frontend/public/pwa/offline.js text eol=lf
 
 # Published snapshots are sealed as raw bytes; newline conversion breaks SHA256.
 /backend/src/twoworlds/content/published/** -text
