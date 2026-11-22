@@ -1,5 +1,6 @@
 <template>
   <div class="identity-shell">
+    <a class="skip-link" href="#identity-panel">跳到账号操作</a>
     <header class="brand">
       <span class="brand-symbol" aria-hidden="true">↔</span
       ><span>TwoWorlds<small>两个人 · 两个世界</small></span>
@@ -20,7 +21,13 @@
           不需要手机号，也不需要分享真实关系。<br />换一台设备，也能用同一个邮箱继续。
         </p>
       </section>
-      <section class="identity-panel" aria-label="邮箱账号" :aria-busy="pending">
+      <section
+        id="identity-panel"
+        tabindex="-1"
+        class="identity-panel"
+        aria-label="邮箱账号"
+        :aria-busy="pending"
+      >
         <template
           v-if="
             !identity.initialized ||
@@ -71,6 +78,9 @@
                   id="email"
                   v-model="email"
                   type="email"
+                  inputmode="email"
+                  autocapitalize="none"
+                  spellcheck="false"
                   autocomplete="username"
                   maxlength="254"
                   required

@@ -47,6 +47,9 @@ function send(a: Action) {
   <section class="resource-panel" aria-label="当前可用行动">
     <h2>我能做什么</h2>
     <p class="help">行动和参数由当前角色快照提供；点击后等待服务端确认。</p>
+    <p v-if="disabled" role="status">
+      当前暂不能提交新行动，请先确认连接、读取进度或核对待确认操作。
+    </p>
     <p v-if="!actions.length">当前没有可提交的行动，请与搭档交流或刷新进度。</p>
     <form
       v-for="a in actions"

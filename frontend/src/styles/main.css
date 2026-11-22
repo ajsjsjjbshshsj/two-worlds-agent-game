@@ -291,7 +291,7 @@ button.primary:hover:enabled {
 }
 .entry-layout {
   display: grid;
-  grid-template-columns: 1fr 440px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
   gap: 72px;
   align-items: center;
   min-height: 740px;
@@ -508,7 +508,7 @@ dd {
   }
   .entry-layout {
     gap: 32px;
-    grid-template-columns: 1fr 390px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 390px);
   }
   .world-mark {
     width: 280px;
@@ -603,7 +603,7 @@ dd {
 }
 .game-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -743,4 +743,203 @@ dd {
 }
 #identity-feedback:empty {
   display: none;
+}
+
+/* T13.1: content reflows instead of clipping actions or private information. */
+html {
+  scroll-padding-block: 1rem;
+}
+body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+button,
+input,
+textarea,
+select,
+summary {
+  touch-action: manipulation;
+}
+button,
+select,
+summary {
+  max-width: 100%;
+}
+button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+select {
+  font: inherit;
+  font-size: 16px;
+}
+input,
+textarea,
+select,
+[tabindex='-1'] {
+  scroll-margin-block: 1rem;
+}
+input[type='checkbox'] {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+}
+input[type='range'] {
+  padding-inline: 0;
+}
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 1rem;
+  transform: translateY(-150%);
+  z-index: 100;
+  padding: 12px;
+  min-height: 44px;
+  background: #11283a;
+}
+.skip-link:focus {
+  transform: none;
+}
+.space-shell,
+.identity-shell {
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+}
+.space-header > *,
+.page-heading > *,
+.entry-layout > *,
+.game-columns > * {
+  min-width: 0;
+}
+.space-header .help {
+  overflow-wrap: anywhere;
+}
+.game-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+.game-jumps a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+}
+.game-columns {
+  margin-top: 24px;
+}
+.game-columns:has(> .game-information:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.confirmed-device:focus,
+[tabindex='-1']:target {
+  outline: 3px solid var(--gold);
+  outline-offset: 4px;
+}
+.device-hotspot {
+  min-width: 0;
+}
+.game-action label {
+  margin-bottom: 16px;
+}
+@media (min-width: 1024px) {
+  .space-shell {
+    padding-inline: max(48px, env(safe-area-inset-left, 0px));
+  }
+  .identity-shell {
+    padding-inline: max(60px, env(safe-area-inset-left, 0px));
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .entry-layout {
+    gap: 24px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+  .world-mark {
+    max-width: 100%;
+  }
+  .identity-panel {
+    padding: 24px;
+  }
+  .room-actions,
+  .room-grid,
+  .script-grid {
+    gap: 16px;
+  }
+  .resource-panel,
+  .script-copy {
+    padding: 20px;
+  }
+}
+@media (max-width: 767px) {
+  .entry-layout {
+    display: block;
+    min-height: auto;
+    padding-block: 24px;
+  }
+  .intro {
+    margin-bottom: 24px;
+  }
+  .intro h1 {
+    font-size: 30px;
+    margin-bottom: 12px;
+  }
+  .world-mark {
+    display: none;
+  }
+  .space-content {
+    padding-top: 24px;
+  }
+  .room-actions,
+  .room-grid,
+  .script-grid,
+  .game-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .scene-world svg {
+    min-height: 0;
+  }
+  .resource-panel,
+  .script-copy,
+  .identity-panel {
+    padding: 20px;
+  }
+  .scene-caption,
+  .scene-world .help,
+  .scene-world .notice {
+    padding-inline: 16px;
+  }
+  .device-hotspot {
+    flex: 1 1 140px;
+  }
+}
+@media (max-width: 430px) {
+  .space-shell,
+  .identity-shell {
+    padding-inline: max(12px, env(safe-area-inset-left, 0px));
+  }
+  .resource-panel,
+  .script-copy,
+  .identity-panel {
+    padding: 16px;
+  }
+  .code-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .code-field button {
+    width: 100%;
+  }
+  .entry-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }

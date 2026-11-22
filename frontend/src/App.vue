@@ -3,6 +3,9 @@ import { watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { retryDelay } from './services/save-recovery'
 import { useIdentityStore } from './stores/identity'
+import { useKeyboardViewport } from './composables/keyboard-viewport'
+
+useKeyboardViewport()
 
 const identity = useIdentityStore()
 const route = useRoute()

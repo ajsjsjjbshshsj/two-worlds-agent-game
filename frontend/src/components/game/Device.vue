@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import type { Scalar } from '../../types/game'
+import { deviceLabel } from './device-labels'
 defineProps<{ id: string; fields: Record<string, Scalar> }>()
 </script>
 <template>
-  <article :id="'device-' + id" tabindex="-1" class="confirmed-device">
-    <h3>{{ id }}</h3>
+  <article
+    :id="'device-' + id"
+    :aria-labelledby="'device-heading-' + id"
+    tabindex="-1"
+    class="confirmed-device"
+  >
+    <h3 :id="'device-heading-' + id">{{ deviceLabel(id) }}</h3>
     <div class="device-dials">
       <div v-for="(value, key) in fields" :key="key" class="device-reading">
         <span
@@ -26,7 +32,7 @@ defineProps<{ id: string; fields: Record<string, Scalar> }>()
             }"
           /></svg
         ><strong>{{ key }}</strong
-        ><span>{{ value }}</span>
+        ><span>{{ typeof value === 'boolean' ? (value ? '开启' : '关闭') : value }}</span>
       </div>
     </div>
   </article>

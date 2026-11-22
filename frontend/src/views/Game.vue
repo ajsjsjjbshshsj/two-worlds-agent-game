@@ -45,7 +45,9 @@ onBeforeUnmount(() => {
   game.reset()
 })
 function focusDevice(id: string) {
-  document.getElementById('device-' + id)?.focus()
+  const target = document.getElementById('device-' + id)
+  target?.focus()
+  target?.scrollIntoView({ block: 'nearest', behavior: 'instant' })
 }
 function resubmitOriginal() {
   if (
@@ -64,39 +66,49 @@ function discardOriginal() {
   <SpaceShell
     ><p class="eyebrow">两个世界，彼此回响</p>
     <h1>我的世界</h1>
-    <p v-if="game.loading" role="status">正在读取个人快照…</p>
-    <p v-if="syncLabels[game.realtime]" role="status">{{ syncLabels[game.realtime] }}</p>
-    <p v-if="game.error" class="error" role="alert">{{ game.error }}</p>
-    <p v-if="game.pendingNotice" role="status">{{ game.pendingNotice }}</p>
-    <button
-      class="small-action"
-      v-if="game.realtime !== 'blocked'"
-      :disabled="game.busy || game.loading"
-      @click="game.open(String(route.params.saveId))"
-    >
-      重新读取 / 获取搭档进度</button
-    ><button
-      v-if="game.pending"
-      class="secondary"
-      :disabled="game.busy || game.pendingState === 'checking' || (!game.recovered && !game.canAct)"
-      @click="game.retry"
-    >
-      {{ game.recovered ? '查询原操作回执' : '手动确认原请求（相同 UUID 与参数）' }}</button
-    ><button
-      v-if="game.canResubmit"
-      class="secondary"
-      :disabled="game.busy || !game.canAct"
-      @click="resubmitOriginal"
-    >
-      使用原 UUID 重新提交 {{ game.pending?.kind }}</button
-    ><button
-      v-if="game.pending && game.persisted"
-      class="secondary"
-      :disabled="game.busy || game.pendingState === 'checking'"
-      @click="discardOriginal"
-    >
-      清除本机待确认记录</button
-    ><template v-if="game.snapshot"
+    <nav v-if="game.snapshot" class="game-jumps" aria-label="游戏分区">
+      <a href="#game-scene">场景</a><a href="#game-status">进度与回执</a>
+      <a v-if="!game.snapshot.completed" href="#game-actions">行动</a>
+      <a href="#game-information">设备与线索</a><a href="#game-audio">声音与字幕</a>
+    </nav>
+    <section id="game-status" tabindex="-1" aria-label="同步与待确认操作">
+      <p v-if="game.loading" role="status">正在读取个人快照…</p>
+      <p v-if="syncLabels[game.realtime]" role="status">{{ syncLabels[game.realtime] }}</p>
+      <p v-if="game.error" class="error" role="alert">{{ game.error }}</p>
+      <p v-if="game.pendingNotice" role="status">{{ game.pendingNotice }}</p>
+      <button
+        class="small-action"
+        v-if="game.realtime !== 'blocked'"
+        :disabled="game.busy || game.loading"
+        @click="game.open(String(route.params.saveId))"
+      >
+        重新读取 / 获取搭档进度</button
+      ><button
+        v-if="game.pending"
+        class="secondary"
+        :disabled="
+          game.busy || game.pendingState === 'checking' || (!game.recovered && !game.canAct)
+        "
+        @click="game.retry"
+      >
+        {{ game.recovered ? '查询原操作回执' : '手动确认原请求（相同 UUID 与参数）' }}</button
+      ><button
+        v-if="game.canResubmit"
+        class="secondary"
+        :disabled="game.busy || !game.canAct"
+        @click="resubmitOriginal"
+      >
+        使用原 UUID 重新提交 {{ game.pending?.kind }}</button
+      ><button
+        v-if="game.pending && game.persisted"
+        class="secondary"
+        :disabled="game.busy || game.pendingState === 'checking'"
+        @click="discardOriginal"
+      >
+        清除本机待确认记录
+      </button>
+    </section>
+    <template v-if="game.snapshot"
       ><section data-test="save-entry">
         <p>
           {{ game.snapshot.script_id }} · 角色 {{ game.snapshot.role.toUpperCase() }} ·
@@ -112,16 +124,23 @@ function discardOriginal() {
         >
       </section>
       <SceneRenderer
+        id="game-scene"
+        tabindex="-1"
         :snapshot="game.snapshot"
         :session-generation="identity.sessionGeneration"
         @session-expired="identity.expireSession"
-        @focus-device="focusDevice" />
-      <AudioControls
-        :snapshot="game.snapshot"
-        :session-generation="identity.sessionGeneration"
-        @session-expired="identity.expireSession" />
+        @focus-device="focusDevice"
+      />
       <div class="game-columns">
-        <div>
+        <ActionPanel
+          id="game-actions"
+          tabindex="-1"
+          v-if="!game.snapshot.completed"
+          :actions="game.snapshot.available_actions"
+          :disabled="!game.canAct || game.busy || game.loading || !!game.pending"
+          @command="game.submit"
+        />
+        <div id="game-information" tabindex="-1" class="game-information">
           <section class="resource-panel">
             <h2>我的设备</h2>
             <Device
@@ -146,11 +165,13 @@ function discardOriginal() {
             <p v-for="m in game.snapshot.public.recap.milestones" :key="m.ordinal">{{ m.text }}</p>
           </section>
         </div>
-        <ActionPanel
-          v-if="!game.snapshot.completed"
-          :actions="game.snapshot.available_actions"
-          :disabled="!game.canAct || game.busy || game.loading || !!game.pending"
-          @command="game.submit"
-        /></div></template
+      </div>
+      <AudioControls
+        id="game-audio"
+        tabindex="-1"
+        :snapshot="game.snapshot"
+        :session-generation="identity.sessionGeneration"
+        @session-expired="identity.expireSession"
+      /> </template
   ></SpaceShell>
 </template>

@@ -5,6 +5,7 @@ const identity = useIdentityStore()
 </script>
 <template>
   <div class="space-shell">
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
     <header class="space-header">
       <RouterLink class="brand" to="/pairs"
         ><span class="brand-symbol" aria-hidden="true">↔</span
@@ -15,7 +16,9 @@ const identity = useIdentityStore()
       </nav>
       <p class="help">{{ identity.account?.display_name }}</p>
     </header>
-    <main v-if="identity.authenticated" class="space-content"><slot /></main>
+    <main v-if="identity.authenticated" id="main-content" tabindex="-1" class="space-content">
+      <slot />
+    </main>
     <footer class="site-foot">
       <span>TwoWorlds · 留一束光，给另一个世界。</span
       ><span>人数表示加入关系，非实时在线状态。</span>
