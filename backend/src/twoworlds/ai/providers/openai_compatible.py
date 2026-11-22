@@ -6,6 +6,7 @@ import json
 import httpx
 from pydantic import ValidationError
 
+from twoworlds.ai.observation import suppress_provider_transport_logs
 from twoworlds.ai.prompts.npc import SYSTEM_PROMPTS
 from twoworlds.ai.providers.base import FailureKind, ProviderFailure
 from twoworlds.ai.providers.config import ProviderConfig
@@ -148,8 +149,10 @@ class OpenAICompatibleProvider(NarrativeProvider):
         if self._input_bound(payload) > self.config.max_input_tokens:
             raise ProviderFailure(FailureKind.INPUT_LIMIT)
         try:
+            with suppress_provider_transport_logs():
+                body = asyncio.run(self._send(payload))
             obj = json.loads(
-                asyncio.run(self._send(payload)),
+                body,
                 object_pairs_hook=_object,
                 parse_constant=_constant,
             )

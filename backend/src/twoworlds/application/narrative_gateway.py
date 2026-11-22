@@ -2,16 +2,15 @@
 
 from dataclasses import replace
 from datetime import datetime, timezone
-import logging
+from time import monotonic
 from uuid import UUID, uuid4
 
 from twoworlds.ai.graph import NarrativeLimits, NarrativeWorkflow
+from twoworlds.ai.observation import record_narrative
 from twoworlds.ai.providers.config import ProviderConfig
 from twoworlds.ai.providers.openai_compatible import OpenAICompatibleProvider
 from twoworlds.domain.persistence import NarrativeBudgetRecord, NarrativeReservation
 from twoworlds.ports.repository import RepositoryError
-
-logger = logging.getLogger(__name__)
 
 
 class GatewayRejected(RuntimeError):
@@ -116,22 +115,22 @@ class NarrativeGateway:
     def run(self, request, reauthorize, reservation_id):
         if not self.has_consent(reauthorize()):
             return None
+        start = monotonic()
         try:
             if not self._provider.fits_input(request):
                 raise GatewayRejected("NARRATIVE_REQUEST_LIMIT")
             day, reservation = self._budget.reserve(self.config, reservation_id)
         except GatewayRejected as error:
-            try:
-                logger.info(
-                    "npc_gateway trace_id=%s provider=%s model=%s prompt_version=%s error=%s",
-                    uuid4().hex,
-                    self._provider.provider_name,
-                    self.config.model,
-                    request.prompt_version,
-                    error.code,
-                )
-            except Exception:
-                pass
+            record_narrative(
+                trace_id=uuid4().hex,
+                provider_mode="provider",
+                provider_name=self._provider.provider_name,
+                model=self.config.model,
+                price_version=self.config.pricing.version,
+                elapsed_ms=round((monotonic() - start) * 1000),
+                error=error.code,
+                disposition="gateway_rejected",
+            )
             raise
 
         # Recheck after the separate budget transaction, before any dispatch.
@@ -174,6 +173,9 @@ class NarrativeGateway:
             ):
                 raise GatewayRejected("NARRATIVE_REQUEST_LIMIT")
             return run
-        except (RepositoryError, GatewayRejected):
-            run.record("billing_rejected")
+        except RepositoryError:
+            replace(run, error="billing_unavailable").record("billing_rejected")
+            raise
+        except GatewayRejected as error:
+            replace(run, error=error.code).record("billing_rejected")
             raise

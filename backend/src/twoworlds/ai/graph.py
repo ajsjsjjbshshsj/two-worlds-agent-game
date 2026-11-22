@@ -1,9 +1,9 @@
 """Request-local LangGraph workflow with bounded, non-queued provider calls."""
 
 from concurrent.futures import Future, TimeoutError
+from contextvars import Context
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import logging
 from math import isfinite
 from threading import BoundedSemaphore, Thread
 from time import monotonic
@@ -15,6 +15,7 @@ from langsmith import tracing_context
 from pydantic import TypeAdapter
 
 from twoworlds.ai.fallback import fallback_reply
+from twoworlds.ai.observation import record_narrative
 from twoworlds.ai.providers.base import ProviderFailure
 from twoworlds.ai.validation import validate_response
 from twoworlds.content.schema import Identifier
@@ -24,8 +25,6 @@ from twoworlds.ports.narrative import (
     NarrativeRequest,
     NarrativeResponse,
 )
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -79,33 +78,21 @@ class NarrativeRun:
     charged_micros: int | None = None
 
     def record(self, disposition: str):
-        # Allowlist only metadata. The provider exception, state and reply are
-        # intentionally never passed to logging, even when validation fails.
-        try:
-            logger.info(
-                "npc_workflow trace_id=%s prompt_version=%s provider_mode=%s "
-                "started_at=%s finished_at=%s elapsed_ms=%d calls=%d fallback=%s "
-                "error=%s usage=%s disposition=%s provider=%s model=%s price_version=%s reserved_usd_micros=%s charged_usd_micros=%s",
-                self.trace_id,
-                PROMPT_VERSION,
-                self.provider_mode,
-                self.started_at.isoformat(),
-                self.finished_at.isoformat(),
-                self.elapsed_ms,
-                self.calls,
-                self.fallback,
-                self.error or "none",
-                self.metered_usage or "unknown",
-                disposition,
-                self.provider_name,
-                self.model,
-                self.price_version,
-                self.reserved_micros,
-                self.charged_micros,
-            )
-        except Exception:
-            # Observability can never change a command's outcome.
-            pass
+        record_narrative(
+            trace_id=self.trace_id,
+            provider_mode=self.provider_mode,
+            provider_name=self.provider_name,
+            elapsed_ms=self.elapsed_ms,
+            disposition=disposition,
+            calls=self.calls,
+            fallback=self.fallback,
+            error=self.error,
+            usage=self.metered_usage,
+            model=self.model,
+            price_version=self.price_version,
+            reserved_micros=self.reserved_micros,
+            charged_micros=self.charged_micros,
+        )
 
 
 class NarrativeWorkflow:
@@ -161,7 +148,7 @@ class NarrativeWorkflow:
             # This thread can outlive the request. It holds one slot until it
             # actually exits and has no route back into the graph or repository.
             try:
-                with tracing_context(enabled=False):
+                with tracing_context(enabled=False, parent=False):
                     result = self._provider.generate(request), None, None
             except ProviderFailure as error:
                 result = (
@@ -218,11 +205,15 @@ class NarrativeWorkflow:
         trace_id = uuid4().hex
         started_at = datetime.now(timezone.utc)
         start = monotonic()
-        # Disable automatic external LangGraph/LangSmith tracing even if the
-        # enclosing process has tracing environment variables or an active context.
+
+        def invoke():
+            with tracing_context(enabled=False, parent=False):
+                return self._graph.invoke({"request": request})
+
+        # LangChain also inherits callbacks through ContextVars. An empty
+        # context prevents an outer Runnable's observer from seeing graph inputs.
         try:
-            with tracing_context(enabled=False):
-                output = self._graph.invoke({"request": request}) or {}
+            output = Context().run(invoke) or {}
         except Exception:
             # Unexpected graph/runtime failures also leave the save untouched.
             output = {"error": "graph_unavailable"}

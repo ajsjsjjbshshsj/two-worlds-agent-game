@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
+from tests.ai.log_support import wait_for_log
 from tests.ai.test_openai_compatible import TEST_KEY, example_reply, settings
 from tests.api import test_saves
 from tests.contracts.support import Platform, command, error, lighthouse_to_decision, ok
@@ -136,6 +137,7 @@ def test_consent_identity_scoping_privacy_settlement_and_uuid_replay(world, capl
     with caplog.at_level(logging.INFO):
         result = ok(game.post(backup, hidden, body))
         repeat = ok(game.post(a, hidden, body))
+        wait_for_log(caplog, "charged_usd_micros=15")
     assert len(requests) == 1
     assert result["receipt"]["accepted_version"] == hidden["version"] + 1
     assert repeat["receipt"] == result["receipt"] | {"duplicate": True}
