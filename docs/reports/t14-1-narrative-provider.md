@@ -133,7 +133,73 @@ class NarrativeProvider(ABC):
 
 ---
 
-## 四、具体流转示例
+## 四、PR #44 代码审查修复与反假阳性加固
+
+针对代码审查中发现的 4 项核心安全与测试完备性问题，在分支 `codex/t14-1-narrative-provider` 进行了彻底重构与加固，杜绝假阳性。
+
+### 1. 线索共享测试假阳性修复（问题 1，P1）
+
+- **修复前缺陷**：
+  原 `test_shared_clue_appears_in_context_after_sharing` 遇到可分享线索未发现时直接提前 `return`，在 `share_clue` 命令失败时使用 `except Exception: return` 悄悄吞掉异常，导致测试可能在没有断言任何关键行为的情况下“伪绿”通过。
+- **修复方案与实现**：
+  1. 彻底删除任何 `try...except Exception: return` 与无条件提前退出分支，任何数据构造失败必须使测试显式报红。
+  2. 真实使用《跨时灯塔》预置剧本，角色 A 在初始场景执行真实 `inspect`（目标 `maintenance_log`），必定合法获得 `a_maintenance_log`（剧本规格中声明 `shareable: True`，文本包含“维护日志”）。
+  3. 分享前由搭档 B 向 NPC 提问，FakeProvider 捕获 B 的 `NarrativeContext`：严格断言 B 的 `personal_clues` 和 `shared_clues` 均不包含 `a_maintenance_log`，且序列化上下文中无“维护日志”文本。
+  4. 角色 A 真实提交 `share_clue` 命令，断言命令被平台接受且存档版本从 1 推进至 2，数据库中 `shared_clues` 明确包含 `a_maintenance_log`。
+  5. 分享后搭档 B 再次向 NPC 提问，FakeProvider 捕获 B 的新 `NarrativeContext`：
+     - 严格断言 B 的 `shared_clues` 中包含 `a_maintenance_log` 且内容为“维护日志”；
+     - 严格断言 B 的 `personal_clues` 中不包含该线索（因为该线索不是 B 私人发现的）；
+     - 严格断言未被公开分享的其他私人线索（如 B 发现的 `b_sea_chart`）仍不属于 A，A/B 未共享线索依然处于严格隔离状态。
+
+### 2. A/B 角色私人线索与设备隔离测试增强（问题 2，P2）
+
+- **修复前缺陷**：
+  `test_provider_receives_only_role_a_clues_when_a_talks` 与 `test_provider_receives_only_role_b_clues_when_b_talks` 仅核实了角色字段与提问文本，没有构造双方各自已发现的真实私人线索，未证明 Provider 收到的线索与设备绝对互斥。
+- **修复方案与实现**：
+  1. 角色 A 真实执行 `inspect maintenance_log` 获得私人线索 `a_maintenance_log`（包含文本“维护日志”）。
+  2. 角色 B 真实执行 `inspect sea_chart` 获得私人线索 `b_sea_chart`（包含文本“航道图”）。
+  3. 核实数据库真实底层状态：`discovered_clues` 包含两者，但 `shared_clues` 严格为空。
+  4. A 向 NPC 发起 `talk`：
+     - FakeProvider 收到 A 的授权私人线索 `a_maintenance_log`；
+     - 收到 A 的专属设备 `emitter`（发射端）；
+     - **严格断言**：绝对不包含 B 的线索 ID `b_sea_chart`，绝对不包含 B 线索文本“航道图”，绝对不包含 B 设备 `filter` 和 `power_router`；
+     - 对序列化后的 `NarrativeContext` 进行全文字符串反向断言。
+  5. B 向 NPC 发起 `talk`：
+     - FakeProvider 收到 B 的授权私人线索 `b_sea_chart` 与专属设备 `filter`、`power_router`；
+     - **严格断言**：绝对不包含 A 的线索 ID `a_maintenance_log`、线索文本“维护日志”以及 A 设备 `emitter`；
+     - 对序列化后的 `NarrativeContext` 进行全文字符串反向断言。
+
+### 3. `AllowedDeviceField.value` 严格 Scalar 类型校验（问题 3，P2）
+
+- **修复前缺陷**：
+  `AllowedDeviceField` 中 `value: object` 声明过于宽松，无法在编译期和序列化期防止列表、字典、嵌套复杂对象或非标对象渗入 AI 上下文。
+- **修复方案与实现**：
+  1. 在 `backend/src/twoworlds/ports/narrative.py` 中引入 `Scalar`（来自 `twoworlds.content.schema`，其定义为 `StrictBool | StrictInt | StrictStr`），将 `value: object` 重构为 `value: Scalar`。
+  2. 在 `backend/tests/api/test_narrative_isolation.py` 补充 20 项参数化单元测试：
+     - **10 个正向用例**：覆盖 `True`、`False`、`0`、`1`、`-100`、`12345`、`"active"`、`"observatory"`、`""`、`"pulse"`，全部校验通过；
+     - **10 个反向用例**：覆盖浮点数（`3.14`、`0.0`、`-1.5`）、列表（`[1, 2]`、`["a", "b"]`）、字典（`{"nested": True}`、`{"key": "value"}`）、原生对象（`object()`）、空值（`None`）、元组（` (1, 2)`），全部触发 `ValidationError` 并在测试中断言捕获。
+
+### 4. 跨存档测试同一账号参与两存档隔离修正（问题 4，P2）
+
+- **修复前缺陷**：
+  `test_archive_a_context_does_not_contain_archive_b_data` 原测试使用了两个不同的账号（a1 与 a2），没有证明“**同一个玩家账号参与了两个不同房间/存档**”时的上下文彻底隔离。
+- **修复方案与实现**：
+  1. 创建同一账号 `shared_a`，分别与 `partner_b1` 建立房间 1 及 `save1`，与 `partner_b2` 建立房间 2 及 `save2`。
+  2. 在 `save1` 中，`shared_a` 真实执行 `inspect maintenance_log` 获得线索并向 NPC 发起携带特定标记 `marker_1` 的提问。
+  3. 在 `save2` 中，`shared_a` 尚未执行 inspect，向 NPC 发起携带不同标记 `marker_2` 的提问。
+  4. 严格断言隔离性：
+     - `ctx1` 仅包含 `marker_1` 与 `a_maintenance_log`，序列化中绝无 `marker_2`；
+     - `ctx2` 仅包含 `marker_2`，其 `personal_clues` 绝不包含 `a_maintenance_log`，序列化中绝无 `marker_1`，绝无“维护日志”文本；
+     - `ctx2.recent_dialogue` 历史记录中完全不存在 `marker_1`，证明同一玩家跨存档私聊历史绝不串联。
+
+### 5. 统一测试时钟与真实环境保证
+
+- 定义 `TEST_CLOCK = datetime(2026, 11, 15, tzinfo=timezone.utc)` 及 `make_service` 工具函数，确保在测试中注入一致的时钟源，避免宿主机真实时间领先于 FastAPI TestClient 固定时间导致的 `CLOCK_ERROR`。
+- 本地 60 项非 Mongo 安全隔离测试与 14 项 Dialogue 测试全部通过；CI 环境中配合真实 MongoDB 容器全量通过。
+
+---
+
+## 五、具体流转示例
 
 ```mermaid
 sequenceDiagram
@@ -161,7 +227,7 @@ sequenceDiagram
 
 ---
 
-## 五、学生代码推荐阅读顺序
+## 六、学生代码推荐阅读顺序
 
 1. **白名单定义**：[narrative.py](../../backend/src/twoworlds/ports/narrative.py)  
    阅读 `NarrativeContext` 的白名单定义，了解为什么不能直接给 Provider 传 `SaveRecord`。
@@ -174,7 +240,7 @@ sequenceDiagram
 
 ---
 
-## 六、当前已知限制与后续 T14.2 规划
+## 七、当前已知限制与后续 T14.2 规划
 
 - **当前限制**：目前仅实现演示模式 `DemoNarrativeProvider`，尚无真实外部模型调用能力；暂未接入 LangGraph；`/api/saves/{id}/voice` 仍为 disabled。
 - **下一阶段 T14.2 建议**：

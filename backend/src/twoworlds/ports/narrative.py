@@ -22,7 +22,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StrictStr, StringConstraints
 
-from twoworlds.content.schema import ContentModel, Identifier, Text, Version
+from twoworlds.content.schema import ContentModel, Identifier, Scalar, Text, Version
 
 # ------------------------------------------------------------------
 # 白名单字段类型
@@ -53,12 +53,12 @@ class AllowedClue(ContentModel):
 
 
 class AllowedDeviceField(ContentModel):
-    """当前角色被允许观察的设备字段值。"""
+    """当前角色被允许观察的设备字段值（严格 Scalar：布尔、整数、字符串）。"""
 
     model_config = {"frozen": True}
 
     id: Identifier
-    value: object  # Scalar；保持宽松以免引入内部依赖
+    value: Scalar
 
 
 class AllowedDevice(ContentModel):

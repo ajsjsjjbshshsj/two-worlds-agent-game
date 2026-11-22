@@ -100,6 +100,18 @@ def world(save_apps):
     return game, a, b, pair, save, repo, store
 
 
+TEST_CLOCK = datetime(2026, 11, 15, tzinfo=timezone.utc)
+
+
+def make_service(repo, store, provider=None) -> SaveService:
+    return SaveService(
+        repo,
+        store,
+        clock=lambda: TEST_CLOCK,
+        narrative_provider=provider,
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. NarrativeContext 严格字段校验与白名单
 # ---------------------------------------------------------------------------
@@ -218,6 +230,83 @@ def test_context_has_no_dangerous_fields():
         assert banned_key not in str(serialized).lower(), (
             f"NarrativeContext 不能包含字段 '{banned_key}'"
         )
+
+
+# ---------------------------------------------------------------------------
+# 1.1 AllowedDeviceField 严格 Scalar 校验（只允许 bool, int, str；拒绝 float, list, dict 等）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "valid_scalar",
+    [
+        True,
+        False,
+        0,
+        1,
+        -100,
+        12345,
+        "active",
+        "observatory",
+        "",
+        "pulse",
+    ],
+    ids=[
+        "bool-true",
+        "bool-false",
+        "int-zero",
+        "int-one",
+        "int-negative",
+        "int-positive",
+        "str-normal",
+        "str-keyword",
+        "str-empty",
+        "str-mode",
+    ],
+)
+def test_allowed_device_field_accepts_valid_scalars(valid_scalar):
+    """AllowedDeviceField 接受合法的 Scalar（严格布尔、整数、字符串）。"""
+    from twoworlds.ports.narrative import AllowedDeviceField
+
+    field = AllowedDeviceField(id="power_field", value=valid_scalar)
+    assert field.id == "power_field"
+    assert field.value == valid_scalar
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        3.14,
+        0.0,
+        -1.5,
+        [1, 2],
+        ["a", "b"],
+        {"nested": True},
+        {"key": "value"},
+        object(),
+        None,
+        (1, 2),
+    ],
+    ids=[
+        "float-pi",
+        "float-zero",
+        "float-negative",
+        "list-int",
+        "list-str",
+        "dict-bool",
+        "dict-str",
+        "raw-object",
+        "none-value",
+        "tuple-value",
+    ],
+)
+def test_allowed_device_field_rejects_non_scalar_values(invalid_value):
+    """AllowedDeviceField 严格拒绝浮点数、列表、字典及任意非标对象。"""
+    from pydantic import ValidationError
+    from twoworlds.ports.narrative import AllowedDeviceField
+
+    with pytest.raises(ValidationError):
+        AllowedDeviceField(id="bad_field", value=invalid_value)
 
 
 # ---------------------------------------------------------------------------
@@ -433,33 +522,64 @@ def test_build_limits_dialogue_to_20_turns():
 
 
 def test_provider_receives_only_role_a_clues_when_a_talks(world):
-    """场景1：A 与 NPC 对话，Provider 只收到 A 的授权信息。"""
-    game, a, _, _, save, repo, store = world
+    """场景1：A 与 NPC 对话，Provider 只收到 A 的授权私人线索，绝不包含 B 的私人线索。"""
+    game, a, b, _, save, repo, store = world
     fake = FakeProvider()
     save_id = save["id"]
 
-    a_id = a.account_id
-    svc = SaveService(repo, store, narrative_provider=fake)
+    # 1. A 合法发现私人线索 a_maintenance_log
+    save = game.accept(a, save, "inspect", {"target": "maintenance_log"})
+    assert save["version"] == 1
+    # 2. B 合法发现私人线索 b_sea_chart
+    save = game.accept(b, save, "inspect", {"target": "sea_chart"})
+    assert save["version"] == 2
 
-    raw_save = repo.get_save(save_id)
+    # 确认数据库层两线索均已发现，且均未公开分享
+    stored = repo.get_save(save_id)
+    assert set(stored.state.discovered_clues) == {"a_maintenance_log", "b_sea_chart"}
+    assert stored.state.shared_clues == ()
+
+    # 3. A 向 NPC 发起 talk（通过 SaveService 注入 FakeProvider）
+    svc = make_service(repo, store, fake)
     cmd = GameCommand.model_validate(
         {
             "kind": "talk",
-            "args": {"question": "我是A，这是我的私人问题"},
+            "args": {"question": "我是角色A，请告诉我接下来的线索"},
             "request_id": str(uuid4()),
-            "expected_version": raw_save.version,
+            "expected_version": save["version"],
         }
     )
-    result = svc.submit_command(a_id, save_id, cmd)
+    result = svc.submit_command(a.account_id, save_id, cmd)
     assert result is not None
 
-    assert len(fake.calls) >= 1
+    # 4. 深度断言 FakeProvider 捕获的 A 角色上下文
     ctx = fake.last_context
     assert ctx.role == "a"
     assert ctx.script_id == "lighthouse"
-    assert ctx.question == "我是A，这是我的私人问题"
+    assert ctx.question == "我是角色A，请告诉我接下来的线索"
 
+    # A 自己的私人线索必须在 personal_clues 中，文本匹配
+    a_clue_ids = [c.id for c in ctx.personal_clues]
+    assert a_clue_ids == ["a_maintenance_log"]
+    assert "维护日志" in ctx.personal_clues[0].text
+
+    # 关键隔离：B 的私人线索绝对不在 A 的上下文（个人线索或共享线索）中
+    assert "b_sea_chart" not in a_clue_ids
+    assert ctx.shared_clues == ()
+
+    # 关键隔离：B 的私人线索文本与关键词绝对不出现在整个序列化上下文中
     ctx_str = json.dumps(ctx.model_dump(), ensure_ascii=False)
+    assert "b_sea_chart" not in ctx_str
+    assert "航道图" not in ctx_str
+    assert "内湾航道" not in ctx_str
+    assert "暗礁" not in ctx_str
+
+    # 设备隔离：A 的发射器 (emitter) 存在，B 的接收器 (receiver) 绝不存在
+    device_ids = [d.id for d in ctx.personal_devices]
+    assert "emitter" in device_ids
+    assert "receiver" not in device_ids
+
+    # 禁止凭据字段
     for banned in (
         "password_hash",
         "invite_digest",
@@ -471,29 +591,60 @@ def test_provider_receives_only_role_a_clues_when_a_talks(world):
 
 
 def test_provider_receives_only_role_b_clues_when_b_talks(world):
-    """场景2：B 与 NPC 对话，Provider 只收到 B 的授权信息（反向验证）。"""
-    game, _, b, _, save, repo, store = world
+    """场景2：B 与 NPC 对话，Provider 只收到 B 的授权私人线索，绝不包含 A 的未公开线索（反向验证）。"""
+    game, a, b, _, save, repo, store = world
     fake = FakeProvider()
     save_id = save["id"]
 
-    b_id = b.account_id
-    svc = SaveService(repo, store, narrative_provider=fake)
-    raw_save = repo.get_save(save_id)
+    # 1. A 合法发现私人线索 a_maintenance_log
+    save = game.accept(a, save, "inspect", {"target": "maintenance_log"})
+    # 2. B 合法发现私人线索 b_sea_chart
+    save = game.accept(b, save, "inspect", {"target": "sea_chart"})
 
+    stored = repo.get_save(save_id)
+    assert set(stored.state.discovered_clues) == {"a_maintenance_log", "b_sea_chart"}
+    assert stored.state.shared_clues == ()
+
+    # 3. B 向 NPC 发起 talk
+    svc = make_service(repo, store, fake)
     cmd = GameCommand.model_validate(
         {
             "kind": "talk",
-            "args": {"question": "我是B，这是我的私人问题"},
+            "args": {"question": "我是角色B，请协助观测"},
             "request_id": str(uuid4()),
-            "expected_version": raw_save.version,
+            "expected_version": save["version"],
         }
     )
-    svc.submit_command(b_id, save_id, cmd)
-    ctx = fake.last_context
+    result = svc.submit_command(b.account_id, save_id, cmd)
+    assert result is not None
 
+    # 4. 深度断言 FakeProvider 捕获的 B 角色上下文
+    ctx = fake.last_context
     assert ctx.role == "b"
-    assert ctx.question == "我是B，这是我的私人问题"
-    assert len(ctx.recent_dialogue) == 0
+    assert ctx.script_id == "lighthouse"
+    assert ctx.question == "我是角色B，请协助观测"
+
+    # B 自己的私人线索必须在 personal_clues 中，文本匹配
+    b_clue_ids = [c.id for c in ctx.personal_clues]
+    assert b_clue_ids == ["b_sea_chart"]
+    assert "航道图" in ctx.personal_clues[0].text
+
+    # 关键隔离：A 的私人线索绝对不在 B 的上下文（个人线索或共享线索）中
+    assert "a_maintenance_log" not in b_clue_ids
+    assert ctx.shared_clues == ()
+
+    # 关键隔离：A 的私人线索文本与关键词绝对不出现在整个序列化上下文中
+    ctx_str = json.dumps(ctx.model_dump(), ensure_ascii=False)
+    assert "a_maintenance_log" not in ctx_str
+    assert "维护日志" not in ctx_str
+    assert "发射器有0°" not in ctx_str
+    assert "琥珀滤镜" not in ctx_str
+
+    # 设备隔离：B 的设备 (filter, power_router) 存在，A 的发射器 (emitter) 绝不存在
+    device_ids = [d.id for d in ctx.personal_devices]
+    assert "filter" in device_ids
+    assert "power_router" in device_ids
+    assert "emitter" not in device_ids
 
 
 def test_a_and_b_dialogues_are_isolated_in_context(world):
@@ -504,7 +655,7 @@ def test_a_and_b_dialogues_are_isolated_in_context(world):
 
     a_id = a.account_id
     b_id = b.account_id
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
 
     # A 先发言
     raw_save = repo.get_save(save_id)
@@ -551,7 +702,7 @@ def test_shared_clue_not_in_partner_context_before_sharing(world):
     save_id = save["id"]
     b_id = b.account_id
 
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
     raw_save = repo.get_save(save_id)
     cmd_b = GameCommand.model_validate(
         {
@@ -571,72 +722,71 @@ def test_shared_clue_not_in_partner_context_before_sharing(world):
 
 
 def test_shared_clue_appears_in_context_after_sharing(world):
-    """通过游戏规则正式共享后，授权的公开信息可以进入上下文。"""
+    """通过游戏规则正式共享后，授权的公开信息可以进入上下文，未分享的保持隔离（避免假阳性）。"""
     game, a, b, _, save, repo, store = world
     fake = FakeProvider()
     save_id = save["id"]
+    svc = make_service(repo, store, fake)
 
-    a_id = a.account_id
-    b_id = b.account_id
+    # 1. A 发现私人线索 a_maintenance_log
+    save = game.accept(a, save, "inspect", {"target": "maintenance_log"})
+    assert save["version"] == 1
+    assert "a_maintenance_log" in repo.get_save(save_id).state.discovered_clues
 
-    raw_save = repo.get_save(save_id)
-    inspect_svc = SaveService(repo, store)
-    cmd_inspect = GameCommand.model_validate(
-        {
-            "kind": "inspect",
-            "args": {"target": "maintenance_log"},
-            "request_id": str(uuid4()),
-            "expected_version": raw_save.version,
-        }
-    )
-    try:
-        inspect_svc.submit_command(a_id, save_id, cmd_inspect)
-    except Exception:
-        pass
-
-    raw_save = repo.get_save(save_id)
-    script = store.load("lighthouse", "1.0.0")
-    shareable = [
-        c.id
-        for c in script.clues
-        if c.id in raw_save.state.discovered_clues
-        and c.id not in raw_save.state.shared_clues
-        and c.role == "a"
-    ]
-
-    if not shareable:
-        return  # 若当前状态无分享线索则跳过
-
-    clue_to_share = shareable[0]
-    raw_save = repo.get_save(save_id)
-    cmd_share = GameCommand.model_validate(
-        {
-            "kind": "share_clue",
-            "args": {"clue_id": clue_to_share},
-            "request_id": str(uuid4()),
-            "expected_version": raw_save.version,
-        }
-    )
-    try:
-        inspect_svc.submit_command(a_id, save_id, cmd_share)
-    except Exception:
-        return
-
-    svc = SaveService(repo, store, narrative_provider=fake)
-    raw_save = repo.get_save(save_id)
-    cmd_b = GameCommand.model_validate(
+    # 2. 分享前：B 与 NPC 对话
+    cmd_pre = GameCommand.model_validate(
         {
             "kind": "talk",
-            "args": {"question": "B在分享后的问题"},
+            "args": {"question": "B在分享前的提问"},
             "request_id": str(uuid4()),
-            "expected_version": raw_save.version,
+            "expected_version": save["version"],
         }
     )
-    svc.submit_command(b_id, save_id, cmd_b)
-    ctx_b = fake.last_context
+    svc.submit_command(b.account_id, save_id, cmd_pre)
+    ctx_pre = fake.last_context
+    assert ctx_pre.role == "b"
+    # 严格断言：分享前 B 的 personal_clues 和 shared_clues 都没有 a_maintenance_log
+    assert "a_maintenance_log" not in [c.id for c in ctx_pre.personal_clues]
+    assert "a_maintenance_log" not in [c.id for c in ctx_pre.shared_clues]
+    assert ctx_pre.shared_clues == ()
+    # 整个上下文都不出现 A 的私人线索文本
+    pre_str = json.dumps(ctx_pre.model_dump(), ensure_ascii=False)
+    assert "维护日志" not in pre_str
+    assert "发射器有0°" not in pre_str
 
-    shared_ids = {c.id for c in ctx_b.shared_clues}
-    assert clue_to_share in shared_ids, f"分享后 B 的上下文中未包含线索 {clue_to_share}"
+    # 3. A 通过合法 share_clue 命令分享该线索
+    save = game.read(a, save)
+    save = game.accept(a, save, "share_clue", {"clue_id": "a_maintenance_log"})
+    # 明确断言共享操作成功，进入 shared_clues
+    stored_after_share = repo.get_save(save_id)
+    assert "a_maintenance_log" in stored_after_share.state.shared_clues
+
+    # 4. 分享后：B 再次与 NPC 对话
+    save = game.read(b, save)
+    cmd_post = GameCommand.model_validate(
+        {
+            "kind": "talk",
+            "args": {"question": "B在分享后的提问"},
+            "request_id": str(uuid4()),
+            "expected_version": save["version"],
+        }
+    )
+    svc.submit_command(b.account_id, save_id, cmd_post)
+    ctx_post = fake.last_context
+    assert ctx_post.role == "b"
+
+    # 严格断言：B 的 shared_clues 包含 a_maintenance_log，且包含完整的公开文本
+    shared_ids = [c.id for c in ctx_post.shared_clues]
+    assert "a_maintenance_log" in shared_ids
+    shared_clue = next(c for c in ctx_post.shared_clues if c.id == "a_maintenance_log")
+    assert "维护日志" in shared_clue.text
+
+    # 严格断言：该线索在 B 的 shared_clues 中，而不是 personal_clues 中
+    assert "a_maintenance_log" not in [c.id for c in ctx_post.personal_clues]
+
+    # 严格断言：B 尚未发现的 b_sea_chart 仍然既不在 personal 也不在 shared
+    assert "b_sea_chart" not in [c.id for c in ctx_post.personal_clues]
+    assert "b_sea_chart" not in shared_ids
 
 
 # ---------------------------------------------------------------------------
@@ -645,47 +795,76 @@ def test_shared_clue_appears_in_context_after_sharing(world):
 
 
 def test_archive_a_context_does_not_contain_archive_b_data(world):
-    """同一账号不同存档的上下文严格隔离。"""
-    game, a1, _, pair1, save1, repo, store = world
+    """同一账号参与两个不同存档，上下文历史与线索严格隔离。"""
+    game, _, _, _, _, repo, store = world
     fake = FakeProvider()
 
-    # 创建第二个存档
-    a2, _, pair2 = game.pair()
-    save2 = game.save(a2, pair2)
+    # 1. 构造同一个真实玩家账号 shared_a
+    shared_a = game.account(name="同一玩家A")
+    # 2. 构造两个独立的搭档账号
+    partner_b1 = game.account(name="搭档B1")
+    partner_b2 = game.account(name="搭档B2")
 
-    save1_id = save1["id"]
-    save2_id = save2["id"]
-    a1_id = a1.account_id
-    a2_id = a2.account_id
+    # 3. shared_a 分别与 B1、B2 建立两组独立房间
+    _, _, pair1 = game.pair(a=shared_a, b=partner_b1)
+    _, _, pair2 = game.pair(a=shared_a, b=partner_b2)
+    assert pair1["id"] != pair2["id"]
 
-    svc = SaveService(repo, store, narrative_provider=fake)
-    raw_save2 = repo.get_save(save2_id)
-    archive2_marker = "ARCHIVE2_MARKER_" + str(uuid4())
-    cmd2 = GameCommand.model_validate(
-        {
-            "kind": "talk",
-            "args": {"question": archive2_marker},
-            "request_id": str(uuid4()),
-            "expected_version": raw_save2.version,
-        }
-    )
-    svc.submit_command(a2_id, save2_id, cmd2)
+    # 4. 在两组房间分别为 shared_a 创建存档
+    save1 = game.save(shared_a, pair1)
+    save2 = game.save(shared_a, pair2)
+    assert save1["id"] != save2["id"]
 
-    fake.calls.clear()
-    raw_save1 = repo.get_save(save1_id)
+    # 验证两个存档均属于同一账号 shared_a，角色均为 "a"
+    assert save1["role"] == "a"
+    assert save2["role"] == "a"
+
+    svc = make_service(repo, store, fake)
+
+    # 5. 在存档 1 中：shared_a 发现线索 a_maintenance_log，并与 NPC 对话
+    save1 = game.accept(shared_a, save1, "inspect", {"target": "maintenance_log"})
+    marker_1 = "SAVE1_EXCLUSIVE_QUESTION_" + str(uuid4())
     cmd1 = GameCommand.model_validate(
         {
             "kind": "talk",
-            "args": {"question": "ARCHIVE1_QUESTION_" + str(uuid4())},
+            "args": {"question": marker_1},
             "request_id": str(uuid4()),
-            "expected_version": raw_save1.version,
+            "expected_version": save1["version"],
         }
     )
-    svc.submit_command(a1_id, save1_id, cmd1)
-
+    svc.submit_command(shared_a.account_id, save1["id"], cmd1)
     ctx1 = fake.last_context
+
+    # 6. 在存档 2 中：shared_a 不执行 inspect（线索为空），与 NPC 进行独立对话
+    marker_2 = "SAVE2_EXCLUSIVE_QUESTION_" + str(uuid4())
+    cmd2 = GameCommand.model_validate(
+        {
+            "kind": "talk",
+            "args": {"question": marker_2},
+            "request_id": str(uuid4()),
+            "expected_version": save2["version"],
+        }
+    )
+    svc.submit_command(shared_a.account_id, save2["id"], cmd2)
+    ctx2 = fake.last_context
+
+    # 7. 严格断言：存档 1 上下文
+    assert ctx1.question == marker_1
+    assert "a_maintenance_log" in [c.id for c in ctx1.personal_clues]
     ctx1_str = json.dumps(ctx1.model_dump(), ensure_ascii=False)
-    assert archive2_marker not in ctx1_str, "存档1的上下文中包含了存档2的信息！"
+    assert marker_2 not in ctx1_str, "存档 1 上下文中串入了存档 2 的提问！"
+
+    # 8. 严格断言：存档 2 上下文
+    assert ctx2.question == marker_2
+    # 存档 2 中未执行 inspect，personal_clues 绝不包含存档 1 发现的 a_maintenance_log
+    assert "a_maintenance_log" not in [c.id for c in ctx2.personal_clues]
+    ctx2_str = json.dumps(ctx2.model_dump(), ensure_ascii=False)
+    assert marker_1 not in ctx2_str, "存档 2 上下文中串入了存档 1 的提问！"
+    assert "维护日志" not in ctx2_str, "存档 2 上下文中串入了存档 1 的线索文本！"
+
+    # 9. 校验 recent_dialogue 对话历史隔离
+    # 存档 2 中的 recent_dialogue 不包含存档 1 的提问 marker_1
+    assert all(turn.question != marker_1 for turn in ctx2.recent_dialogue)
 
 
 def test_save_id_does_not_appear_in_context(world):
@@ -695,7 +874,7 @@ def test_save_id_does_not_appear_in_context(world):
     save_id = save["id"]
     a_id = a.account_id
 
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
     raw_save = repo.get_save(save_id)
     cmd = GameCommand.model_validate(
         {
@@ -726,7 +905,7 @@ def test_different_accounts_cannot_access_each_others_save(world):
     outsider = game.account()
     outsider_id = outsider.account_id
 
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
     raw_save1 = repo.get_save(save_id)
     cmd = GameCommand.model_validate(
         {
@@ -759,8 +938,8 @@ def test_same_question_text_different_accounts_see_different_contexts(world):
 
     same_question = "相同的问题文本"
 
-    svc_1 = SaveService(repo, store, narrative_provider=fake_a)
-    svc_2 = SaveService(repo, store, narrative_provider=fake_b)
+    svc_1 = make_service(repo, store, fake_a)
+    svc_2 = make_service(repo, store, fake_b)
 
     raw1 = repo.get_save(save1_id)
     cmd1 = GameCommand.model_validate(
@@ -818,7 +997,7 @@ def test_malicious_input_does_not_expand_provider_data_access(
     save_id = save["id"]
     a_id = a.account_id
 
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
     raw_save = repo.get_save(save_id)
     cmd = GameCommand.model_validate(
         {
@@ -858,7 +1037,7 @@ def test_malicious_input_does_not_change_game_state(world, malicious_question):
     before_facts = before.state.model_dump(exclude={"version"})
     before_history = before.public_history.model_dump(exclude={"through_version"})
 
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
     cmd = GameCommand.model_validate(
         {
             "kind": "talk",
@@ -890,7 +1069,7 @@ def test_demo_provider_does_not_complete_game_on_malicious_request(world):
     before = repo.get_save(save_id)
     assert not before.state.completed
 
-    svc = SaveService(repo, store, narrative_provider=fake)
+    svc = make_service(repo, store, fake)
     cmd = GameCommand.model_validate(
         {
             "kind": "talk",
@@ -924,7 +1103,7 @@ def test_talk_does_not_change_facts_devices_clues(world):
     before_completed = before.state.completed
     before_ending = before.state.ending_id
 
-    svc = SaveService(repo, store)
+    svc = make_service(repo, store)
     cmd = GameCommand.model_validate(
         {
             "kind": "talk",
@@ -957,7 +1136,7 @@ def test_talk_does_not_produce_public_events(world):
     before_event_count = len(before.public_history.events)
     before_milestone_count = len(before.public_history.milestones)
 
-    svc = SaveService(repo, store)
+    svc = make_service(repo, store)
     cmd = GameCommand.model_validate(
         {
             "kind": "talk",
@@ -980,7 +1159,7 @@ def test_talk_partner_cannot_see_my_dialogue(world):
     a_id = a.account_id
 
     marker = "PRIVATE_" + str(uuid4())
-    svc = SaveService(repo, store)
+    svc = make_service(repo, store)
     raw_save = repo.get_save(save_id)
     cmd = GameCommand.model_validate(
         {
