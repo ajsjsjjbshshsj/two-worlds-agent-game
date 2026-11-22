@@ -7,6 +7,7 @@ from threading import Barrier, Event
 
 import pytest
 
+from tests.ai.log_support import wait_for_log
 from tests.ai.test_graph import FakeProvider, fake_reply
 from tests.api import test_saves as lifecycle
 from tests.contracts.support import Platform, command, error, ok
@@ -89,6 +90,7 @@ def test_partner_advances_while_graph_runs_and_stale_result_never_lands(
             assert not error(pending.result(timeout=5), 409, "VERSION_CONFLICT")[
                 "retryable"
             ]
+        wait_for_log(caplog, "disposition=stale")
 
     assert len(provider.calls) == 1
     assert game.receipt(a, save, body["request_id"]) == {"accepted": False}
@@ -276,6 +278,7 @@ def test_timeout_persists_only_demo_fallback_and_late_text_cannot_write(world, c
     try:
         with caplog.at_level(logging.INFO, logger="twoworlds.ai.graph"):
             accepted = ok(game.post(a, save, u))
+            wait_for_log(caplog, "error=timeout")
         assert entered.is_set() and not finished.is_set()
         turn = accepted["save"]["personal"]["dialogue"][0]
         assert turn["mode"] == "fallback" and turn["answer"] == DEMO_ANSWER

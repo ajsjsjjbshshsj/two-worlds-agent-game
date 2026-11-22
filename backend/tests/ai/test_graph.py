@@ -5,6 +5,7 @@ from threading import Event, current_thread
 from langsmith.utils import tracing_is_enabled
 import pytest
 
+from tests.ai.log_support import wait_for_log
 from twoworlds.ai.graph import NarrativeLimits, NarrativeWorkflow
 from twoworlds.application.dialogue import DEMO_ANSWER, DemoNarrativeProvider
 from twoworlds.ports.narrative import (
@@ -93,6 +94,7 @@ def test_fake_provider_validation_and_metadata_are_private(caplog, monkeypatch):
         second = flow.run(request_for("SECRET_2", "b"))
         first.record("committed")
         second.record("stale")
+        wait_for_log(caplog, f"trace_id={second.trace_id}")
     assert [r.context.role for r in fake.calls] == ["a", "b"]
     assert [r.context.question for r in fake.calls] == ["SECRET_1", "SECRET_2"]
     assert first.trace_id != second.trace_id
@@ -171,6 +173,7 @@ def test_exception_is_sanitized_and_usage_is_unknown(caplog):
     with caplog.at_level(logging.INFO, logger="twoworlds.ai.graph"):
         run = NarrativeWorkflow(fake, NarrativeLimits()).run(request_for())
         run.record("committed")
+        wait_for_log(caplog, f"trace_id={run.trace_id}")
     assert run.response.text == DEMO_ANSWER and run.response.mode == "fallback"
     assert run.error == "provider_error" and run.calls == len(fake.calls) == 1
     assert "usage=unknown" in caplog.text
