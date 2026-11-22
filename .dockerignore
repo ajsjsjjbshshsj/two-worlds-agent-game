@@ -1,0 +1,55 @@
+# Git and local agent metadata
+.git/
+.codex/
+.agents/
+.idea/
+*.iml
+
+# Python environments, build caches, and test artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Frontend dependencies and builds
+node_modules/
+dist/
+build/
+coverage/
+.coverage
+htmlcov/
+playwright-report/
+test-results/
+
+# Local credentials and secret files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases and runtime state
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.log
+
+# Temporary and design scratch areas
+/work/*
+!/work/generate_architecture.py
+/backend/work/
+/frontend/work/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
