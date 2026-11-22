@@ -3,7 +3,7 @@
 日期：2026-11-22  
 任务分支：`codex/t15-1-containerization`  
 目标基线：`codex/bootstrap`（包含已合并的 PR #48，提交 `c8807167e6953d18affe52697534811772bcdfed`）  
-对应 PR：待创建
+对应 PR：#49（T15.1 已合并），#50（T15.1.1 审查修复与测试完善）
 
 ---
 
@@ -212,7 +212,11 @@
 
 3. **生产邮件服务安全默认值与配置注入 (`compose.yml`)**：
    - **问题**：生产编排中 `TWOWORLDS_EMAIL_MODE` 默认回退到 `console`，可能导致生产验证码直接打印到容器标准输出日志中。
-   - **修复**：`compose.yml` 中生产默认值调整为 `smtp`，并在环境变量块中完整声明 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`；同时在 `backend/tests/api/test_server.py` 中补充测试验证生产模式下缺少 SMTP 配置时坚决报错退出（`ValueError: Explicit SMTP host, port and from address required`），而 `compose.demo.yml` 维持 `console` 模式不受影响。
+   - **修复**：`compose.yml` 中生产默认值调整为 `smtp`，并在环境变量块中完整声明 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`，而 `compose.demo.yml` 维持 `console` 模式不受影响。
+
+4. **SMTP 配置校验与错误脱敏专项测试 (`backend/tests/api/test_server.py`)**：
+   - 补充 5 项完整配置测试：SMTP_HOST 缺失拒绝、SMTP_FROM 缺失拒绝、SMTP_USERNAME 存在缺密码拒绝、全量 SMTP 配置合法通过、Demo 模式无需 SMTP 配置。
+   - 补充 SMTP 错误脱敏测试：验证底层 SMTP 认证失败异常详情不外泄、密码不外泄、验证码不外泄、异常 `from None` 压制原因链，且 `CodeDelivery` 异步处理日志只记录安全提示。全量测试共 28 项通过。
 
 ---
 

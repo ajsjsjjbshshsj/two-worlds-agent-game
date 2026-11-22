@@ -237,16 +237,12 @@ def test_main_cli_parses_host_and_port(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# SMTP Email Mode Validation (compose.yml production default = smtp)
+# SMTP Email Mode Validation & Error Sanitization
 # ---------------------------------------------------------------------------
 
 
-def test_production_smtp_mode_rejects_missing_smtp_host():
-    """Production + TWOWORLDS_EMAIL_MODE=smtp must reject when SMTP_HOST is absent.
-
-    This is the key guard for compose.yml defaulting to smtp: without SMTP_HOST
-    and SMTP_FROM the backend refuses to start rather than silently using no-op email.
-    """
+def test_production_smtp_mode_rejects_missing_host_when_from_present():
+    """1. SMTP_HOST 缺失、SMTP_FROM 存在时，生产模式拒绝启动。"""
     env = {
         "TWOWORLDS_MODE": "production",
         "TWOWORLDS_STORAGE_BACKEND": "mongo",
@@ -255,17 +251,56 @@ def test_production_smtp_mode_rejects_missing_smtp_host():
         "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
         "MONGO_URI": "mongodb://127.0.0.1:27017",
         "MONGO_DATABASE": "twoworlds",
-        # SMTP_HOST and SMTP_FROM intentionally omitted
+        # SMTP_FROM is present, but SMTP_HOST is intentionally omitted
+        "SMTP_FROM": "noreply@example.com",
     }
-    with pytest.raises(ValueError, match="SMTP"):
+    with pytest.raises(
+        ValueError, match="Explicit SMTP host, port and from address required"
+    ):
         create_server_app(env)
 
 
-def test_production_smtp_mode_accepts_full_smtp_config(mongo_database):
-    """Production + smtp + complete SMTP config must pass email validation.
+def test_production_smtp_mode_rejects_missing_from_when_host_present():
+    """2. SMTP_FROM 缺失、SMTP_HOST 存在时，生产模式拒绝启动。"""
+    env = {
+        "TWOWORLDS_MODE": "production",
+        "TWOWORLDS_STORAGE_BACKEND": "mongo",
+        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "smtp",
+        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
+        "MONGO_URI": "mongodb://127.0.0.1:27017",
+        "MONGO_DATABASE": "twoworlds",
+        # SMTP_HOST is present, but SMTP_FROM is intentionally omitted
+        "SMTP_HOST": "mail.example.com",
+    }
+    with pytest.raises(
+        ValueError, match="Explicit SMTP host, port and from address required"
+    ):
+        create_server_app(env)
 
-    Uses a fake SMTP host — no real connection is made during app construction.
-    """
+
+def test_production_smtp_mode_rejects_username_without_password():
+    """3. SMTP_USERNAME 存在但 SMTP_PASSWORD 缺失时，生产模式拒绝启动。"""
+    env = {
+        "TWOWORLDS_MODE": "production",
+        "TWOWORLDS_STORAGE_BACKEND": "mongo",
+        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "smtp",
+        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
+        "MONGO_URI": "mongodb://127.0.0.1:27017",
+        "MONGO_DATABASE": "twoworlds",
+        "SMTP_HOST": "mail.example.com",
+        "SMTP_PORT": "587",
+        "SMTP_FROM": "noreply@example.com",
+        "SMTP_USERNAME": "test_smtp_user",
+        # SMTP_PASSWORD is intentionally omitted
+    }
+    with pytest.raises(ValueError, match="SMTP password required when username is set"):
+        create_server_app(env)
+
+
+def test_production_smtp_mode_accepts_all_valid_smtp_config(mongo_database):
+    """4. SMTP_HOST、SMTP_PORT、SMTP_FROM、SMTP_USERNAME、SMTP_PASSWORD 全部正确时，生产模式通过配置校验。"""
     database, uri = mongo_database
     env = {
         "TWOWORLDS_MODE": "production",
@@ -275,21 +310,18 @@ def test_production_smtp_mode_accepts_full_smtp_config(mongo_database):
         "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
         "MONGO_URI": uri,
         "MONGO_DATABASE": database.name,
-        # Minimal valid SMTP config (no password required when no username set)
         "SMTP_HOST": "mail.example.com",
         "SMTP_PORT": "587",
         "SMTP_FROM": "noreply@example.com",
+        "SMTP_USERNAME": "test_smtp_user",
+        "SMTP_PASSWORD": "test_smtp_password",
     }
-    # Should not raise — email sender is validated at construction, not at send time
     app = create_server_app(env)
     assert app is not None
 
 
 def test_demo_mode_console_email_unaffected_by_smtp_compose_default(tmp_path):
-    """Demo mode with explicit console email must succeed without any SMTP_* vars.
-
-    compose.demo.yml keeps TWOWORLDS_EMAIL_MODE=console so this path is safe.
-    """
+    """5. Demo 模式仍然可以显式使用 console，不需要 SMTP 配置。"""
     db_path = tmp_path / "demo.sqlite"
     env = {
         "TWOWORLDS_MODE": "demo",
@@ -301,3 +333,87 @@ def test_demo_mode_console_email_unaffected_by_smtp_compose_default(tmp_path):
     }
     app = create_server_app(env)
     assert app is not None
+
+
+def test_smtp_sender_error_sanitization_does_not_leak_credentials_or_code(
+    monkeypatch, caplog
+):
+    """SMTP 错误脱敏测试：
+    - SMTP 发送异常不会泄露 SMTP_PASSWORD。
+    - 不会泄露验证码。
+    - 不会泄露 SMTP 连接异常详情。
+    - 上层日志不会记录邮箱和验证码。
+    """
+    import smtplib
+
+    from twoworlds.application.verification import CodeDelivery
+    from twoworlds.ports.email import EmailSendError
+    from twoworlds.security.mailer import SmtpEmailCodeSender
+
+    test_password = "leak-check-password-secret-xyz"
+    test_code = "729401"
+    test_email = "target-user@example.com"
+    raw_smtp_error = "535 5.7.8 Credentials rejected with session 0xDEADBEEF"
+
+    class FaultySMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def ehlo(self):
+            pass
+
+        def starttls(self, *args, **kwargs):
+            pass
+
+        def login(self, user, password):
+            raise smtplib.SMTPAuthenticationError(535, raw_smtp_error)
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", FaultySMTP)
+
+    sender = SmtpEmailCodeSender(
+        host="mail.example.com",
+        port=587,
+        username="smtp_user",
+        password=test_password,
+        sender="noreply@example.com",
+    )
+
+    # 1. 验证直接调用 SmtpEmailCodeSender 产生的异常信息与堆栈被彻底脱敏
+    with pytest.raises(EmailSendError) as exc_info:
+        sender.send_code(test_email, "register", test_code)
+
+    err = exc_info.value
+    err_text = str(err)
+    # 消息严格标准化，绝不向上传播底层详细堆栈
+    assert err_text == "Verification email delivery failed"
+    # 原因链被 from None 显式压制
+    assert err.__cause__ is None
+    assert err.__suppress_context__ is True
+    # 密码、验证码、底层异常细节绝对不出现在异常描述中
+    assert test_password not in err_text
+    assert test_code not in err_text
+    assert raw_smtp_error not in err_text
+    assert test_email not in err_text
+
+    # 2. 验证结合 CodeDelivery 异步处理层时，日志脱敏且正确执行 on_failure 回调
+    delivery = CodeDelivery(sender, max_workers=1)
+    failed = []
+    delivery.submit(
+        test_email,
+        "register",
+        test_code,
+        on_failure=lambda: failed.append(True),
+    )
+    assert delivery.wait(timeout=5)
+    delivery.close()
+
+    assert len(failed) == 1
+    # 检查全局日志：绝无密码、验证码、邮箱及底层 SMTP 报错明细
+    assert test_password not in caplog.text
+    assert test_code not in caplog.text
+    assert test_email not in caplog.text
+    assert raw_smtp_error not in caplog.text
+    assert "Verification email delivery failed (purpose=register)" in caplog.text
