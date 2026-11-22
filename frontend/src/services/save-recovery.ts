@@ -170,7 +170,7 @@ export function createSaveRecovery(id: string, options: RecoveryOptions) {
 
   function suspend() {
     paused = true
-    needsVerification ||= document.hidden || pageHidden
+    needsVerification = true // Online is a hint; every gap must recheck the session.
     cancelWork()
     publish(document.hidden || pageHidden ? 'paused' : 'offline', false)
   }

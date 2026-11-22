@@ -8,6 +8,7 @@ const messages: Record<number, string> = {
   503: '服务暂时不可用，请稍后再试。',
 }
 const resourceMessages: Record<string, string> = {
+  OFFLINE: '当前离线，操作未发送。请联网并重新确认进度。',
   INVITE_INVALID: '邀请无效、已过期或已刷新。请向搭档索取新链接。',
   PAIR_FULL: '房间已满员，无法加入或刷新邀请。',
   PAIR_NOT_FOUND: '房间不存在或你无权访问，请刷新房间列表。',
@@ -103,6 +104,7 @@ export function createHttpClient(options: { baseUrl?: string; timeoutMs?: number
   }
 
   async function send<T>(path: string, request: RequestOptions): Promise<T> {
+    if (navigator.onLine === false) throw new ApiError(0, 'OFFLINE', true)
     // Compare the entire match: JavaScript's $ alone also accepts a final newline.
     const validPath =
       /^\/api\/[a-z][a-z0-9_]{0,63}(?:\/[a-z][a-z0-9_]{0,63})*$/.exec(path)?.[0] === path

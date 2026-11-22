@@ -48,6 +48,7 @@ test-results/
 /work/*
 !/work/generate_architecture.py
 /backend/work/
+/frontend/work/
 
 # Operating-system files
 .DS_Store

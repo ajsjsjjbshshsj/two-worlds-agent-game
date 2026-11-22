@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#091725" />
+    <title>TwoWorlds · 暂时离线</title>
+    <link rel="stylesheet" href="__BASE__pwa/offline.css" />
+    <script defer src="__BASE__pwa/offline.js"></script>
+  </head>
+  <body>
+    <main>
+      <p>TwoWorlds · 两个人，两个世界</p>
+      <h1>暂时无法连接</h1>
+      <p role="status">当前无法连接 TwoWorlds。游戏操作需要服务器确认，离线期间不会推进存档。</p>
+      <p>
+        这里只显示公共离线页面，不读取身份、私人线索或游戏记录。联网后会重新确认会话与服务器进度；结果待确认的操作会保留原
+        UUID 供核对。
+      </p>
+      <button id="retry" type="button">重新连接</button>
+      <a href="__BASE__">返回应用入口</a>
+      <p>如果网络已经恢复但仍无法进入，请稍后重试。不会自动重新提交游戏操作。</p>
+    </main>
+  </body>
+</html>
