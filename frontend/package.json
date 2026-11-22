@@ -12,7 +12,7 @@
     "test:unit": "vitest run",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "format:check": "prettier --check src tests *.json vite.config.ts index.html"
+    "format:check": "prettier --check src tests pwa/*.ts pwa/*.html public/pwa/*.js public/pwa/*.css *.json vite.config.ts index.html"
   },
   "dependencies": {
     "pinia": "3.0.4",

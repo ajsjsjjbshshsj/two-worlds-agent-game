@@ -1,0 +1,9 @@
+TwoWorlds installation icons
+
+The paired-circle and bridge artwork in icon-192.png, icon-512.png,
+maskable-512.png and apple-touch-icon.png is original project artwork.
+It is dedicated to the public domain under CC0-1.0.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Reproducible source: frontend/pwa/make_icons.py.
+No third-party images, fonts, account data or story assets were used.

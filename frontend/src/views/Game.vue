@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onBeforeUnmount, onMounted } from 'vue'
+import { watch, inject, ref, onBeforeUnmount, onMounted, type Ref } from 'vue'
 import { useRoute, RouterLink, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import SpaceShell from '../components/SpaceShell.vue'
 import SceneRenderer from '../components/game/SceneRenderer.vue'
@@ -11,6 +11,7 @@ import { useIdentityStore } from '../stores/identity'
 const route = useRoute(),
   game = useGameStore(),
   identity = useIdentityStore()
+const offline = inject<Ref<boolean>>('twoworlds-offline', ref(navigator.onLine === false))
 const syncLabels = {
   idle: '',
   connecting: '正在同步最新进度…',
@@ -79,7 +80,7 @@ function discardOriginal() {
       <button
         class="small-action"
         v-if="game.realtime !== 'blocked'"
-        :disabled="game.busy || game.loading"
+        :disabled="offline || game.busy || game.loading"
         @click="game.open(String(route.params.saveId))"
       >
         重新读取 / 获取搭档进度</button
@@ -87,7 +88,10 @@ function discardOriginal() {
         v-if="game.pending"
         class="secondary"
         :disabled="
-          game.busy || game.pendingState === 'checking' || (!game.recovered && !game.canAct)
+          offline ||
+          game.busy ||
+          game.pendingState === 'checking' ||
+          (!game.recovered && !game.canAct)
         "
         @click="game.retry"
       >
@@ -95,7 +99,7 @@ function discardOriginal() {
       ><button
         v-if="game.canResubmit"
         class="secondary"
-        :disabled="game.busy || !game.canAct"
+        :disabled="offline || game.busy || !game.canAct"
         @click="resubmitOriginal"
       >
         使用原 UUID 重新提交 {{ game.pending?.kind }}</button
@@ -137,7 +141,7 @@ function discardOriginal() {
           tabindex="-1"
           v-if="!game.snapshot.completed"
           :actions="game.snapshot.available_actions"
-          :disabled="!game.canAct || game.busy || game.loading || !!game.pending"
+          :disabled="offline || !game.canAct || game.busy || game.loading || !!game.pending"
           @command="game.submit"
         />
         <div id="game-information" tabindex="-1" class="game-information">

@@ -1,0 +1,40 @@
+:root {
+  color: #eef3f5;
+  background: #091725;
+  font:
+    16px/1.8 system-ui,
+    sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+main {
+  max-width: 680px;
+  margin: 8vh auto;
+  overflow-wrap: anywhere;
+}
+h1 {
+  color: #e3bd7a;
+}
+button,
+a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 12px 18px;
+  margin: 8px;
+  border: 1px solid #e3bd7a;
+  border-radius: 8px;
+  font: inherit;
+  color: #eef3f5;
+  background: #11283a;
+}
+:focus-visible {
+  outline: 3px solid #e3bd7a;
+  outline-offset: 4px;
+}
