@@ -10,6 +10,8 @@ TwoWorlds 是面向异地情侣、也允许双人朋友使用的 AI 互动剧本
 
 **最终体验：今晚选一个世界，邀请搭档一起进入；两人真正配合完成一章，随时暂停，换设备后继续。**
 
+部署人员可从 [RUNBOOK](RUNBOOK.md) 启动正式路径并复验备份恢复，按 [DEPLOYMENT](DEPLOYMENT.md) 核对 MongoDB 访问控制和上线条件。
+
 ## TwoWorlds 自有架构图
 
 ![TwoWorlds 设计架构 v0.2](docs/assets/twoworlds-architecture-v0.2.png)
