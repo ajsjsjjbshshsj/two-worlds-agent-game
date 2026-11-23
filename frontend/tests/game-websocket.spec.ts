@@ -76,6 +76,14 @@ it('uses the configured origin, sends only a matching heartbeat reply and accept
   expect(store.snapshot).toMatchObject({ version: 8, from_realtime: true })
 })
 
+it('resolves the production API and WSS from the same HTTPS page', async () => {
+  vi.stubEnv('VITE_API_BASE_URL', '')
+  vi.stubGlobal('location', new URL('https://twoworlds.test/game/save_one'))
+  const { socket, fetch } = await open()
+  expect(fetch).toHaveBeenCalledWith('/api/saves/save_one', expect.anything())
+  expect(socket.url.href).toBe('wss://twoworlds.test/api/ws/saves/save_one')
+})
+
 it('rejects duplicate, out-of-order, other-role, other-save and malformed snapshots', async () => {
   const { store, socket } = await open()
   socket.snapshot({ ...game(), version: 9 })

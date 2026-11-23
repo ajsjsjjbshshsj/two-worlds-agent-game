@@ -23,6 +23,7 @@ test-results/
 .env.*
 !.env.example
 compose.override.yml
+/.tls/
 *.pem
 *.key
 *.p12

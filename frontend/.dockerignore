@@ -10,3 +10,11 @@ test-results/
 .idea
 .vscode
 *.log
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

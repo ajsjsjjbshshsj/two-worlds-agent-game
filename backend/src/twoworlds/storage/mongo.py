@@ -7,7 +7,7 @@ from uuid import UUID
 
 from bson.errors import BSONError
 from pydantic import TypeAdapter
-from pymongo import MongoClient
+from pymongo import MongoClient, timeout
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from twoworlds.domain.persistence import (
@@ -501,6 +501,10 @@ class MongoRepository:
                     "Candidate must preserve receipts and append exactly one"
                 )
             return self._replace("saves", save_id, expected_version, candidate)
+
+    def check_health(self) -> None:
+        with self._operation(), timeout(1):
+            self._database.command("ping")
 
     def close(self) -> None:
         if not self._closed:

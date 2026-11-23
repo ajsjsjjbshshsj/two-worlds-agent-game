@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager, ExitStack
 from importlib import resources
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 
@@ -18,7 +18,7 @@ from twoworlds.application.saves import SaveService
 from twoworlds.application.verification import VerificationCodeService
 from twoworlds.content.publication import PublicationStore
 from twoworlds.ports.email import EmailCodeSender
-from twoworlds.ports.repository import Repository
+from twoworlds.ports.repository import Repository, RepositoryError
 from twoworlds.realtime.protocol import WebSocketTiming
 
 from .errors import failure, install_handlers
@@ -227,6 +227,20 @@ def create_app(
             repository.close()
 
     app = FastAPI(lifespan=lifespan, redirect_slashes=False)
+
+    @app.get("/health/live", include_in_schema=False)
+    def live():
+        return {"status": "ok"}
+
+    @app.get("/health/ready", include_in_schema=False)
+    def ready(response: Response):
+        try:
+            repository.check_health()
+        except RepositoryError:
+            response.status_code = 503
+            return {"status": "unavailable"}
+        return {"status": "ok"}
+
     app.state.allowed_origins = frozenset(origins)
     app.state.websocket_timing = websocket_timing or WebSocketTiming()
     app.state.email_sender = email_sender
