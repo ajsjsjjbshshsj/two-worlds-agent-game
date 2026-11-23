@@ -12,7 +12,7 @@ services:
     volumes:
       - mongo_data:/data/db
     networks:
-      - twoworlds-net
+      - data
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -31,7 +31,7 @@ services:
     environment:
       TWOWORLDS_MODE: production
       TWOWORLDS_STORAGE_BACKEND: mongo
-      MONGO_URI: mongodb://mongo:27017
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017}
       MONGO_DATABASE: ${MONGO_DATABASE:-twoworlds}
       TWOWORLDS_VERIFICATION_SECRET: ${TWOWORLDS_VERIFICATION_SECRET:-}
       # Pass explicit empty values through for startup validation.
@@ -41,29 +41,73 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
-      TWOWORLDS_ALLOWED_ORIGINS: ${TWOWORLDS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      TWOWORLDS_ALLOWED_ORIGINS: https://${TWOWORLDS_PUBLIC_HOST:?set the HTTPS hostname}
+      TWOWORLDS_COOKIE_SECURE: "1"
+      TWOWORLDS_TRUSTED_PROXY_IP: ${TWOWORLDS_PROXY_IP:-172.30.84.2}
+      TWOWORLDS_AI_MODE: ${TWOWORLDS_AI_MODE-demo}
+      TWOWORLDS_AI_PROVIDER: ${TWOWORLDS_AI_PROVIDER-openai_compatible}
+      TWOWORLDS_AI_BASE_URL: ${TWOWORLDS_AI_BASE_URL:-}
+      TWOWORLDS_AI_MODEL: ${TWOWORLDS_AI_MODEL:-}
+      TWOWORLDS_AI_API_KEY: ${TWOWORLDS_AI_API_KEY:-}
+      TWOWORLDS_AI_TIMEOUT_SECONDS: ${TWOWORLDS_AI_TIMEOUT_SECONDS-2}
+      TWOWORLDS_AI_MAX_INPUT_TOKENS: ${TWOWORLDS_AI_MAX_INPUT_TOKENS:-}
+      TWOWORLDS_AI_MAX_OUTPUT_TOKENS: ${TWOWORLDS_AI_MAX_OUTPUT_TOKENS:-}
+      TWOWORLDS_AI_MAX_REQUEST_COST_USD: ${TWOWORLDS_AI_MAX_REQUEST_COST_USD:-}
+      TWOWORLDS_AI_DAILY_BUDGET_USD: ${TWOWORLDS_AI_DAILY_BUDGET_USD:-}
+      TWOWORLDS_AI_MAX_DAILY_CALLS: ${TWOWORLDS_AI_MAX_DAILY_CALLS-200}
+      TWOWORLDS_AI_PRICE_VERSION: ${TWOWORLDS_AI_PRICE_VERSION:-}
+      TWOWORLDS_AI_INPUT_USD_PER_MILLION: ${TWOWORLDS_AI_INPUT_USD_PER_MILLION:-}
+      TWOWORLDS_AI_OUTPUT_USD_PER_MILLION: ${TWOWORLDS_AI_OUTPUT_USD_PER_MILLION:-}
       TWOWORLDS_HOST: 0.0.0.0
       TWOWORLDS_PORT: 8000
-    ports:
-      - "8000:8000"
     networks:
-      - twoworlds-net
+      - edge
+      - data
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import build_opener, ProxyHandler; build_opener(ProxyHandler({})).open('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+      interval: 10s
+      timeout: 4s
+      retries: 3
+      start_period: 10s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_API_BASE_URL: ""
     restart: unless-stopped
-    ports:
-      - "8080:8080"
     networks:
-      - twoworlds-net
+      - edge
+
+  gateway:
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    command: ["sh", "/etc/twoworlds/start.sh"]
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    environment:
+      TWOWORLDS_PUBLIC_HOST: ${TWOWORLDS_PUBLIC_HOST:?set the HTTPS hostname}
+    ports:
+      - "${TWOWORLDS_BIND_IP:-127.0.0.1}:80:80"
+      - "${TWOWORLDS_BIND_IP:-127.0.0.1}:443:443"
+    volumes:
+      - ./deploy/nginx:/etc/twoworlds:ro
+      - ${TWOWORLDS_TLS_DIR:-./.tls}:/etc/twoworlds-tls:ro
+    networks:
+      edge:
+        ipv4_address: ${TWOWORLDS_PROXY_IP:-172.30.84.2}
 
 volumes:
   mongo_data:
 
 networks:
-  twoworlds-net:
+  edge:
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${TWOWORLDS_EDGE_SUBNET:-172.30.84.0/24}
+          ip_range: ${TWOWORLDS_EDGE_DYNAMIC_RANGE:-172.30.84.128/25}
+  data:
+    internal: true

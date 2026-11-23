@@ -84,6 +84,10 @@ class SmtpEmailCodeSender:
             raise EmailSendError("Verification email delivery failed") from None
 
 
+class EmailConfigurationError(ValueError):
+    """A fixed, safe email configuration error."""
+
+
 def build_email_sender(env: Mapping[str, str]):
     mode = env.get("TWOWORLDS_EMAIL_MODE")
     if mode == "console":
@@ -96,11 +100,13 @@ def build_email_sender(env: Mapping[str, str]):
         try:
             port = int(env.get("SMTP_PORT", "587"))
         except ValueError:
-            raise ValueError("SMTP port must be an integer") from None
+            raise EmailConfigurationError("SMTP port must be an integer") from None
         if not host or not sender or not 1 <= port <= 65535:
-            raise ValueError("Explicit SMTP host, port and from address required")
+            raise EmailConfigurationError(
+                "Explicit SMTP host, port and from address required"
+            )
         if username and not password:
-            raise ValueError("SMTP password required when username is set")
+            raise EmailConfigurationError("SMTP password required when username is set")
         return SmtpEmailCodeSender(
             host=host,
             port=port,
@@ -108,4 +114,4 @@ def build_email_sender(env: Mapping[str, str]):
             password=password or "",
             sender=sender,
         )
-    raise ValueError("Select an explicit email mode: console or smtp")
+    raise EmailConfigurationError("Select an explicit email mode: console or smtp")

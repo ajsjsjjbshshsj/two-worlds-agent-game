@@ -1,6 +1,6 @@
 """Explicit local/demo storage. Each operation owns its SQLite transaction."""
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 import sqlite3
@@ -739,6 +739,17 @@ class SQLiteRepository:
                     (candidate.version, dumps(candidate), save_id, expected_version),
                 ).rowcount
             )
+
+    def check_health(self) -> None:
+        if self._closed:
+            raise RepositoryError("Repository is closed")
+        # Reopen file databases read-only so an unavailable file stays missing.
+        uri = self._path if self._uri else Path(self._path).as_uri() + "?mode=ro"
+        try:
+            with closing(sqlite3.connect(uri, uri=True, timeout=1)) as connection:
+                connection.execute("SELECT 1 FROM accounts LIMIT 1").fetchone()
+        except sqlite3.Error:
+            raise RepositoryError("Database operation failed") from None
 
     def close(self) -> None:
         self._closed = True
