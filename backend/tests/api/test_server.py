@@ -44,102 +44,74 @@ def test_missing_or_invalid_mode_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_production_mode_rejects_sqlite_backend():
-    env = {
+@pytest.fixture
+def production_env():
+    return {
         "TWOWORLDS_MODE": "production",
-        "TWOWORLDS_STORAGE_BACKEND": "sqlite",
+        "TWOWORLDS_STORAGE_BACKEND": "mongo",
         "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
-        "TWOWORLDS_EMAIL_MODE": "console",
+        "TWOWORLDS_EMAIL_MODE": "smtp",
         "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
         "MONGO_URI": "mongodb://127.0.0.1:27017",
         "MONGO_DATABASE": "twoworlds",
+        "SMTP_HOST": "mail.example.invalid",
+        "SMTP_PORT": "587",
+        "SMTP_FROM": "noreply@example.invalid",
+        "SMTP_USERNAME": "test_smtp_user",
+        "SMTP_PASSWORD": "test_smtp_password",
     }
+
+
+def test_production_mode_rejects_sqlite_backend(production_env):
+    production_env["TWOWORLDS_STORAGE_BACKEND"] = "sqlite"
     with pytest.raises(
         ValueError, match="Production mode requires TWOWORLDS_STORAGE_BACKEND=mongo"
     ):
-        create_server_app(env)
+        create_server_app(production_env)
 
 
-def test_production_mode_requires_mongo_uri_and_database():
-    env = {
-        "TWOWORLDS_MODE": "production",
-        "TWOWORLDS_STORAGE_BACKEND": "mongo",
-        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
-        "TWOWORLDS_EMAIL_MODE": "console",
-        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
-    }
+def test_production_mode_requires_mongo_uri_and_database(production_env):
+    del production_env["MONGO_URI"]
+    del production_env["MONGO_DATABASE"]
     with pytest.raises(ValueError, match="requires MONGO_URI and MONGO_DATABASE"):
-        create_server_app(env)
+        create_server_app(production_env)
 
 
-def test_production_mode_requires_durable_verification_secret():
-    env = {
-        "TWOWORLDS_MODE": "production",
-        "TWOWORLDS_STORAGE_BACKEND": "mongo",
-        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
-        "TWOWORLDS_EMAIL_MODE": "console",
-        "MONGO_URI": "mongodb://127.0.0.1:27017",
-        "MONGO_DATABASE": "twoworlds",
-        "TWOWORLDS_VERIFICATION_SECRET": "short",
-    }
+def test_production_mode_requires_durable_verification_secret(production_env):
+    production_env["TWOWORLDS_VERIFICATION_SECRET"] = "short"
     with pytest.raises(
         ValueError, match="explicit durable TWOWORLDS_VERIFICATION_SECRET"
     ):
-        create_server_app(env)
+        create_server_app(production_env)
 
 
-def test_production_mode_fails_cleanly_when_mongo_unreachable(tmp_path):
-    env = {
-        "TWOWORLDS_MODE": "production",
-        "TWOWORLDS_STORAGE_BACKEND": "mongo",
-        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
-        "TWOWORLDS_EMAIL_MODE": "console",
-        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
-        # Use an invalid unreachable port
-        "MONGO_URI": "mongodb://127.0.0.1:59999/?serverSelectionTimeoutMS=500",
-        "MONGO_DATABASE": "twoworlds",
-        # Provide sqlite path to prove it NEVER falls back to sqlite!
-        "TWOWORLDS_SQLITE_PATH": str(tmp_path / "fallback.sqlite"),
-    }
+def test_production_mode_fails_cleanly_when_mongo_unreachable(production_env, tmp_path):
+    production_env["MONGO_URI"] = (
+        "mongodb://127.0.0.1:59999/?serverSelectionTimeoutMS=500"
+    )
+    production_env["TWOWORLDS_SQLITE_PATH"] = str(tmp_path / "fallback.sqlite")
     with pytest.raises(
         ConnectionError,
         match="Production MongoDB connection failed; server will not start",
     ):
-        create_server_app(env)
+        create_server_app(production_env)
     assert not (tmp_path / "fallback.sqlite").exists()
 
 
-def test_production_mode_succeeds_with_mongo(mongo_database):
+def test_production_mode_succeeds_with_mongo(production_env, mongo_database):
     database, uri = mongo_database
-    env = {
-        "TWOWORLDS_MODE": "production",
-        "TWOWORLDS_STORAGE_BACKEND": "mongo",
-        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
-        "TWOWORLDS_EMAIL_MODE": "console",
-        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
-        "MONGO_URI": uri,
-        "MONGO_DATABASE": database.name,
-    }
-    app = create_server_app(env)
+    production_env.update(MONGO_URI=uri, MONGO_DATABASE=database.name)
+    app = create_server_app(production_env)
     with TestClient(app) as client:
         res = client.get("/api/scripts")
         assert res.status_code == 200
         assert res.json() == []
 
 
-def test_production_mode_rejects_invalid_ai_mode():
-    env = {
-        "TWOWORLDS_MODE": "production",
-        "TWOWORLDS_STORAGE_BACKEND": "mongo",
-        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
-        "TWOWORLDS_EMAIL_MODE": "console",
-        "TWOWORLDS_VERIFICATION_SECRET": "durable_production_secret_32chars!",
-        "MONGO_URI": "mongodb://127.0.0.1:27017",
-        "MONGO_DATABASE": "twoworlds",
-        "TWOWORLDS_AI_MODE": "unknown_ai_mode",
-    }
+def test_production_mode_rejects_invalid_ai_mode(production_env):
+    production_env["TWOWORLDS_AI_MODE"] = "unknown_ai_mode"
     with pytest.raises(ValueError, match="Invalid TWOWORLDS_AI_MODE"):
-        create_server_app(env)
+        create_server_app(production_env)
 
 
 # ---------------------------------------------------------------------------
@@ -234,3 +206,186 @@ def test_main_cli_parses_host_and_port(tmp_path, monkeypatch):
     assert recorded["port"] == 8888
     assert recorded["proxy_headers"] is True
     assert recorded["server_header"] is False
+
+
+# ---------------------------------------------------------------------------
+# SMTP Email Mode Validation & Error Sanitization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("server_mode", ["production", "formal"])
+@pytest.mark.parametrize("email_mode", ["console", "", "invalid", None])
+def test_production_rejects_non_smtp_email_mode(
+    production_env, server_mode, email_mode, monkeypatch
+):
+    from twoworlds.security import mailer
+    from twoworlds.storage import mongo
+
+    production_env["TWOWORLDS_MODE"] = server_mode
+    if email_mode is None:
+        del production_env["TWOWORLDS_EMAIL_MODE"]
+    else:
+        production_env["TWOWORLDS_EMAIL_MODE"] = email_mode
+
+    def unexpected_setup(*args, **kwargs):
+        pytest.fail("Invalid email mode must fail before initializing email or MongoDB")
+
+    monkeypatch.setattr(mailer, "build_email_sender", unexpected_setup)
+    monkeypatch.setattr(mongo, "MongoRepository", unexpected_setup)
+    with pytest.raises(
+        ValueError, match="Production mode requires TWOWORLDS_EMAIL_MODE=smtp"
+    ):
+        create_server_app(production_env)
+
+
+@pytest.mark.parametrize("field", ["SMTP_HOST", "SMTP_FROM"])
+def test_production_smtp_mode_requires_host_and_from(production_env, field):
+    del production_env[field]
+    with pytest.raises(
+        ValueError, match="Explicit SMTP host, port and from address required"
+    ):
+        create_server_app(production_env)
+
+
+@pytest.mark.parametrize(
+    ("port", "message"),
+    [
+        ("invalid", "SMTP port must be an integer"),
+        ("0", "Explicit SMTP host, port and from address required"),
+        ("65536", "Explicit SMTP host, port and from address required"),
+    ],
+)
+def test_production_smtp_mode_rejects_invalid_port(production_env, port, message):
+    production_env["SMTP_PORT"] = port
+    with pytest.raises(ValueError, match=message):
+        create_server_app(production_env)
+
+
+def test_production_smtp_mode_rejects_username_without_password(production_env):
+    del production_env["SMTP_PASSWORD"]
+    with pytest.raises(ValueError, match="SMTP password required when username is set"):
+        create_server_app(production_env)
+
+
+@pytest.mark.parametrize("server_mode", ["production", "formal"])
+def test_production_smtp_mode_accepts_all_valid_smtp_config(
+    production_env, server_mode, mongo_database, monkeypatch
+):
+    from twoworlds.security import mailer
+
+    database, uri = mongo_database
+    production_env.update(
+        TWOWORLDS_MODE=server_mode, MONGO_URI=uri, MONGO_DATABASE=database.name
+    )
+
+    def unexpected_smtp_connection(*args, **kwargs):
+        pytest.fail("Configuration validation must never connect to an SMTP server")
+
+    monkeypatch.setattr(mailer.smtplib, "SMTP", unexpected_smtp_connection)
+    monkeypatch.setattr(mailer.smtplib, "SMTP_SSL", unexpected_smtp_connection)
+    with TestClient(create_server_app(production_env)) as client:
+        assert isinstance(client.app.state.email_sender, mailer.SmtpEmailCodeSender)
+        assert client.get("/api/scripts").status_code == 200
+
+
+def test_demo_mode_console_email_unaffected_by_smtp_compose_default(tmp_path):
+    """5. Demo 模式仍然可以显式使用 console，不需要 SMTP 配置。"""
+    from twoworlds.security.mailer import ConsoleEmailCodeSender
+
+    db_path = tmp_path / "demo.sqlite"
+    env = {
+        "TWOWORLDS_MODE": "demo",
+        "TWOWORLDS_STORAGE_BACKEND": "sqlite",
+        "TWOWORLDS_SQLITE_PATH": str(db_path),
+        "TWOWORLDS_ALLOWED_ORIGINS": PROD_ORIGIN,
+        "TWOWORLDS_EMAIL_MODE": "console",
+        # No SMTP_* vars — console mode must not require them
+    }
+    with TestClient(create_server_app(env)) as client:
+        assert isinstance(client.app.state.email_sender, ConsoleEmailCodeSender)
+        assert client.get("/api/scripts").status_code == 200
+    assert db_path.is_file()
+
+
+def test_smtp_sender_error_sanitization_does_not_leak_credentials_or_code(
+    monkeypatch, caplog
+):
+    """SMTP 错误脱敏测试：
+    - SMTP 发送异常不会泄露 SMTP_PASSWORD。
+    - 不会泄露验证码。
+    - 不会泄露 SMTP 连接异常详情。
+    - 上层日志不会记录邮箱和验证码。
+    """
+    import smtplib
+
+    from twoworlds.application.verification import CodeDelivery
+    from twoworlds.ports.email import EmailSendError
+    from twoworlds.security.mailer import SmtpEmailCodeSender
+
+    test_password = "leak-check-password-secret-xyz"
+    test_code = "729401"
+    test_email = "target-user@example.com"
+    raw_smtp_error = "535 5.7.8 Credentials rejected with session 0xDEADBEEF"
+
+    class FaultySMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def ehlo(self):
+            pass
+
+        def starttls(self, *args, **kwargs):
+            pass
+
+        def login(self, user, password):
+            raise smtplib.SMTPAuthenticationError(535, raw_smtp_error)
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", FaultySMTP)
+
+    sender = SmtpEmailCodeSender(
+        host="mail.example.com",
+        port=587,
+        username="smtp_user",
+        password=test_password,
+        sender="noreply@example.com",
+    )
+
+    # 1. 验证直接调用 SmtpEmailCodeSender 产生的异常信息与堆栈被彻底脱敏
+    with pytest.raises(EmailSendError) as exc_info:
+        sender.send_code(test_email, "register", test_code)
+
+    err = exc_info.value
+    err_text = str(err)
+    # 消息严格标准化，绝不向上传播底层详细堆栈
+    assert err_text == "Verification email delivery failed"
+    # 原因链被 from None 显式压制
+    assert err.__cause__ is None
+    assert err.__suppress_context__ is True
+    # 密码、验证码、底层异常细节绝对不出现在异常描述中
+    assert test_password not in err_text
+    assert test_code not in err_text
+    assert raw_smtp_error not in err_text
+    assert test_email not in err_text
+
+    # 2. 验证结合 CodeDelivery 异步处理层时，日志脱敏且正确执行 on_failure 回调
+    delivery = CodeDelivery(sender, max_workers=1)
+    failed = []
+    delivery.submit(
+        test_email,
+        "register",
+        test_code,
+        on_failure=lambda: failed.append(True),
+    )
+    assert delivery.wait(timeout=5)
+    delivery.close()
+
+    assert len(failed) == 1
+    # 检查全局日志：绝无密码、验证码、邮箱及底层 SMTP 报错明细
+    assert test_password not in caplog.text
+    assert test_code not in caplog.text
+    assert test_email not in caplog.text
+    assert raw_smtp_error not in caplog.text
+    assert "Verification email delivery failed (purpose=register)" in caplog.text
