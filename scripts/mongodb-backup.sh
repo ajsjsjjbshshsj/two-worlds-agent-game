@@ -79,8 +79,8 @@ if (( retention > 0 )); then
     while IFS= read -r -d '' older; do
         [[ $older != "$bundle" && ${older##*/} =~ ^backup-[0-9]{8}T[0-9]{6}Z-[a-zA-Z0-9]{8}$ ]] ||
             continue
-        # Only clean up recognized complete bundles after the new backup is verified.
-        if bundle_archive "$older" >/dev/null; then
+        # A replacement must cover the same database and backup format.
+        if [[ $(bundle_archive "$older") = "$archive" && $(<"$older/source-db") = "$MONGO_DATABASE" ]]; then
             rm -rf -- "$older"
         fi
     done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'backup-*' \

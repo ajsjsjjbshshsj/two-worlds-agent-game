@@ -5,7 +5,7 @@
 ## 交付与运行边界
 
 - [RUNBOOK](../../RUNBOOK.md) 覆盖主机、Docker、DNS、证书、SMTP、AI、启动、探针、日志、升级、回滚、备份及恢复。[DEPLOYMENT](../../DEPLOYMENT.md) 记录生产拓扑、密钥、持久化数据、恢复版本兼容性和正式上线清单。
-- [备份脚本](../../scripts/mongodb-backup.sh) 使用 MongoDB 官方 `mongodump --archive --gzip` 归档整套业务命名空间。生成 UTC 目录，校验压缩流和 SHA-256，刷盘后原子发布。目录权限定为 0700，文件由 `umask 077` 保护。只有新归档发布后才扫描过期、格式正确且 SHA-256 完整的旧归档。失败保留旧副本。
+- [备份脚本](../../scripts/mongodb-backup.sh) 使用 MongoDB 官方 `mongodump --archive --gzip` 归档整套业务命名空间。生成 UTC 目录，校验压缩流和 SHA-256，刷盘后原子发布。目录权限定为 0700，文件由 `umask 077` 保护。新归档发布后，只清理源库名及归档格式相同且 SHA-256 完整的过期归档。失败保留旧副本。
 - 可选 age 加密采用官方工具。备份端仅用公钥，归档在管道中校验并加密。恢复端先校验 SHA-256，再完整解密并校验 gzip，随后由 `mongorestore --dryRun` 验证归档。
 - [恢复脚本](../../scripts/mongodb-restore.sh) 需要显式指定独立的 `twoworlds_restore_*` 空库，拒绝有集合的目标以及配置中的应用库。脚本没有覆盖或删除目标的开关。恢复失败时保持目标隔离，人工核验后另择空库重试。正式切换需人工审批。
 - 应用 Compose 和 Demo Compose 保留现有拓扑。本轮未修改业务模型、认证接口或游戏逻辑。

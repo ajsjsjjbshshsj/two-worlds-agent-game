@@ -473,11 +473,21 @@ def test_retention_waits_for_a_verified_replacement(nodes, seeded, scratch):
     result = dump(source, folder, MONGO_BACKUP_RETENTION_DAYS="1")
     assert result.returncode == 0, result.stderr
     first = Path(result.stdout.strip())
+    other_db = "drill_rotation_other"
+    source.admin[other_db].create_collection("keep_this_collection")
+    source.provision(other_db, "reader", "read")
+    result = dump(source, folder, db=other_db, MONGO_BACKUP_RETENTION_DAYS="1")
+    assert result.returncode == 0, result.stderr
+    other = Path(result.stdout.strip())
+    recipient = identity_at(scratch / "rotation-identity")
+    result = dump(source, folder, MONGO_BACKUP_RECIPIENT=recipient)
+    assert result.returncode == 0, result.stderr
+    encrypted = Path(result.stdout.strip())
     unknown = folder / "backup-20200101T000000Z-12345678"
     unknown.mkdir()
     old = time.time() - 3 * 86400
-    os.utime(first, (old, old))
-    os.utime(unknown, (old, old))
+    for bundle in (first, other, encrypted, unknown):
+        os.utime(bundle, (old, old))
     result = dump(
         source,
         folder,
@@ -488,7 +498,8 @@ def test_retention_waits_for_a_verified_replacement(nodes, seeded, scratch):
     result = dump(source, folder, MONGO_BACKUP_RETENTION_DAYS="1")
     assert result.returncode == 0, result.stderr
     last = Path(result.stdout.strip())
-    assert last.is_dir() and not first.exists() and unknown.is_dir()
+    assert last.is_dir() and not first.exists()
+    assert all(bundle.is_dir() for bundle in (other, encrypted, unknown))
 
 
 def test_authentication_and_read_only_backup_role_are_enforced(nodes, seeded):

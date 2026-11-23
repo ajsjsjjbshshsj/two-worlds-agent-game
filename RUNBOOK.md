@@ -100,6 +100,8 @@ docker compose ps
 
 操作前设置 `MONGO_DATABASE`、绝对目录 `MONGO_BACKUP_DIR`、age 公钥 `MONGO_BACKUP_RECIPIENT`。`MONGO_BACKUP_RETENTION_DAYS` 默认 30，设为 0 关闭自动清理。使用有源库 `read` 权限的独立账号。传给工具的连接文件为只含 `uri` 的 JSON，URI 可包含编码后的凭据，文件由密钥存储下发，权限为 0600。设置 `MONGO_TOOLS_CONFIG` 为容器内绝对路径。连接值留在文件中。
 
+为每个 MongoDB 实例、业务库和 age 密钥使用单独的备份目录。更换公钥时使用新目录，保留旧归档和其恢复密钥，直到新归档通过恢复验证。自动清理只处理与新归档源库名和归档格式相同的有效旧归档。
+
 如需在同一 Docker 私网使用独立工具容器，先设定 `tools_container`、`data_network` 和宿主机上的 `tools_config_file`。`data_network` 为当前 Compose 项目的数据网，可通过 `docker network ls` 和 `docker network inspect` 核对。工具容器使用已验证的 Mongo 7.0.48 镜像。
 
 ```bash
