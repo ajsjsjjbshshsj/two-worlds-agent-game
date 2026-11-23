@@ -56,3 +56,6 @@ compose.override.yml
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local MongoDB archives and credential files
+/backups/
