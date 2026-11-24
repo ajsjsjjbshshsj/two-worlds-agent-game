@@ -13,7 +13,8 @@
 | `TWOWORLDS_PLAYTEST_MONGO_DATABASE` | 显式选择 `twoworlds_playtest_*` 命名空间，后缀使用小写字母、数字或下划线 |
 | `TWOWORLDS_PLAYTEST_VERIFICATION_SECRET` | 每个环境独立生成 32 个随机字节并转为小写十六进制，例如由秘密管理流程运行 `openssl rand -hex 32` 后安全注入。缺省、已知占位、重复和明显顺序值失败。格式检查无法验证随机数生成过程 |
 | `TWOWORLDS_ALLOWED_ORIGINS` | 明确列出实际 HTTPS Origin，例如 `https://playtest.example.invalid`。多值以逗号分隔。通配符、路径与 HTTP 被拒绝 |
-| `TWOWORLDS_PLAYTEST_PUBLICATION_ROOT` | 独立封存发布库目录。程序化装配也可显式传入 `PublicationStore`。目录在打开 MongoDB 前经过版本和完整性校验 |
+| `TWOWORLDS_PLAYTEST_PUBLICATION_ROOT` | 独立封存发布库目录。目录在打开 MongoDB 前经过版本和完整性校验 |
+| `TWOWORLDS_PLAYTEST_APPROVAL_FILE` 与 `TWOWORLDS_PLAYTEST_CONTENT_PURPOSE` | 运行入口要求显式配置签核文件和用途。格式及可用值见[部署说明](t17-2-3-deployment.md#发布目录与开测条件) |
 | `TWOWORLDS_AI_MODE` 与 `TWOWORLDS_EMAIL_MODE` | 缺省分别为 `demo` 与 `disabled`。提供其他值时拒绝启动。Provider 和 SMTP 配置值不读取 |
 | `TWOWORLDS_STORAGE_BACKEND` | 缺省为 `mongo`。提供非 MongoDB 值时拒绝启动 |
 | `TWOWORLDS_HOST`、`TWOWORLDS_PORT` 与 `TWOWORLDS_TRUSTED_PROXY_IP` | 控制内部监听与明确的单一可信代理。代理为空时禁用代理头信任 |
@@ -25,7 +26,7 @@
 1. 连接 MongoDB 后先读取认证会话，检查账号作用域。用同一单节点的第二条无凭据连接确认匿名 `listCollections` 被拒绝，检查双方确实抵达同一进程。之后才创建现有仓储索引。连接失败、认证被关闭、账号权限跨库或拓扑不符合均拒绝启动。
 2. 应用工厂保留登录、`/api/me` 与登出。注册、验证码申请和密码重置路由关闭，正确 Origin 的请求返回 404。Playtest 不构建验证码服务。拒绝投递适配器提供第二层防护，任何直接投递请求都会以固定错误失败，既不发邮件也不会记录正文。
 3. 继续使用已有会话 Cookie、CSRF、请求体上限、登录限流和 WebSocket Origin 验证。Cookie 固定为 Secure、HttpOnly 和 SameSite=Lax。HTTP 请求日志关闭，WebSocket 与启动错误使用固定的分类信息。
-4. AI 网关不会创建。后端 NPC 命令只返回现有 Demo 文本。运行时校验显式传入的封存发布库，使用现有读取时完整性检查。独立库可以是已初始化的空库，此时目录为空，书架开测前需要获批内容。没有默认或草稿回退。
+4. AI 网关不会创建。后端 NPC 命令只返回现有 Demo 文本。运行入口在连接 MongoDB 前校验非空封存发布库及其签核，读取时继续校验完整性，仅加载显式指定的发布库。Python 测试可通过工厂的 `test_publication_store` 参数注入已初始化的空库。
 
 ## 验证入口
 

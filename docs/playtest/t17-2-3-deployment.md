@@ -66,7 +66,7 @@ sudo chmod 0640 /srv/tw-playtest/secrets/{mongo-admin-password,mongo-app-passwor
 }
 ~~~
 
-应用启动先验证发布包既有完整性，再核对清单用途、完整版本集合及每份封存记录的摘要。缺少清单、空目录、漏签或多带版本、摘要不符都会在连接数据库前失败。签核清单由有权限的内容负责人保管，它是本地摘要核准记录，素材来源和法律授权仍需人工验证。常规参与者启动拒绝项目 CI 的 test-only 标记。内部容器演练显式使用 `internal-drill` 清单和回环端口，只加载合成测试包。正式环境包和开发草稿均保留在各自路径，Playtest 没有回退逻辑。两篇剧本的正式素材均保留待审核状态。
+Compose 和 `python -m twoworlds.playtest` 都要求明确设置 `TWOWORLDS_PLAYTEST_APPROVAL_FILE` 与 `TWOWORLDS_PLAYTEST_CONTENT_PURPOSE`。应用启动先验证发布包既有完整性，再核对清单用途、完整版本集合及每份封存记录的摘要。缺少配置或文件、空目录、未知用途、漏签或多带版本、摘要不符都会在连接数据库前失败。签核清单由有权限的内容负责人保管，它是本地摘要核准记录，素材来源和法律授权仍需人工验证。常规参与者启动拒绝项目 CI 的 test-only 标记。内部容器演练显式使用 `internal-drill` 清单和回环端口，只加载合成测试包。正式环境包和开发草稿均保留在各自路径，Playtest 没有回退逻辑。两篇剧本的正式素材均保留待审核状态。
 
 ## 启动与核对
 

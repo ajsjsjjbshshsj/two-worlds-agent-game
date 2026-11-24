@@ -188,12 +188,14 @@ def exercise(compose, project, root, env, markers, ingress_subnet):
         concrete["networks"]["app"]["internal"]
         and concrete["networks"]["data"]["internal"]
     )
-    unset = env | {"TWOWORLDS_PLAYTEST_ALLOWLIST": ""}
-    safe_failure(
-        lambda: compose("config", "--quiet", custom_env=unset),
-        "set approved IPv4 source addresses",
-    )
-    report("Compose closed defaults, private port scope and explicit allowlist")
+    for key, message in (
+        ("TWOWORLDS_PLAYTEST_ALLOWLIST", "set approved IPv4 source addresses"),
+        ("TWOWORLDS_PLAYTEST_APPROVAL_FILE", "set the external approval manifest"),
+        ("TWOWORLDS_PLAYTEST_CONTENT_PURPOSE", "set the content purpose"),
+    ):
+        unset = {name: value for name, value in env.items() if name != key}
+        safe_failure(lambda: compose("config", "--quiet", custom_env=unset), message)
+    report("Compose closed defaults, private ports, explicit allowlist and approval")
 
     compose("up", "-d", "--wait", "--wait-timeout", "90", "backend", "frontend")
     compose(

@@ -177,11 +177,13 @@ def open_playtest_repository(
 
 def _validate_deployment_approval(env, root, catalog):
     approval = env.get("TWOWORLDS_PLAYTEST_APPROVAL_FILE", "")
-    purpose = env.get("TWOWORLDS_PLAYTEST_CONTENT_PURPOSE", "participant")
-    if not approval and "TWOWORLDS_PLAYTEST_CONTENT_PURPOSE" not in env:
-        return  # The local application factory still permits an empty test shelf.
+    purpose = env.get("TWOWORLDS_PLAYTEST_CONTENT_PURPOSE", "")
+    if not approval or not purpose:
+        raise PlaytestConfigurationError(
+            "Explicit TWOWORLDS_PLAYTEST_APPROVAL_FILE and TWOWORLDS_PLAYTEST_CONTENT_PURPOSE are required"
+        )
     try:
-        if not root or not catalog or purpose not in {"internal-drill", "participant"}:
+        if not catalog or purpose not in {"internal-drill", "participant"}:
             raise ValueError
         path = Path(approval).absolute()
         signed = parse_document(read_bytes(path.parent.resolve(), path.name, 65536))
@@ -212,8 +214,9 @@ def _validate_deployment_approval(env, root, catalog):
 def create_playtest_app(
     environ: Mapping[str, str] | None = None,
     *,
-    publication_store: PublicationStore | None = None,
+    test_publication_store: PublicationStore | None = None,
 ):
+    """Build a Playtest app, with explicit Python-only publication injection for tests."""
     env = os.environ if environ is None else environ
     secret, target = _playtest_settings(env)
     origins = validate_origins(env.get("TWOWORLDS_ALLOWED_ORIGINS", ""))
@@ -221,24 +224,23 @@ def create_playtest_app(
         raise PlaytestConfigurationError("Playtest requires exact HTTPS origins")
 
     root = env.get("TWOWORLDS_PLAYTEST_PUBLICATION_ROOT")
-    if publication_store is None and not root:
+    if test_publication_store is None and not root:
         raise PlaytestConfigurationError(
             "An explicit Playtest publication store is required"
         )
     try:
         store = (
-            publication_store
-            if publication_store is not None
+            test_publication_store
+            if test_publication_store is not None
             else PublicationStore(Path(root))
         )
-        catalog = (
-            store.catalog()
-        )  # Fail before touching MongoDB if a sealed version is corrupt.
+        catalog = store.catalog()
     except Exception:
         raise PlaytestConfigurationError(
             "Playtest publication store failed validation"
         ) from None
-    _validate_deployment_approval(env, root, catalog)
+    if test_publication_store is None:
+        _validate_deployment_approval(env, root, catalog)
 
     repository = _connect_mongo(target)
     try:
