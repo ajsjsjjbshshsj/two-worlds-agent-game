@@ -55,13 +55,13 @@ jobs:
       fail-fast: false
       matrix:
         check:
-          - name: Full pytest (SQLite and MongoDB)
+          - name: Full pytest (SQLite default)
             backend: sqlite
             command: uv run --locked python -m pytest -ra --tb=short
           - name: MongoDB repository contracts
             backend: mongo
             command: uv run --locked python -m pytest -ra --tb=short tests/storage/test_repository_contract.py
-          - name: WebSocket loopback (SQLite and MongoDB)
+          - name: WebSocket loopback (SQLite and MongoDB cases)
             backend: sqlite
             command: uv run --locked python -m pytest -ra --tb=short tests/api/test_websocket.py -k test_dev_launcher_serves_real_websocket_over_loopback
     env:
