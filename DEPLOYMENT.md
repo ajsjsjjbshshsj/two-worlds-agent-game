@@ -2,6 +2,8 @@
 
 按 [RUNBOOK](RUNBOOK.md) 操作。默认 Compose 提供正式应用拓扑，公开服务前需要完成本页的 MongoDB 访问控制和真实外部系统验收。
 
+封闭试玩使用独立 Compose、身份认证 MongoDB 和设备白名单。配置及退场验收见 [Playtest 部署说明](docs/playtest/t17-2-3-deployment.md)与[运维说明](docs/playtest/t17-2-3-operations.md)。
+
 ## 服务与数据
 
 - Nginx 网关承接浏览器 HTTPS 和 WSS，明文入口重定向至配置的 HTTPS 域名。静态请求交给 Vue 构建产物，`/api` 和 WSS Upgrade 都由 FastAPI 处理。

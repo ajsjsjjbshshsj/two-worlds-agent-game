@@ -1,0 +1,38 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/null crit;
+events { worker_connections 256; }
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    client_body_temp_path /tmp/client-body;
+    proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
+
+    include /etc/twoworlds/proxy-http.conf;
+    geo $playtest_allowed {
+        default 0;
+        include /tmp/playtest-allowlist.conf;
+    }
+
+    server {
+        listen 8443 ssl default_server;
+        ssl_reject_handshake on;
+        return 421;
+    }
+
+    server {
+        listen 8443 ssl;
+        server_name ${TWOWORLDS_PLAYTEST_HOST};
+        include /etc/twoworlds/tls-server.conf;
+
+        if ($host != $server_name) { return 421; }
+        # Apply before every location, including local responses and Upgrade.
+        if ($playtest_allowed = 0) { return 403; }
+
+        include /etc/twoworlds/proxy-locations.conf;
+    }
+}
