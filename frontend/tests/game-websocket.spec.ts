@@ -257,6 +257,38 @@ it.each([0, 0.5, 0.99999])(
   },
 )
 
+it('cancels a pending restart retry offline and opens one socket after the session is verified', async () => {
+  vi.spyOn(Math, 'random').mockReturnValue(0.5)
+  const network = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  const { store, socket, fetch } = await open()
+  socket.snapshot(game())
+  socket.end(1012)
+  network.mockReturnValue(false)
+  window.dispatchEvent(new Event('offline'))
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(TestSocket.instances).toHaveLength(1)
+  expect(fetch).toHaveBeenCalledOnce()
+  expect(store.canAct).toBe(false)
+
+  const session = deferred<Response>()
+  fetch.mockReturnValueOnce(session.promise).mockResolvedValueOnce(json({ ...game(), version: 8 }))
+  network.mockReturnValue(true)
+  window.dispatchEvent(new Event('online'))
+  window.dispatchEvent(new Event('online'))
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/saves/save_one', '/api/me'])
+  expect(TestSocket.instances).toHaveLength(1)
+
+  session.resolve(json(me))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(TestSocket.instances).toHaveLength(2)
+  TestSocket.instances[1]!.snapshot({ ...game(), version: 8 })
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(TestSocket.instances).toHaveLength(2)
+  expect(store.snapshot?.version).toBe(8)
+  expect(store.realtime).toBe('live')
+  expect(store.canAct).toBe(true)
+})
+
 it('uses fresh HTTP snapshots while WebSocket is unavailable and preserves an unknown command', async () => {
   vi.spyOn(Math, 'random').mockReturnValue(0.5)
   const { store, socket, fetch } = await open()

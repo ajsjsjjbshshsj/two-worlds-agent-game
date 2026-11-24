@@ -1,0 +1,484 @@
+{
+  "storage": "sqlite",
+  "channel": "chromium",
+  "viewport": "390x844",
+  "touch": true,
+  "ending": "wait_tide",
+  "checks": [
+    {
+      "name": "register-three-accounts",
+      "detail": ""
+    },
+    {
+      "name": "ui-login-two-independent-contexts",
+      "detail": ""
+    },
+    {
+      "name": "ui-create-and-join-pair",
+      "detail": ""
+    },
+    {
+      "name": "two-scripts-entered",
+      "detail": "lighthouse, starline"
+    },
+    {
+      "name": "lighthouse-full-cooperation-divergent-then-agreed-votes",
+      "detail": "v14 completed ending=wait_tide"
+    },
+    {
+      "name": "private-isolation-http-ws-page-after-lighthouse",
+      "detail": "own private clues and shared maintenance log"
+    },
+    {
+      "name": "api-tamper-media-receipt-role-outsider",
+      "detail": ""
+    },
+    {
+      "name": "private-isolation-http-ws-page-after-starline",
+      "detail": "a_station_log and b_power_board"
+    },
+    {
+      "name": "starline-independent-progress",
+      "detail": "v10"
+    },
+    {
+      "name": "script-isolation-lighthouse-unchanged",
+      "detail": ""
+    },
+    {
+      "name": "private-isolation-after-switching-both-saves",
+      "detail": ""
+    },
+    {
+      "name": "concurrent-submit-and-idempotent-replay",
+      "detail": ""
+    },
+    {
+      "name": "offline-reconnect-convergence",
+      "detail": "A closed and reconnected at v12 without reload; B stayed online"
+    },
+    {
+      "name": "service-restart-then-finish-starline",
+      "detail": "A/B reconnected at v12; A voted in UI and both completed at v13"
+    },
+    {
+      "name": "refresh-keeps-progress",
+      "detail": "fresh HTTP/WS/DOM projections for both scripts"
+    },
+    {
+      "name": "relogin-restores-both-saves",
+      "detail": ""
+    },
+    {
+      "name": "private-isolation-final",
+      "detail": ""
+    }
+  ],
+  "browser_version": "156.0.8078.79",
+  "offline_recovery": {
+    "a_before": {
+      "created": 6,
+      "established": 6,
+      "closed": 5,
+      "errors": 0
+    },
+    "a_after": {
+      "created": 7,
+      "established": 7,
+      "closed": 6,
+      "errors": 0
+    },
+    "version": 12,
+    "reloaded": false
+  },
+  "restart_recovery": {
+    "before": {
+      "a": {
+        "created": 7,
+        "established": 7,
+        "closed": 6,
+        "errors": 0
+      },
+      "b": {
+        "created": 6,
+        "established": 6,
+        "closed": 5,
+        "errors": 0
+      }
+    },
+    "after": {
+      "a": {
+        "created": 10,
+        "established": 8,
+        "closed": 9,
+        "errors": 2
+      },
+      "b": {
+        "created": 9,
+        "established": 7,
+        "closed": 8,
+        "errors": 2
+      }
+    },
+    "restored_version": 12,
+    "completed_version": 13,
+    "reloaded": false
+  },
+  "http_captured": {
+    "a": 133,
+    "b": 141
+  },
+  "ws_frames": {
+    "a": 39,
+    "b": 39
+  },
+  "websocket_lifecycles": {
+    "a": {
+      "totals": {
+        "created": 15,
+        "established": 13,
+        "closed": 11,
+        "errors": 2
+      },
+      "connections": [
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            10,
+            11
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            12
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "error",
+            "closed"
+          ],
+          "snapshot_versions": []
+        },
+        {
+          "events": [
+            "created",
+            "error",
+            "closed"
+          ],
+          "snapshot_versions": []
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            12,
+            13
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            13
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            13
+          ]
+        }
+      ]
+    },
+    "b": {
+      "totals": {
+        "created": 14,
+        "established": 12,
+        "closed": 10,
+        "errors": 2
+      },
+      "connections": [
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            10,
+            11,
+            12
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "error",
+            "closed"
+          ],
+          "snapshot_versions": []
+        },
+        {
+          "events": [
+            "created",
+            "error",
+            "closed"
+          ],
+          "snapshot_versions": []
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            12,
+            13
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            13
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established",
+            "closed"
+          ],
+          "snapshot_versions": [
+            14
+          ]
+        },
+        {
+          "events": [
+            "created",
+            "established"
+          ],
+          "snapshot_versions": [
+            13
+          ]
+        }
+      ]
+    }
+  }
+}

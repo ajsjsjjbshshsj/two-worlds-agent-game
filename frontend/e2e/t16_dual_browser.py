@@ -9,11 +9,13 @@ Run from frontend with backend venv synced (dev group includes playwright):
   T16_STORAGE=sqlite python e2e/t16_dual_browser.py
   T16_STORAGE=mongo MONGO_URI=... python e2e/t16_dual_browser.py
 T16_BROWSER selects the channel (msedge/chrome on Windows, chromium in CI).
+T16_BROWSER_EXECUTABLE can point to an installed Chromium for local runs.
 No response mocks: only the console email transport is a dev adapter.
 """
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -38,9 +40,7 @@ PYTHON = (
     else BACKEND / ".venv/bin/python"
 )
 NPM = "npm.cmd" if os.name == "nt" else "npm"
-CHANNEL = os.environ.get(
-    "T16_BROWSER", "msedge" if os.name == "nt" else "chromium"
-)
+CHANNEL = os.environ.get("T16_BROWSER", "msedge" if os.name == "nt" else "chromium")
 WIDTH, HEIGHT = (
     int(value) for value in os.environ.get("T16_VIEWPORT", "1280x900").split("x")
 )
@@ -48,27 +48,32 @@ TOUCH = os.environ.get("T16_TOUCH", "0") == "1"
 ENDING = os.environ.get("T16_ENDING", "guide_now")
 OTHER_ENDING = "wait_tide" if ENDING == "guide_now" else "guide_now"
 PASSWORD = "test-only-password-123"
-LIGHTHOUSE = json.loads(
-    (BACKEND / "src/twoworlds/content/scripts/lighthouse/1.0.0.json").read_text("utf-8")
-)
-TITLES = {
-    "lighthouse": LIGHTHOUSE["metadata"]["title"],
-    "starline": json.loads(
-        (BACKEND / "src/twoworlds/content/scripts/starline/1.0.0.json").read_text("utf-8")
-    )["metadata"]["title"],
+SCRIPTS = {
+    script: json.loads(
+        (BACKEND / f"src/twoworlds/content/scripts/{script}/1.0.0.json").read_text(
+            "utf-8"
+        )
+    )
+    for script in ("lighthouse", "starline")
 }
-SHARED_CLUE = "a_maintenance_log"
+SHARED_CLUES = {"lighthouse": {"a_maintenance_log"}, "starline": set()}
 PRIVATE = {
-    "a": [
-        c["text"]
-        for c in LIGHTHOUSE["clues"]
-        if c["role"] == "a" and c["id"] != SHARED_CLUE
-    ],
-    "b": [c["text"] for c in LIGHTHOUSE["clues"] if c["role"] == "b"],
+    script: {
+        role: {
+            c["id"]: c["text"]
+            for c in data["clues"]
+            if c["role"] == role and c["id"] not in SHARED_CLUES[script]
+        }
+        for role in ("a", "b")
+    }
+    for script, data in SCRIPTS.items()
 }
-SHARED_TEXT = next(
-    c["text"] for c in LIGHTHOUSE["clues"] if c["id"] == SHARED_CLUE
-)
+SHARED = {
+    script: {
+        c["id"]: c["text"] for c in data["clues"] if c["id"] in SHARED_CLUES[script]
+    }
+    for script, data in SCRIPTS.items()
+}
 
 
 @contextmanager
@@ -163,7 +168,10 @@ uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[2]),
         settings.write_text(
             "export default "
             + json.dumps(
-                dict(root=str(ROOT), preview=dict(proxy={"/api": dict(target=api, ws=True)}))
+                dict(
+                    root=str(ROOT),
+                    preview=dict(proxy={"/api": dict(target=api, ws=True)}),
+                )
             )
             + ";",
             encoding="utf-8",
@@ -199,9 +207,7 @@ uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[2]),
 
 
 def console_code(folder, email, purpose="register"):
-    pattern = re.compile(
-        rf"to={re.escape(email)} purpose={purpose} code=([0-9]{{6}})"
-    )
+    pattern = re.compile(rf"to={re.escape(email)} purpose={purpose} code=([0-9]{{6}})")
     for _ in range(200):
         match = pattern.search((folder / "console.log").read_text("utf-8"))
         if match:
@@ -230,13 +236,53 @@ def register(client, folder, email, name):
     return response.json()
 
 
+def wait_for(page, probe, description):
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        result = probe()
+        if result:
+            return result
+        page.wait_for_timeout(50)  # Let Playwright dispatch network events.
+    raise AssertionError(description)
+
+
+@dataclass
+class Connection:
+    save_id: str
+    frames: list[str] = field(default_factory=list)
+    snapshots: dict[int, dict] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    events: list[str] = field(default_factory=lambda: ["created"])
+    closed: bool = False
+
+    def receive(self, payload):
+        frame = (
+            payload if isinstance(payload, str) else payload.decode("utf-8", "replace")
+        )
+        self.frames.append(frame)
+        message = json.loads(frame)
+        if message["type"] == "snapshot":
+            if not self.snapshots:
+                self.events.append("established")
+            save = message["save"]
+            self.snapshots[save["version"]] = save
+
+    def error(self, message):
+        self.errors.append(message)
+        self.events.append("error")
+
+    def close(self, *_):
+        self.closed = True
+        self.events.append("closed")
+
+
 class Capture:
     """Per-context record of every API body and WS frame, for leakage checks."""
 
     def __init__(self, role):
         self.role = role
         self.http = []
-        self.ws = []
+        self.connections = []
 
     def attach(self, page):
         def on_response(response):
@@ -250,29 +296,118 @@ class Capture:
             self.http.append((path, response.status, body))
 
         def on_socket(socket):
-            socket.on(
-                "framereceived",
-                lambda payload: self.ws.append(
-                    payload if isinstance(payload, str) else payload.decode("utf-8", "replace")
-                ),
-            )
+            path = urlsplit(socket.url).path
+            if not path.startswith("/api/ws/saves/"):
+                return
+            connection = Connection(path.rsplit("/", 1)[-1])
+            self.connections.append(connection)
+            socket.on("framereceived", connection.receive)
+            socket.on("socketerror", connection.error)
+            socket.on("close", connection.close)
 
         page.on("response", on_response)
         page.on("websocket", on_socket)
 
-    def blobs(self):
-        return [body for _, _, body in self.http] + self.ws
+    @property
+    def ws(self):
+        return [frame for connection in self.connections for frame in connection.frames]
+
+    def cursor(self):
+        return len(self.http), len(self.connections)
+
+    def lifecycle(self):
+        return dict(
+            created=len(self.connections),
+            established=sum(bool(c.snapshots) for c in self.connections),
+            closed=sum(c.closed for c in self.connections),
+            errors=sum(len(c.errors) for c in self.connections),
+        )
+
+    def socket_at(self, page, save_id, version, *, since=0):
+        return wait_for(
+            page,
+            lambda: next(
+                (
+                    c
+                    for c in self.connections[since:]
+                    if c.save_id == save_id and version in c.snapshots and not c.closed
+                ),
+                None,
+            ),
+            f"{self.role}: no live WebSocket with snapshot v{version} after connection {since}",
+        )
 
     def assert_no_foreign_private(self, page):
-        foreign = PRIVATE["b" if self.role == "a" else "a"]
-        for marker in foreign:
-            for blob in self.blobs():
-                assert marker not in blob, (
-                    f"{self.role} received foreign private text: {marker[:16]}"
+        foreign_role = "b" if self.role == "a" else "a"
+        surfaces = {
+            "HTTP": [body for _, _, body in self.http],
+            "WS": self.ws,
+            "DOM": [page.content()],
+        }
+        for script, roles in PRIVATE.items():
+            for clue_id, text in roles[foreign_role].items():
+                for surface, blobs in surfaces.items():
+                    assert all(
+                        text not in blob and clue_id not in blob for blob in blobs
+                    ), f"{script}: {self.role} received {clue_id} via {surface}"
+
+    def assert_projection(self, page, script, save_id, version, since):
+        """Require fresh GET and WS payloads plus the corresponding rendered view."""
+        http_since, socket_since = since
+
+        def saved_http():
+            for path, status, body in self.http[http_since:]:
+                if path == f"/api/saves/{save_id}" and status == 200 and body:
+                    snapshot = json.loads(body)
+                    if snapshot["version"] == version:
+                        return snapshot
+            return None
+
+        http = wait_for(
+            page,
+            saved_http,
+            f"{self.role}: no fresh GET snapshot for {script} v{version}",
+        )
+        socket = self.socket_at(page, save_id, version, since=socket_since)
+        expected_private = PRIVATE[script][self.role]
+        for surface, snapshot in (("HTTP", http), ("WS", socket.snapshots[version])):
+            assert snapshot["id"] == save_id
+            assert snapshot["script_id"] == script and snapshot["role"] == self.role
+            for projection, expected in (
+                ("personal", expected_private),
+                ("public", SHARED[script]),
+            ):
+                clues = {c["id"]: c["text"] for c in snapshot[projection]["clues"]}
+                assert expected.items() <= clues.items(), (
+                    self.role,
+                    script,
+                    surface,
+                    projection,
                 )
-            assert marker not in page.content(), (
-                f"{self.role} page shows foreign private: {marker[:16]}"
+            for other_script, roles in PRIVATE.items():
+                if other_script != script:
+                    payload = json.dumps(snapshot, ensure_ascii=False)
+                    assert all(
+                        clue_id not in payload and text not in payload
+                        for clues in (*roles.values(), SHARED[other_script])
+                        for clue_id, text in clues.items()
+                    )
+        information = page.locator("#game-information")
+        for heading, clues in (
+            ("我的私人线索", expected_private),
+            ("已公开线索", SHARED[script]),
+        ):
+            paragraphs = information.locator(
+                f'xpath=.//p[preceding-sibling::h2[1][normalize-space()="{heading}"]]'
             )
+            for text in clues.values():
+                expect(paragraphs.filter(has_text=text)).to_be_visible()
+        for other_script, roles in PRIVATE.items():
+            if other_script != script:
+                for clues in (*roles.values(), SHARED[other_script]):
+                    for text in clues.values():
+                        expect(page.get_by_text(text, exact=True)).to_have_count(0)
+        self.assert_no_foreign_private(page)
 
 
 def login(page, base, email):
@@ -283,14 +418,37 @@ def login(page, base, email):
     expect(page).to_have_url(base + "/pairs")
 
 
+def enter_script(page, base, pair_id, script):
+    if urlsplit(page.url).path.startswith("/saves/"):
+        page.get_by_role("link", name="返回书架 →", exact=True).click()
+    else:
+        page.goto(base + f"/pairs/{pair_id}/library")
+    card = page.locator(
+        '[data-test="script-card"]', has_text=SCRIPTS[script]["metadata"]["title"]
+    )
+    card.locator('[data-test="start-save"], [data-test="continue-save"]').click()
+    expect(page.locator('[data-test="save-entry"]')).to_contain_text(script)
+    return urlsplit(page.url).path.rsplit("/", 1)[-1]
+
+
+def expect_version(page, version):
+    expect(page.locator('[data-test="save-entry"]')).to_contain_text(
+        re.compile(rf"进度\s+{version}(?!\d)")
+    )
+
+
 def ui_action(page, client, save_id, kind, args, version, partner=None):
     for target in (page, partner):
         if target is not None and urlsplit(target.url).path != f"/saves/{save_id}":
-            target.goto(urlsplit(target.url).scheme + "://" + urlsplit(target.url).netloc + "/saves/" + save_id)
+            target.goto(
+                urlsplit(target.url).scheme
+                + "://"
+                + urlsplit(target.url).netloc
+                + "/saves/"
+                + save_id
+            )
     snapshot = client.get(f"/api/saves/{save_id}").json()
-    action = next(
-        (a for a in snapshot["available_actions"] if a["kind"] == kind), None
-    )
+    action = next((a for a in snapshot["available_actions"] if a["kind"] == kind), None)
     if action is None:
         raise AssertionError(
             f"role={snapshot['role']} save={save_id} v={snapshot['version']} "
@@ -308,11 +466,9 @@ def ui_action(page, client, save_id, kind, args, version, partner=None):
         else:
             control.fill(str(value))
     form.locator('button[type="submit"]').click()
-    expect(page.locator('[data-test="save-entry"]')).to_contain_text(f"进度 {version}")
+    expect_version(page, version)
     if partner is not None:
-        expect(partner.locator('[data-test="save-entry"]')).to_contain_text(
-            f"进度 {version}"
-        )
+        expect_version(partner, version)
 
 
 def run(storage):
@@ -343,7 +499,12 @@ def run(storage):
         check("register-three-accounts")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(channel=CHANNEL, headless=True)
+            browser = p.chromium.launch(
+                channel=CHANNEL,
+                executable_path=os.environ.get("T16_BROWSER_EXECUTABLE"),
+                headless=True,
+            )
+            results["browser_version"] = browser.version
             context_a = browser.new_context(
                 viewport=dict(width=WIDTH, height=HEIGHT),
                 has_touch=TOUCH,
@@ -371,25 +532,56 @@ def run(storage):
             page_b.goto(base + "/pairs#invite=" + invite)
             page_b.locator('[data-test="join-pair"]').click()
             expect(page_b).to_have_url(re.compile(re.escape(base) + r"/pairs/pair_"))
-            check("ui-create-and-join-pair", pair_id)
+            check("ui-create-and-join-pair")
 
+            browsers = ((page_a, capture_a), (page_b, capture_b))
             saves = {}
-            for script in ("lighthouse", "starline"):
-                for page, client in ((page_a, owner), (page_b, partner)):
-                    page.goto(base + f"/pairs/{pair_id}/library")
-                    card = page.locator('[data-test="script-card"]', has_text=TITLES[script])
-                    button = card.locator(
-                        '[data-test="start-save"], [data-test="continue-save"]'
-                    )
-                    expect(button).to_be_visible()
-                    if card.locator('[data-test="start-save"]').count():
-                        card.locator('[data-test="start-save"]').click()
-                    else:
-                        card.locator('[data-test="continue-save"]').click()
-                    expect(page.locator('[data-test="save-entry"]')).to_be_visible()
-                saves[script] = urlsplit(page_a.url).path.rsplit("/", 1)[-1]
-            check("two-scripts-entered", json.dumps(saves))
+            for script in SCRIPTS:
+                saves[script] = enter_script(page_a, base, pair_id, script)
+                assert enter_script(page_b, base, pair_id, script) == saves[script]
+            check("two-scripts-entered", ", ".join(saves))
 
+            def verify_views(script, version, *, reenter=None):
+                save_id = saves[script]
+                for page, capture in browsers:
+                    http_since, socket_since = capture.cursor()
+                    if reenter is None:
+                        # Read a current browser GET in addition to the live snapshot.
+                        page.evaluate(
+                            "async path => (await fetch(path)).text()",
+                            f"/api/saves/{save_id}",
+                        )
+                        socket_since = 0
+                    else:
+                        reenter(page, script)
+                    expect_version(page, version)
+                    capture.assert_projection(
+                        page, script, save_id, version, (http_since, socket_since)
+                    )
+
+            def switch_script(page, script):
+                capture = capture_a if page == page_a else capture_b
+                previous_id = urlsplit(page.url).path.rsplit("/", 1)[-1]
+                previous = next(
+                    (
+                        c
+                        for c in reversed(capture.connections)
+                        if c.save_id == previous_id and c.snapshots and not c.closed
+                    ),
+                    None,
+                )
+                document = page.evaluate("performance.timeOrigin")
+                assert enter_script(page, base, pair_id, script) == saves[script]
+                if previous is not None:
+                    wait_for(
+                        page,
+                        lambda: previous.closed,
+                        "old save socket survived the script switch",
+                    )
+                    assert page.evaluate("performance.timeOrigin") == document
+
+            for page, _ in browsers:
+                switch_script(page, "lighthouse")
             trace = [
                 ("a", "inspect", dict(target="maintenance_log")),
                 ("b", "inspect", dict(target="sea_chart")),
@@ -410,19 +602,30 @@ def run(storage):
                 page, client = (page_a, owner) if role == "a" else (page_b, partner)
                 other = page_b if role == "a" else page_a
                 ui_action(page, client, saves["lighthouse"], kind, args, index, other)
+                if index == 2:
+                    for clue_id, text in SHARED["lighthouse"].items():
+                        assert all(
+                            text not in body and clue_id not in body
+                            for _, _, body in capture_b.http
+                        )
+                        assert all(
+                            text not in frame and clue_id not in frame
+                            for frame in capture_b.ws
+                        )
+                        expect(page_b.get_by_text(text, exact=True)).to_have_count(0)
             expect(page_a.locator('[data-test="save-entry"]')).to_contain_text("已完成")
             expect(page_b.locator('[data-test="save-entry"]')).to_contain_text("已完成")
-            check("lighthouse-full-cooperation-divergent-then-agreed-votes", f"v14 completed ending={ENDING}")
-            capture_a.assert_no_foreign_private(page_a)
-            capture_b.assert_no_foreign_private(page_b)
-            for capture in (capture_a, capture_b):
-                assert any(SHARED_TEXT in blob for blob in capture.blobs()), (
-                    "shared clue must reach both players"
-                )
-            check("private-isolation-http-ws-page-after-lighthouse")
+            check(
+                "lighthouse-full-cooperation-divergent-then-agreed-votes",
+                f"v14 completed ending={ENDING}",
+            )
+            verify_views("lighthouse", 14)
+            check(
+                "private-isolation-http-ws-page-after-lighthouse",
+                "own private clues and shared maintenance log",
+            )
 
             # API-level tampering must not cross roles.
-            b_save = partner.get(f"/api/saves/{saves['lighthouse']}").json()
             assert (
                 owner.get(
                     f"/api/saves/{saves['lighthouse']}/media/receiver_tone"
@@ -450,12 +653,12 @@ def run(storage):
                 ).status_code
                 == 422
             )
-            assert (
-                outsider.get(f"/api/saves/{saves['lighthouse']}").status_code == 404
-            )
+            assert outsider.get(f"/api/saves/{saves['lighthouse']}").status_code == 404
             check("api-tamper-media-receipt-role-outsider")
 
             starline = saves["starline"]
+            for page, _ in browsers:
+                switch_script(page, "starline")
             starline_trace = [
                 ("a", "inspect", dict(target="station_log")),
                 ("b", "inspect", dict(target="power_board")),
@@ -472,9 +675,19 @@ def run(storage):
                 page, client = (page_a, owner) if role == "a" else (page_b, partner)
                 other = page_b if role == "a" else page_a
                 ui_action(page, client, starline, kind, args, index, other)
+            verify_views("starline", 10)
+            check(
+                "private-isolation-http-ws-page-after-starline",
+                "a_station_log and b_power_board",
+            )
             check("starline-independent-progress", "v10")
-            assert owner.get(f"/api/saves/{saves['lighthouse']}").json()["version"] == 14
+            assert (
+                owner.get(f"/api/saves/{saves['lighthouse']}").json()["version"] == 14
+            )
             check("script-isolation-lighthouse-unchanged")
+            verify_views("lighthouse", 14, reenter=switch_script)
+            verify_views("starline", 10, reenter=switch_script)
+            check("private-isolation-after-switching-both-saves")
 
             # Concurrent submissions at the same expected version: one winner.
             snapshot = owner.get(f"/api/saves/{starline}").json()
@@ -516,75 +729,138 @@ def run(storage):
             assert replay.json()["receipt"]["duplicate"] is True
             check("concurrent-submit-and-idempotent-replay")
 
-            # A loses network while B advances; A recovers and converges.
+            # A loses network while B advances through the UI.
+            for page, _ in browsers:
+                expect_version(page, 11)
+            a_socket = capture_a.socket_at(page_a, starline, 11)
+            b_socket = capture_b.socket_at(page_b, starline, 11)
+            a_before = capture_a.lifecycle()
+            a_document = page_a.evaluate("performance.timeOrigin")
             context_a.set_offline(True)
-            advance = partner.post(
-                f"/api/saves/{starline}/commands",
-                json=dict(
-                    request_id=str(uuid4()),
-                    expected_version=11,
-                    kind="vote_ending",
-                    args=dict(choice=opposite),
-                ),
+            assert not page_a.evaluate("navigator.onLine")
+            wait_for(
+                page_a,
+                lambda: a_socket.closed,
+                "A's original socket did not close offline",
             )
-            assert advance.status_code == 200, advance.text
+            assert not b_socket.closed
+            ui_action(
+                page_b, partner, starline, "vote_ending", dict(choice=opposite), 12
+            )
+            stored = partner.get(f"/api/saves/{starline}").json()
+            assert stored["version"] == 12 and not stored["completed"]
+            assert 12 not in a_socket.snapshots
+            offline_connections = capture_a.lifecycle()["created"]
+            assert offline_connections == a_before["created"]
             context_a.set_offline(False)
-            page_a.reload()
-            expect(page_a.locator('[data-test="save-entry"]')).to_contain_text("进度 12")
-            check("offline-reconnect-convergence")
+            a_reconnected = capture_a.socket_at(
+                page_a, starline, 12, since=offline_connections
+            )
+            assert next(iter(a_reconnected.snapshots)) == 12
+            b_current = capture_b.socket_at(page_b, starline, 12)
+            assert b_current is b_socket
+            assert (
+                a_reconnected.snapshots[12]["public"]
+                == b_current.snapshots[12]["public"]
+            )
+            expect_version(page_a, 12)
+            expect_version(page_b, 12)
+            assert page_a.evaluate("performance.timeOrigin") == a_document
+            a_after = capture_a.lifecycle()
+            assert a_after["closed"] > a_before["closed"]
+            assert a_after["established"] == a_before["established"] + 1
+            results["offline_recovery"] = dict(
+                a_before=a_before, a_after=a_after, version=12, reloaded=False
+            )
+            check(
+                "offline-reconnect-convergence",
+                "A closed and reconnected at v12 without reload; B stayed online",
+            )
 
-            page_a.reload()
-            page_b.reload()
-            expect(page_a.locator('[data-test="save-entry"]')).to_contain_text("进度 12")
-            expect(page_b.locator('[data-test="save-entry"]')).to_contain_text("进度 12")
-            check("refresh-keeps-progress")
-
+            restart_before = {
+                capture.role: capture.lifecycle() for _, capture in browsers
+            }
+            documents = {
+                capture.role: page.evaluate("performance.timeOrigin")
+                for page, capture in browsers
+            }
+            old_sockets = {"a": a_reconnected, "b": b_current}
             stack["restart"]()
-            page_a.reload()
-            page_b.reload()
-            expect(page_a.locator('[data-test="save-entry"]')).to_contain_text("进度 12")
-            expect(page_b.locator('[data-test="save-entry"]')).to_contain_text("进度 12")
-            final_version = None
-            for client in (owner, partner):
-                snapshot = client.get(f"/api/saves/{starline}").json()
-                if snapshot["completed"]:
-                    final_version = snapshot["version"]
-                    break
-                choice = next(
-                    a
-                    for a in snapshot["available_actions"]
-                    if a["kind"] == "vote_ending"
-                )["parameters"][0]["choices"][0]
-                response = client.post(
-                    f"/api/saves/{starline}/commands",
-                    json=dict(
-                        request_id=str(uuid4()),
-                        expected_version=snapshot["version"],
-                        kind="vote_ending",
-                        args=dict(choice=choice),
-                    ),
+            resumed = {}
+            for page, capture in browsers:
+                role = capture.role
+                wait_for(
+                    page,
+                    lambda: old_sockets[role].closed,
+                    f"{role}: old socket survived service restart",
                 )
-                if response.status_code == 422:
-                    assert response.json()["error"]["code"] == "NO_STATE_CHANGE"
-                    continue  # this player already holds the target choice
-                assert response.status_code == 200, response.text
-                final_version = response.json()["save"]["version"]
-            assert owner.get(f"/api/saves/{starline}").json()["completed"]
-            page_a.reload()
-            page_b.reload()
-            expect(page_a.locator('[data-test="save-entry"]')).to_contain_text("已完成")
-            expect(page_b.locator('[data-test="save-entry"]')).to_contain_text("已完成")
-            check("service-restart-then-finish-starline", f"v{final_version} completed")
+                resumed[role] = capture.socket_at(
+                    page, starline, 12, since=restart_before[role]["created"]
+                )
+                assert next(iter(resumed[role].snapshots)) == 12
+                expect_version(page, 12)
+            assert (
+                resumed["a"].snapshots[12]["public"]
+                == resumed["b"].snapshots[12]["public"]
+            )
+            restart_after = {
+                capture.role: capture.lifecycle() for _, capture in browsers
+            }
+            for role in resumed:
+                assert restart_after[role]["closed"] > restart_before[role]["closed"]
+                assert (
+                    restart_after[role]["established"]
+                    == restart_before[role]["established"] + 1
+                )
+            ui_action(
+                page_a,
+                owner,
+                starline,
+                "vote_ending",
+                dict(choice=opposite),
+                13,
+                page_b,
+            )
+            completed = owner.get(f"/api/saves/{starline}").json()
+            assert completed["completed"] and completed["public"]["ending"] == opposite
+            for page, capture in browsers:
+                expect(page.locator('[data-test="save-entry"]')).to_contain_text(
+                    "已完成"
+                )
+                assert capture.socket_at(page, starline, 13) is resumed[capture.role]
+                assert (
+                    page.evaluate("performance.timeOrigin") == documents[capture.role]
+                )
+            results["restart_recovery"] = dict(
+                before=restart_before,
+                after=restart_after,
+                restored_version=12,
+                completed_version=13,
+                reloaded=False,
+            )
+            check(
+                "service-restart-then-finish-starline",
+                "A/B reconnected at v12; A voted in UI and both completed at v13",
+            )
+
+            # Refresh is an explicit, separate isolation check after both recovery scenarios.
+            verify_views("starline", 13, reenter=lambda page, _: page.reload())
+            verify_views("lighthouse", 14, reenter=switch_script)
+            verify_views("lighthouse", 14, reenter=lambda page, _: page.reload())
+            check(
+                "refresh-keeps-progress",
+                "fresh HTTP/WS/DOM projections for both scripts",
+            )
 
             # Re-login in fresh cookies restores both saves independently.
-            for context, page, client, email in (
-                (context_a, page_a, owner, email_a),
-                (context_b, page_b, partner, email_b),
+            for context, page, email in (
+                (context_a, page_a, email_a),
+                (context_b, page_b, email_b),
             ):
                 context.clear_cookies()
                 login(page, base, email)
-                page.goto(base + f"/pairs/{pair_id}/library")
-                page.locator('[data-test="continue-save"]').first.click()
+            verify_views("lighthouse", 14, reenter=switch_script)
+            verify_views("starline", 13, reenter=switch_script)
             assert owner.get(f"/api/saves/{saves['lighthouse']}").json()["completed"]
             assert owner.get(f"/api/saves/{starline}").json()["completed"]
             check("relogin-restores-both-saves")
@@ -597,6 +873,16 @@ def run(storage):
             )
             results["ws_frames"] = dict(a=len(capture_a.ws), b=len(capture_b.ws))
             assert capture_a.ws and capture_b.ws, "expected real WebSocket frames"
+            results["websocket_lifecycles"] = {
+                capture.role: dict(
+                    totals=capture.lifecycle(),
+                    connections=[
+                        dict(events=c.events, snapshot_versions=list(c.snapshots))
+                        for c in capture.connections
+                    ],
+                )
+                for _, capture in browsers
+            }
             browser.close()
         owner.close()
         partner.close()
