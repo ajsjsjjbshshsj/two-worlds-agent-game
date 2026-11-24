@@ -66,9 +66,19 @@ class Node:
 
 
 @contextmanager
-def mongo_node(folder):
+def mongo_node(folder, *, authenticated=True):
     folder.mkdir(mode=0o700)
     name = "tw-recovery-" + uuid4().hex[:12]
+    credentials = (
+        [
+            "-e",
+            f"MONGO_INITDB_ROOT_USERNAME={ADMIN}",
+            "-e",
+            f"MONGO_INITDB_ROOT_PASSWORD={CREDENTIAL}",
+        ]
+        if authenticated
+        else []
+    )
     run(
         "docker",
         "run",
@@ -88,10 +98,7 @@ def mongo_node(folder):
         "local",
         "--log-opt",
         "max-size=32k",
-        "-e",
-        f"MONGO_INITDB_ROOT_USERNAME={ADMIN}",
-        "-e",
-        f"MONGO_INITDB_ROOT_PASSWORD={CREDENTIAL}",
+        *credentials,
         IMAGE,
         "--wiredTigerCacheSizeGB",
         "0.25",
@@ -103,7 +110,8 @@ def mongo_node(folder):
             .stdout.strip()
             .rsplit(":", 1)[-1]
         )
-        uri = f"mongodb://{ADMIN}:{CREDENTIAL}@127.0.0.1:{port}/admin?directConnection=true"
+        userinfo = f"{ADMIN}:{CREDENTIAL}@" if authenticated else ""
+        uri = f"mongodb://{userinfo}127.0.0.1:{port}/admin?directConnection=true"
         with MongoClient(uri, serverSelectionTimeoutMS=1200) as admin:
             deadline = time.monotonic() + 50
             while True:

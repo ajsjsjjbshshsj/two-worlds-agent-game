@@ -28,6 +28,13 @@ def _message(email: str, purpose: str, code: str, sender: str) -> EmailMessage:
     return message
 
 
+class DisabledEmailCodeSender:
+    """Fail closed without logging, formatting or transmitting a code."""
+
+    def send_code(self, email: str, purpose: str, code: str) -> None:
+        raise EmailSendError("Verification email is disabled")
+
+
 class ConsoleEmailCodeSender:
     """Explicit local development only; prints the code to the dev console."""
 
