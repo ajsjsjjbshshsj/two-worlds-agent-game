@@ -1,0 +1,74 @@
+{
+  "storage": "sqlite",
+  "channel": "msedge",
+  "checks": [
+    {
+      "name": "register-three-accounts",
+      "detail": ""
+    },
+    {
+      "name": "ui-login-two-independent-contexts",
+      "detail": ""
+    },
+    {
+      "name": "ui-create-and-join-pair",
+      "detail": "pair_b972f93592609403e9ce59198659e8ff"
+    },
+    {
+      "name": "two-scripts-entered",
+      "detail": "{\"lighthouse\": \"save_ac1d96bd94b8ec5be2534a63259bee0d\", \"starline\": \"save_008e8de4d99da1d1841d379e60fc4591\"}"
+    },
+    {
+      "name": "lighthouse-full-cooperation-both-endings-votes",
+      "detail": "v14 completed"
+    },
+    {
+      "name": "private-isolation-http-ws-page-after-lighthouse",
+      "detail": ""
+    },
+    {
+      "name": "api-tamper-media-receipt-role-outsider",
+      "detail": ""
+    },
+    {
+      "name": "starline-independent-progress",
+      "detail": "v10"
+    },
+    {
+      "name": "script-isolation-lighthouse-unchanged",
+      "detail": ""
+    },
+    {
+      "name": "concurrent-submit-and-idempotent-replay",
+      "detail": ""
+    },
+    {
+      "name": "offline-reconnect-convergence",
+      "detail": ""
+    },
+    {
+      "name": "refresh-keeps-progress",
+      "detail": ""
+    },
+    {
+      "name": "service-restart-then-finish-starline",
+      "detail": "v13 completed"
+    },
+    {
+      "name": "relogin-restores-both-saves",
+      "detail": ""
+    },
+    {
+      "name": "private-isolation-final",
+      "detail": ""
+    }
+  ],
+  "http_captured": {
+    "a": 91,
+    "b": 96
+  },
+  "ws_frames": {
+    "a": 34,
+    "b": 35
+  }
+}
