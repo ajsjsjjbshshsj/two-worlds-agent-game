@@ -105,12 +105,7 @@ def _verification_secret(env):
     )
 
 
-def create_playtest_app(
-    environ: Mapping[str, str] | None = None,
-    *,
-    publication_store: PublicationStore | None = None,
-):
-    env = os.environ if environ is None else environ
+def _playtest_settings(env):
     if env.get("TWOWORLDS_MODE") != "playtest":
         raise PlaytestConfigurationError("Explicit TWOWORLDS_MODE=playtest is required")
     if env.get("TWOWORLDS_AI_MODE", "demo") != "demo":
@@ -122,11 +117,39 @@ def create_playtest_app(
     if env.get("TWOWORLDS_STORAGE_BACKEND", "mongo") != "mongo":
         raise PlaytestConfigurationError("Playtest requires MongoDB")
 
+    secret = _verification_secret(env)
+    return secret, _mongo_target(env)
+
+
+def _connect_mongo(target):
+    uri, name, anonymous = target
+    try:
+        return MongoRepository(uri, name, anonymous_probe_uri=anonymous)
+    except Exception:
+        raise PlaytestConfigurationError(
+            "Playtest MongoDB unavailable or not an isolated authenticated database"
+        ) from None
+
+
+def open_playtest_repository(
+    environ: Mapping[str, str] | None = None,
+) -> MongoRepository:
+    """Open the same authenticated, scoped repository for trusted offline tools."""
+    env = os.environ if environ is None else environ
+    _, target = _playtest_settings(env)
+    return _connect_mongo(target)
+
+
+def create_playtest_app(
+    environ: Mapping[str, str] | None = None,
+    *,
+    publication_store: PublicationStore | None = None,
+):
+    env = os.environ if environ is None else environ
+    secret, target = _playtest_settings(env)
     origins = validate_origins(env.get("TWOWORLDS_ALLOWED_ORIGINS", ""))
     if any(not origin.startswith("https://") for origin in origins):
         raise PlaytestConfigurationError("Playtest requires exact HTTPS origins")
-    secret = _verification_secret(env)
-    uri, name, anonymous = _mongo_target(env)
 
     root = env.get("TWOWORLDS_PLAYTEST_PUBLICATION_ROOT")
     if publication_store is None and not root:
@@ -145,12 +168,7 @@ def create_playtest_app(
             "Playtest publication store failed validation"
         ) from None
 
-    try:
-        repository = MongoRepository(uri, name, anonymous_probe_uri=anonymous)
-    except Exception:
-        raise PlaytestConfigurationError(
-            "Playtest MongoDB unavailable or not an isolated authenticated database"
-        ) from None
+    repository = _connect_mongo(target)
     try:
         return create_app(
             repository=repository,

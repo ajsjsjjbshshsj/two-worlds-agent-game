@@ -146,6 +146,22 @@ class IdentityService:
     @_storage_errors
     def register(self, email: str, password: str, display_name: str) -> SessionIssued:
         """The caller must already have consumed a valid register code."""
+        saved, token = self._create_account(
+            email, password, display_name, with_session=True
+        )
+        return SessionIssued(self._info(saved), saved.sessions[0].expires_at, token)
+
+    @_storage_errors
+    def provision_account(
+        self, email: str, password: str, display_name: str
+    ) -> AccountInfo:
+        """Create an organizer-approved identity atomically without a session."""
+        saved, _ = self._create_account(
+            email, password, display_name, with_session=False
+        )
+        return self._info(saved)
+
+    def _create_account(self, email, password, display_name, *, with_session):
         email = self._email(email)
         password = self._password(password)
         try:
@@ -153,28 +169,28 @@ class IdentityService:
         except ValidationError:
             raise IdentityError("INVALID_INPUT") from None
         password_hash = self._hash(password)
-        for _ in range(self._attempts):
-            if self._repository.get_account_by_email(email) is not None:
-                raise IdentityError("EMAIL_ALREADY_REGISTERED")
-            now = self._now()
+        if self._repository.get_account_by_email(email) is not None:
+            raise IdentityError("EMAIL_ALREADY_REGISTERED")
+        now = self._now()
+        token, sessions = None, ()
+        if with_session:
             token, session = self._session(now)
-            account = AccountRecord(
-                id="account_" + secrets.token_hex(16),
-                email=email,
-                email_verified_at=now,
-                password_hash=password_hash,
-                display_name=name,
-                sessions=(session,),
-                created_at=now,
-                updated_at=now,
-            )
-            try:
-                saved = self._repository.create_account(account)
-            except DuplicateRecord:
-                # The unique email constraint means a concurrent register won.
-                raise IdentityError("EMAIL_ALREADY_REGISTERED") from None
-            return SessionIssued(self._info(saved), session.expires_at, token)
-        raise IdentityError("CONCURRENT_UPDATE")
+            sessions = (session,)
+        account = AccountRecord(
+            id="account_" + secrets.token_hex(16),
+            email=email,
+            email_verified_at=now,
+            password_hash=password_hash,
+            display_name=name,
+            sessions=sessions,
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            return self._repository.create_account(account), token
+        except DuplicateRecord:
+            # The unique email constraint means a concurrent insert won.
+            raise IdentityError("EMAIL_ALREADY_REGISTERED") from None
 
     @_storage_errors
     def login(self, email: str, password: str) -> SessionIssued:
