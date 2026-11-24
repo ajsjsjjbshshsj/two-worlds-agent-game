@@ -154,6 +154,7 @@ def create_app(
     email_sender: EmailCodeSender,
     verification_secret: str,
     cookie_secure: bool = False,
+    enable_email_account_routes: bool = True,
     rate_policies=None,
     rate_max_keys=10000,
     websocket_timing: WebSocketTiming | None = None,
@@ -223,8 +224,11 @@ def create_app(
         finally:
             # Drain background sends first: their failure invalidation still
             # needs the repository.
-            app.state.verification_service.close()
-            repository.close()
+            try:
+                if app.state.verification_service is not None:
+                    app.state.verification_service.close()
+            finally:
+                repository.close()
 
     app = FastAPI(lifespan=lifespan, redirect_slashes=False)
 
@@ -247,11 +251,15 @@ def create_app(
     app.state.identity_service = IdentityService(
         repository, **({"clock": identity_clock} if identity_clock is not None else {})
     )
-    app.state.verification_service = VerificationCodeService(
-        repository,
-        email_sender,
-        secret=verification_secret,
-        **({"clock": identity_clock} if identity_clock is not None else {}),
+    app.state.verification_service = (
+        VerificationCodeService(
+            repository,
+            email_sender,
+            secret=verification_secret,
+            **({"clock": identity_clock} if identity_clock is not None else {}),
+        )
+        if enable_email_account_routes
+        else None
     )
     app.state.rate_limiter = SharedRateLimiter(
         repository,
@@ -266,11 +274,12 @@ def create_app(
         repository, **({"clock": clock} if clock is not None else {})
     )
     install_handlers(app)
-    app.include_router(accounts.router)
+    if enable_email_account_routes:
+        app.include_router(accounts.router)
+        app.include_router(verification.router)
+        app.include_router(password_resets.router)
     app.include_router(narrative.router)
     app.include_router(sessions.router)
-    app.include_router(verification.router)
-    app.include_router(password_resets.router)
     app.include_router(pairs.router)
     app.include_router(saves.router)
     app.include_router(websocket.router)

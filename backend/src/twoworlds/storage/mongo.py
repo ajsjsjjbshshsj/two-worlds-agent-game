@@ -8,7 +8,7 @@ from uuid import UUID
 from bson.errors import BSONError
 from pydantic import TypeAdapter
 from pymongo import MongoClient, timeout
-from pymongo.errors import DuplicateKeyError, PyMongoError
+from pymongo.errors import DuplicateKeyError, OperationFailure, PyMongoError
 
 from twoworlds.domain.persistence import (
     AccountRecord,
@@ -127,7 +127,7 @@ def _transition(current, candidate, immutable):
 class MongoRepository:
     """Explicit URI/database; no fallback, global lock, or multi-document transaction."""
 
-    def __init__(self, uri: str, database_name: str):
+    def __init__(self, uri: str, database_name: str, *, anonymous_probe_uri=None):
         self._closed = False
         self._client = None
         try:
@@ -141,8 +141,7 @@ class MongoRepository:
                     raise RepositoryError(
                         "Explicit Mongo connection and database are required"
                     )
-                self._client = MongoClient(
-                    uri,
+                options = dict(
                     serverSelectionTimeoutMS=2000,
                     connectTimeoutMS=2000,
                     socketTimeoutMS=3000,
@@ -151,12 +150,54 @@ class MongoRepository:
                     w=1,
                     journal=True,
                 )
+                if anonymous_probe_uri is not None:
+                    options["directConnection"] = True
+                self._client = MongoClient(uri, **options)
                 self._client.admin.command("ping")
                 self._database = self._client[database_name]
+                if anonymous_probe_uri is not None:
+                    with MongoClient(anonymous_probe_uri, **options) as anonymous:
+                        self._verify_isolated_access(anonymous)
                 ensure_indexes(self._database)
         except BaseException:
             self.close()
             raise
+
+    def _verify_isolated_access(self, anonymous):
+        name = self._database.name
+        auth = self._client.admin.command("connectionStatus")["authInfo"]
+        users = auth["authenticatedUsers"]
+        if (
+            len(users) != 1
+            or users[0]["db"] != name
+            or auth["authenticatedUserRoles"] != [{"role": "readWrite", "db": name}]
+        ):
+            raise RepositoryError(
+                "MongoDB requires an identity scoped to the playtest database"
+            )
+
+        # A credentialed connection alone does not prove access control is on.
+        # Check that both connections reached the same standalone process.
+        hello = self._client.admin.command("hello")
+        process = hello.get("topologyVersion", {}).get("processId")
+        other = anonymous.admin.command("hello")
+        if (
+            not process
+            or "setName" in hello
+            or hello.get("msg") == "isdbgrid"
+            or process != other.get("topologyVersion", {}).get("processId")
+        ):
+            raise RepositoryError(
+                "MongoDB probes must reach the same standalone instance"
+            )
+        try:
+            anonymous[name].command("listCollections")
+        except OperationFailure as error:
+            # Count only an explicit Unauthorized response as proof.
+            if error.code == 13:
+                return
+            raise
+        raise RepositoryError("MongoDB must reject unauthenticated database access")
 
     @contextmanager
     def _operation(self):
