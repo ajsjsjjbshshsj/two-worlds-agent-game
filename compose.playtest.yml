@@ -1,0 +1,174 @@
+# Standalone closed Playtest deployment. Use its own project and env file.
+name: twoworlds-playtest
+
+x-playtest-runtime: &runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "2"
+
+x-playtest-db-password: &app-password
+  type: bind
+  source: ${TWOWORLDS_PLAYTEST_SECRET_DIR:?set the external secret directory}/mongo-app-password
+  target: /run/secrets/mongo-app-password
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  playtest-mongo:
+    <<: *runtime
+    build:
+      context: ./deploy/playtest
+      dockerfile: mongo.Dockerfile
+    command: [mongod, --auth, --bind_ip_all, --setParameter, diagnosticDataCollectionEnabled=false]
+    ulimits:
+      nofile: {soft: 8192, hard: 8192}
+    environment:
+      TWOWORLDS_PLAYTEST_MONGO_DATABASE: ${TWOWORLDS_PLAYTEST_MONGO_DATABASE:?set the dedicated database name}
+      HOME: /tmp
+      MONGOSH_DISABLE_TELEMETRY: "1"
+    group_add: ["10001"]
+    volumes:
+      - mongo_data:/data/db
+      - *app-password
+      - type: bind
+        source: ${TWOWORLDS_PLAYTEST_SECRET_DIR:?set the external secret directory}/mongo-admin-password
+        target: /run/secrets/mongo-admin-password
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:uid=999,gid=999,mode=0700
+      - /data/configdb:uid=999,gid=999,mode=0700
+    networks: [data]
+    healthcheck:
+      # The temporary initializer listens only on loopback, so it cannot pass.
+      test: [CMD, mongosh, "mongodb://playtest-mongo:27017/?serverSelectionTimeoutMS=2000", --quiet, --eval, "quit(db.runCommand({ping: 1}).ok === 1 ? 0 : 1)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+
+  backend:
+    <<: *runtime
+    build:
+      context: ./backend
+    command: [python, -m, twoworlds.playtest]
+    depends_on:
+      playtest-mongo:
+        condition: service_healthy
+    environment:
+      TWOWORLDS_MODE: playtest
+      TWOWORLDS_STORAGE_BACKEND: mongo
+      TWOWORLDS_AI_MODE: demo
+      TWOWORLDS_EMAIL_MODE: disabled
+      TWOWORLDS_PLAYTEST_MONGO_DATABASE: ${TWOWORLDS_PLAYTEST_MONGO_DATABASE:?set the dedicated database name}
+      TWOWORLDS_PLAYTEST_MONGO_PASSWORD_FILE: /run/secrets/mongo-app-password
+      TWOWORLDS_PLAYTEST_VERIFICATION_SECRET_FILE: /run/secrets/verification-secret
+      TWOWORLDS_PLAYTEST_PUBLICATION_ROOT: /srv/playtest/publications
+      TWOWORLDS_PLAYTEST_APPROVAL_FILE: /etc/playtest/content-approval.json
+      TWOWORLDS_PLAYTEST_CONTENT_PURPOSE: ${TWOWORLDS_PLAYTEST_CONTENT_PURPOSE:?set the content purpose}
+      TWOWORLDS_ALLOWED_ORIGINS: https://${TWOWORLDS_PLAYTEST_HOST:?set the HTTPS hostname}
+      TWOWORLDS_TRUSTED_PROXY_IP: ${TWOWORLDS_PLAYTEST_GATEWAY_IP:-172.30.86.2}
+      TWOWORLDS_HOST: 0.0.0.0
+    volumes:
+      - *app-password
+      - type: bind
+        source: ${TWOWORLDS_PLAYTEST_SECRET_DIR:?set the external secret directory}/verification-secret
+        target: /run/secrets/verification-secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TWOWORLDS_PLAYTEST_PUBLICATION_ROOT:?set the external sealed release directory}
+        target: /srv/playtest/publications
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TWOWORLDS_PLAYTEST_APPROVAL_FILE:?set the external approval manifest}
+        target: /etc/playtest/content-approval.json
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700
+    networks: [app, data]
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import build_opener, ProxyHandler; build_opener(ProxyHandler({})).open('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+
+  frontend:
+    <<: *runtime
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101,mode=0700
+      - /var/run:uid=101,gid=101,mode=0700
+    networks: [app]
+    healthcheck:
+      test: [CMD, wget, -Y, "off", -q, -O, /dev/null, "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+
+  gateway:
+    <<: *runtime
+    build:
+      context: ./deploy
+      dockerfile: playtest/gateway.Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    environment:
+      TWOWORLDS_PLAYTEST_HOST: ${TWOWORLDS_PLAYTEST_HOST:?set the HTTPS hostname}
+      TWOWORLDS_PLAYTEST_ALLOWLIST: ${TWOWORLDS_PLAYTEST_ALLOWLIST:?set approved IPv4 source addresses}
+      TWOWORLDS_PLAYTEST_BIND_IP: ${TWOWORLDS_PLAYTEST_BIND_IP:-127.0.0.1}
+      TWOWORLDS_PLAYTEST_CONTENT_PURPOSE: ${TWOWORLDS_PLAYTEST_CONTENT_PURPOSE:?set the content purpose}
+    ports:
+      - "${TWOWORLDS_PLAYTEST_BIND_IP:-127.0.0.1}:443:8443"
+    volumes:
+      - type: bind
+        source: ${TWOWORLDS_PLAYTEST_TLS_DIR:?set the external TLS directory}
+        target: /etc/twoworlds-tls
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:uid=101,gid=101,mode=0700
+    networks:
+      ingress:
+        gw_priority: 1
+      app:
+        ipv4_address: ${TWOWORLDS_PLAYTEST_GATEWAY_IP:-172.30.86.2}
+    healthcheck:
+      # Only checks the listener. The gateway ACL still covers all HTTP paths.
+      test: [CMD-SHELL, "nc -z -w 2 127.0.0.1 8443"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+
+volumes:
+  mongo_data:
+
+networks:
+  ingress:
+    driver: bridge
+  app:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${TWOWORLDS_PLAYTEST_APP_SUBNET:-172.30.86.0/24}
+          ip_range: ${TWOWORLDS_PLAYTEST_APP_RANGE:-172.30.86.128/25}
+  data:
+    internal: true

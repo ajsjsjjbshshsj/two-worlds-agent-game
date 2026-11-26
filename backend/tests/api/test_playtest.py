@@ -1,6 +1,8 @@
 """Playtest contracts against isolated real MongoDB processes."""
 
 from collections import UserDict
+from hashlib import sha256
+import json
 import os
 import secrets
 import socket
@@ -21,6 +23,7 @@ from tests.mongodb_recovery import mongo_node
 from tests.save_support import make_publications
 from twoworlds import playtest
 from twoworlds.application.dialogue import DEMO_ANSWER
+from twoworlds.content.publication import PublicationStore
 from twoworlds.ports.email import EmailSendError
 from twoworlds.ports.repository import RepositoryError
 from twoworlds.security import mailer
@@ -31,6 +34,8 @@ URI = "TWOWORLDS_PLAYTEST_MONGO_URI"
 DATABASE = "TWOWORLDS_PLAYTEST_MONGO_DATABASE"
 SECRET = "TWOWORLDS_PLAYTEST_VERIFICATION_SECRET"
 PUBLICATIONS = "TWOWORLDS_PLAYTEST_PUBLICATION_ROOT"
+APPROVAL = "TWOWORLDS_PLAYTEST_APPROVAL_FILE"
+PURPOSE = "TWOWORLDS_PLAYTEST_CONTENT_PURPOSE"
 
 
 @pytest.fixture
@@ -51,6 +56,29 @@ def publications(tmp_path):
     publish()
     publish(identifier="starline")
     return store, tmp_path / "releases"
+
+
+@pytest.fixture
+def deployment_settings(publications, tmp_path):
+    store, root = publications
+    manifest = tmp_path / "approval.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "purpose": "internal-drill",
+                "releases": {
+                    f"{script.id}/{script.content_version}": sha256(
+                        (
+                            root / script.id / script.content_version / "release.json"
+                        ).read_bytes()
+                    ).hexdigest()
+                    for script in store.catalog()
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {PUBLICATIONS: str(root), APPROVAL: str(manifest), PURPOSE: "internal-drill"}
 
 
 @pytest.fixture(scope="module")
@@ -125,7 +153,78 @@ def test_requires_explicit_sealed_publications(settings, publications, monkeypat
     manifest = root / "lighthouse" / "1.0.0" / "release.json"
     manifest.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="publication store failed validation"):
-        playtest.create_playtest_app(settings, publication_store=store)
+        playtest.create_playtest_app(settings, test_publication_store=store)
+
+
+@pytest.mark.parametrize("missing", [(APPROVAL,), (PURPOSE,), (APPROVAL, PURPOSE)])
+def test_launch_app_requires_explicit_deployment_approval(
+    settings, deployment_settings, monkeypatch, missing
+):
+    for field, value in (settings | deployment_settings).items():
+        monkeypatch.setenv(field, value)
+    for field in missing:
+        monkeypatch.delenv(field)
+    monkeypatch.setattr(playtest, "MongoRepository", forbidden)
+
+    with pytest.raises(
+        playtest.PlaytestConfigurationError, match="APPROVAL_FILE.*CONTENT_PURPOSE"
+    ):
+        playtest._launch_app()
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "missing-file",
+        "empty-catalog",
+        "invalid-json",
+        "version-mismatch",
+        "sha256-mismatch",
+        "unknown-purpose",
+        "test-only-media",
+    ],
+)
+def test_launch_app_rejects_invalid_deployment_approval_before_mongo(
+    settings, deployment_settings, tmp_path, monkeypatch, invalid
+):
+    manifest = Path(deployment_settings[APPROVAL])
+    approval = json.loads(manifest.read_text(encoding="utf-8"))
+    reference = "lighthouse/1.0.0"
+    if invalid == "missing-file":
+        manifest.unlink()
+    elif invalid == "empty-catalog":
+        root = tmp_path / "empty"
+        PublicationStore.initialize(root)
+        deployment_settings[PUBLICATIONS] = str(root)
+        approval["releases"] = {}
+    elif invalid == "invalid-json":
+        manifest.write_text("{", encoding="utf-8")
+    elif invalid == "version-mismatch":
+        approval["releases"]["lighthouse/9.9.9"] = approval["releases"].pop(reference)
+    elif invalid == "sha256-mismatch":
+        approval["releases"][reference] = "0" * 64
+    elif invalid == "unknown-purpose":
+        approval["purpose"] = deployment_settings[PURPOSE] = "unknown-purpose"
+    elif invalid == "test-only-media":
+        approval["purpose"] = deployment_settings[PURPOSE] = "participant"
+        for version in approval["releases"]:
+            seal = Path(deployment_settings[PUBLICATIONS]) / version / "release.json"
+            record = json.loads(seal.read_text(encoding="utf-8"))
+            # Keep the media markers and pin the changed record in the manifest.
+            record["reviewed_by"] = "Synthetic review fixture"
+            sealed = json.dumps(record).encode()
+            seal.write_bytes(sealed)
+            approval["releases"][version] = sha256(sealed).hexdigest()
+    if invalid not in {"missing-file", "invalid-json"}:
+        manifest.write_text(json.dumps(approval), encoding="utf-8")
+    for field, value in (settings | deployment_settings).items():
+        monkeypatch.setenv(field, value)
+    monkeypatch.setattr(playtest, "MongoRepository", forbidden)
+
+    with pytest.raises(
+        playtest.PlaytestConfigurationError, match="nonempty, approved release catalog"
+    ):
+        playtest._launch_app()
 
 
 def test_bad_ca_file_does_not_disclose_the_path(settings, tmp_path, monkeypatch):
@@ -155,7 +254,7 @@ def test_no_auth_server_is_rejected_before_index_creation(settings, publications
             with pytest.raises(
                 ValueError, match="not an isolated authenticated database"
             ):
-                playtest.create_playtest_app(settings, publication_store=store)
+                playtest.create_playtest_app(settings, test_publication_store=store)
             assert node.admin[name].list_collection_names() == []
 
 
@@ -169,7 +268,7 @@ def test_cross_database_privileges_are_rejected(
         roles=["readWrite", {"role": "read", "db": "twoworlds"}],
     )
     with pytest.raises(ValueError, match="not an isolated authenticated database"):
-        playtest.create_playtest_app(connected, publication_store=publications[0])
+        playtest.create_playtest_app(connected, test_publication_store=publications[0])
     assert authenticated_mongo.admin[name].list_collection_names() == []
 
 
@@ -181,7 +280,9 @@ def test_database_failure_is_sanitized(settings, publications, capsys):
             f"mongodb://fixture-user:unreachable-credential@127.0.0.1:{reserved.getsockname()[1]}/{name}"
         )
         with pytest.raises(ValueError, match="Playtest MongoDB unavailable") as caught:
-            playtest.create_playtest_app(settings, publication_store=publications[0])
+            playtest.create_playtest_app(
+                settings, test_publication_store=publications[0]
+            )
     messages = capsys.readouterr()
     assert (
         "unreachable-credential" not in str(caught.value) + messages.out + messages.err
@@ -195,7 +296,9 @@ def test_closed_routes_and_mail_adapter(
     monkeypatch.setattr(mailer.ConsoleEmailCodeSender, "send_code", forbidden)
     monkeypatch.setattr(mailer.smtplib, "SMTP", forbidden)
     monkeypatch.setattr(mailer.smtplib, "SMTP_SSL", forbidden)
-    app = playtest.create_playtest_app(connected, publication_store=publications[0])
+    app = playtest.create_playtest_app(
+        connected, test_publication_store=publications[0]
+    )
     with TestClient(app, base_url=ORIGIN) as client:
         for path, payload in {
             "/api/accounts": {
@@ -267,7 +370,7 @@ def test_login_logout_verified_games_demo_and_repository_cleanup(
 
     monkeypatch.setattr(playtest, "MongoRepository", track)
     env = RuntimeEnv(connected | {"TWOWORLDS_COOKIE_SECURE": "0"})
-    app = playtest.create_playtest_app(env, publication_store=publications[0])
+    app = playtest.create_playtest_app(env, test_publication_store=publications[0])
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.get("/health/ready").status_code == 200
         scripts = ok(client.get("/api/scripts"))
@@ -314,7 +417,9 @@ def test_login_logout_verified_games_demo_and_repository_cleanup(
 
 
 def test_login_keeps_csrf_body_limits_and_rate_limits(connected, publications):
-    app = playtest.create_playtest_app(connected, publication_store=publications[0])
+    app = playtest.create_playtest_app(
+        connected, test_publication_store=publications[0]
+    )
     with TestClient(app, base_url=ORIGIN) as client:
         payload = {"email": "absent@example.invalid", "password": PASSWORD}
         denied = client.post(
@@ -342,15 +447,15 @@ def test_login_keeps_csrf_body_limits_and_rate_limits(connected, publications):
         assert blocked.status_code == 429 and int(blocked.headers["retry-after"]) > 0
 
 
-def test_launch_cli_with_explicit_publications(connected, publications):
+def test_launch_cli_with_explicit_approved_publications(connected, deployment_settings):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     env = (
         os.environ
         | connected
+        | deployment_settings
         | {
-            PUBLICATIONS: str(publications[1]),
             "TWOWORLDS_HOST": "127.0.0.1",
             "TWOWORLDS_PORT": str(port),
         }
@@ -386,3 +491,25 @@ def test_launch_cli_with_explicit_publications(connected, publications):
             raise
     assert connected[URI] not in stdout + stderr
     assert connected[SECRET] not in stdout + stderr
+
+
+def test_launch_cli_cannot_bypass_approval_through_environment(settings, publications):
+    env = (
+        os.environ
+        | settings
+        | {
+            PUBLICATIONS: str(publications[1]),
+            "TWOWORLDS_PLAYTEST_SKIP_DEPLOYMENT_APPROVAL_FOR_TESTS": "1",
+        }
+    )
+    for field in (APPROVAL, PURPOSE):
+        env.pop(field, None)
+    process = subprocess.run(
+        [sys.executable, "-m", "twoworlds.playtest"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert process.returncode != 0
+    assert "Explicit " + APPROVAL in process.stderr

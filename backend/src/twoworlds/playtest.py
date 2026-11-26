@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -12,7 +13,12 @@ from pymongo.errors import PyMongoError
 from pymongo.uri_parser import parse_uri
 
 from twoworlds.api.app import create_app
-from twoworlds.content.publication import PublicationStore
+from twoworlds.content._publication_files import (
+    MAX_RECORD_BYTES,
+    parse_document,
+    read_bytes,
+)
+from twoworlds.content.publication import PublicationStore, ReleaseRecord
 from twoworlds.realtime.protocol import MAX_CLIENT_MESSAGE_BYTES
 from twoworlds.security.mailer import DisabledEmailCodeSender
 from twoworlds.server import ServerLogFilter, trusted_proxy_ip, validate_origins
@@ -32,16 +38,38 @@ class PlaytestConfigurationError(ValueError):
     """An operator-facing error with no configuration values."""
 
 
+def _secret_file(path):
+    try:
+        with Path(path).open(encoding="ascii") as source:
+            value = source.read(66).removesuffix("\n")
+        if not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError
+        return value
+    except (OSError, ValueError):
+        raise PlaytestConfigurationError("Invalid Playtest secret file") from None
+
+
 def _mongo_target(env):
-    uri = env.get("TWOWORLDS_PLAYTEST_MONGO_URI", "")
     name = env.get("TWOWORLDS_PLAYTEST_MONGO_DATABASE", "")
-    if not uri or not name:
+    uri = env.get("TWOWORLDS_PLAYTEST_MONGO_URI", "")
+    password_file = env.get("TWOWORLDS_PLAYTEST_MONGO_PASSWORD_FILE", "")
+    if not name or (not uri and not password_file):
         raise PlaytestConfigurationError(
             "Explicit TWOWORLDS_PLAYTEST_MONGO_URI and TWOWORLDS_PLAYTEST_MONGO_DATABASE are required"
         )
     if not re.fullmatch(r"twoworlds_playtest_[a-z0-9_]{1,40}", name):
         raise PlaytestConfigurationError(
             "Playtest requires a dedicated twoworlds_playtest_* database"
+        )
+    if password_file:
+        if uri:
+            raise PlaytestConfigurationError(
+                "Choose one Playtest MongoDB credential source"
+            )
+        password = _secret_file(password_file)
+        uri = (
+            f"mongodb://playtest_app:{password}@playtest-mongo:27017/{name}"
+            "?directConnection=true&authMechanism=SCRAM-SHA-256&serverSelectionTimeoutMS=4000"
         )
 
     try:
@@ -92,6 +120,13 @@ def _mongo_target(env):
 
 def _verification_secret(env):
     value = env.get("TWOWORLDS_PLAYTEST_VERIFICATION_SECRET", "")
+    secret_file = env.get("TWOWORLDS_PLAYTEST_VERIFICATION_SECRET_FILE", "")
+    if secret_file:
+        if value:
+            raise PlaytestConfigurationError(
+                "Choose one Playtest verification secret source"
+            )
+        value = _secret_file(secret_file)
     if re.fullmatch(r"[0-9a-f]{64}", value):
         raw = bytes.fromhex(value)
         # Operators generate 32 random bytes. Filter out obvious placeholders
@@ -140,11 +175,48 @@ def open_playtest_repository(
     return _connect_mongo(target)
 
 
+def _validate_deployment_approval(env, root, catalog):
+    approval = env.get("TWOWORLDS_PLAYTEST_APPROVAL_FILE", "")
+    purpose = env.get("TWOWORLDS_PLAYTEST_CONTENT_PURPOSE", "")
+    if not approval or not purpose:
+        raise PlaytestConfigurationError(
+            "Explicit TWOWORLDS_PLAYTEST_APPROVAL_FILE and TWOWORLDS_PLAYTEST_CONTENT_PURPOSE are required"
+        )
+    try:
+        if not catalog or purpose not in {"internal-drill", "participant"}:
+            raise ValueError
+        path = Path(approval).absolute()
+        signed = parse_document(read_bytes(path.parent.resolve(), path.name, 65536))
+        sealed = {}
+        for script in catalog:
+            version = f"{script.id}/{script.content_version}"
+            raw = read_bytes(
+                Path(root).resolve(), f"{version}/release.json", MAX_RECORD_BYTES
+            )
+            record = ReleaseRecord.model_validate(parse_document(raw))
+            if purpose == "participant" and (
+                record.reviewed_by == "automated test fixture only"
+                or any(
+                    "test-only" in item.license_evidence.casefold()
+                    for item in record.media
+                )
+            ):
+                raise ValueError
+            sealed[version] = hashlib.sha256(raw).hexdigest()
+        if signed != {"purpose": purpose, "releases": sealed}:
+            raise ValueError
+    except (OSError, ValueError, RuntimeError):
+        raise PlaytestConfigurationError(
+            "Playtest deployment requires a nonempty, approved release catalog for its purpose"
+        ) from None
+
+
 def create_playtest_app(
     environ: Mapping[str, str] | None = None,
     *,
-    publication_store: PublicationStore | None = None,
+    test_publication_store: PublicationStore | None = None,
 ):
+    """Build a Playtest app, with explicit Python-only publication injection for tests."""
     env = os.environ if environ is None else environ
     secret, target = _playtest_settings(env)
     origins = validate_origins(env.get("TWOWORLDS_ALLOWED_ORIGINS", ""))
@@ -152,21 +224,23 @@ def create_playtest_app(
         raise PlaytestConfigurationError("Playtest requires exact HTTPS origins")
 
     root = env.get("TWOWORLDS_PLAYTEST_PUBLICATION_ROOT")
-    if publication_store is None and not root:
+    if test_publication_store is None and not root:
         raise PlaytestConfigurationError(
             "An explicit Playtest publication store is required"
         )
     try:
         store = (
-            publication_store
-            if publication_store is not None
+            test_publication_store
+            if test_publication_store is not None
             else PublicationStore(Path(root))
         )
-        store.catalog()  # Fail before touching MongoDB if a sealed version is corrupt.
+        catalog = store.catalog()
     except Exception:
         raise PlaytestConfigurationError(
             "Playtest publication store failed validation"
         ) from None
+    if test_publication_store is None:
+        _validate_deployment_approval(env, root, catalog)
 
     repository = _connect_mongo(target)
     try:
@@ -185,6 +259,16 @@ def create_playtest_app(
         raise PlaytestConfigurationError("Playtest application setup failed") from None
 
 
+def _launch_app():
+    try:
+        return create_playtest_app()
+    except PlaytestConfigurationError as error:
+        # Uvicorn drops raw exception text through ServerLogFilter.
+        # These configuration messages contain only fixed operator guidance.
+        print(str(error), file=sys.stderr)
+        raise
+
+
 def main() -> int:
     import uvicorn
 
@@ -197,7 +281,7 @@ def main() -> int:
         log_config["filters"] = {"safe_server": {"()": ServerLogFilter}}
         log_config["handlers"]["default"]["filters"] = ["safe_server"]
         uvicorn.run(
-            "twoworlds.playtest:create_playtest_app",
+            "twoworlds.playtest:_launch_app",
             factory=True,
             host=os.environ.get("TWOWORLDS_HOST", "127.0.0.1"),
             port=port,

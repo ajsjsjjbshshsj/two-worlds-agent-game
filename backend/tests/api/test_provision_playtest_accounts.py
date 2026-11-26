@@ -161,7 +161,8 @@ def test_create_accounts_without_sessions_then_login(
         assert c["password"] not in str(account)
 
     app = playtest.create_playtest_app(
-        connected, publication_store=PublicationStore.initialize(tmp_path / "releases")
+        connected,
+        test_publication_store=PublicationStore.initialize(tmp_path / "releases"),
     )
     with protected_client(app) as client:
         # A token that could have represented an initialization session has no
