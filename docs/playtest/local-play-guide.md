@@ -14,14 +14,38 @@ docker version
 docker compose version
 ```
 
-3. 获取最新代码（如已获取可跳过）：
+3. 获取**包含 PR #59 的代码**。先打开 [PR #59](https://github.com/ajsjsjjbshshsj/two-worlds-agent-game/pull/59) 查看状态，再按下面两种情况**二选一**：
 
-```powershell
-git clone https://github.com/ajsjsjjbshshsj/two-worlds-agent-game.git
-cd two-worlds-agent-game
-git checkout codex/bootstrap
-git pull --ff-only
-```
+   **情况 A：PR #59 尚未合并（使用 PR 分支）**
+
+   ```powershell
+   git clone https://github.com/ajsjsjjbshshsj/two-worlds-agent-game.git
+   cd two-worlds-agent-game
+   git fetch origin
+   git switch codex/t17-2-3-1-local-playable-demo
+   git pull --ff-only
+   ```
+
+   **情况 B：PR #59 已经合并（使用主分支）**
+
+   ```powershell
+   git clone https://github.com/ajsjsjjbshshsj/two-worlds-agent-game.git
+   cd two-worlds-agent-game
+   git fetch origin
+   git switch codex/bootstrap
+   git pull --ff-only
+   ```
+
+   已有本地仓库时跳过 `git clone` 与 `cd`，进入项目根目录后执行 `git fetch origin`，再选择对应的 `git switch` 与 `git pull --ff-only`。
+
+   两种情况下都执行一次代码存在性校验；第一条命令必须成功，第二条输出当前提交：
+
+   ```powershell
+   git ls-files --error-unmatch backend/src/twoworlds/demo_content.py
+   git log --oneline -1
+   ```
+
+   如果 `git ls-files` 报错，说明当前分支不包含 PR #59 的 Demo 实现，**不要继续执行试玩步骤**；未合并时切到 `codex/t17-2-3-1-local-playable-demo`，已合并时切到 `codex/bootstrap` 并重新拉取。
 
 ## 2. 生成本地合成试玩内容
 
