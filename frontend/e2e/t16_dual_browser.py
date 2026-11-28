@@ -80,7 +80,9 @@ SHARED = {
 def real_stack(storage):
     OUT.mkdir(parents=True, exist_ok=True)
     with (
-        tempfile.TemporaryDirectory(prefix=f"t16-{storage}-", dir=OUT) as directory,
+        tempfile.TemporaryDirectory(
+            prefix=f"t16-{storage}-", dir=OUT, ignore_cleanup_errors=True
+        ) as directory,
         ExitStack() as stack,
     ):
         folder = Path(directory)
@@ -95,13 +97,18 @@ from tests.save_support import make_publications
 from twoworlds.content.publication import PublicationStore
 from twoworlds.dev import create_dev_app
 import uvicorn
+import os
 root = Path(sys.argv[1])
-releases = root / "releases"
-if releases.exists():
-    store = PublicationStore(releases)
+demo_root = os.environ.get("T16_PUBLICATION_ROOT")
+if demo_root:
+    store = PublicationStore(Path(demo_root))
 else:
-    store, publish = make_publications(root)
-    publish(); publish(identifier="starline")
+    releases = root / "releases"
+    if releases.exists():
+        store = PublicationStore(releases)
+    else:
+        store, publish = make_publications(root)
+        publish(); publish(identifier="starline")
 app = create_dev_app(publication_store=store)
 uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[2]),
             access_log=False, log_level="critical", ws="websockets-sansio")

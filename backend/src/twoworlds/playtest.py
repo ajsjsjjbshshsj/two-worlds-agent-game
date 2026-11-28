@@ -143,6 +143,10 @@ def _verification_secret(env):
 def _playtest_settings(env):
     if env.get("TWOWORLDS_MODE") != "playtest":
         raise PlaytestConfigurationError("Explicit TWOWORLDS_MODE=playtest is required")
+    if env.get("TWOWORLDS_DEMO_PUBLICATION_ROOT"):
+        raise PlaytestConfigurationError(
+            "Local demo publication roots are forbidden in Playtest mode"
+        )
     if env.get("TWOWORLDS_AI_MODE", "demo") != "demo":
         raise PlaytestConfigurationError("Playtest requires TWOWORLDS_AI_MODE=demo")
     if env.get("TWOWORLDS_EMAIL_MODE", "disabled") != "disabled":
