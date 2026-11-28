@@ -1,8 +1,8 @@
 """运行中的世界值，与不可变ScriptVersion内容定义分离；完整状态仅供服务端。"""
 
-from typing import Annotated, NamedTuple
+from typing import Annotated, NamedTuple, Self
 
-from pydantic import Field, StrictBool, StrictInt
+from pydantic import Field, StrictBool, StrictInt, model_validator
 
 from twoworlds.content.schema import (
     Audience,
@@ -14,6 +14,9 @@ from twoworlds.content.schema import (
     Text,
     Version,
 )
+
+
+from .puzzles import LighthousePuzzles, Milestone, Puzzles, StarlinePuzzles
 
 
 class StateValue(ContentModel):
@@ -49,6 +52,62 @@ class GameState(ContentModel):
     completed: StrictBool = False
     ending_id: Identifier | None = None
     observations: tuple[Observation, ...] = ()
+
+    puzzles: Puzzles | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def check_puzzle_version(self) -> Self:
+        puzzles = self.puzzles
+        if puzzles is None:
+            return self
+        if self.script_version == "1.0.0" or self.script_id != puzzles.story:
+            raise ValueError("puzzle state does not match this story version")
+        if isinstance(puzzles, LighthousePuzzles):
+            revisions = (puzzles.l03.optics_rev, puzzles.l05.tide_config_rev)
+        else:
+            revisions = (
+                puzzles.s03.survey_rev,
+                puzzles.s05.track_rev,
+                puzzles.s05.drive_power_rev,
+            )
+        if max(revisions) > self.version:
+            raise ValueError("configuration revision is newer than the game state")
+        if any(
+            item.accepted_version > self.version
+            for chapter in puzzles.chapters()
+            for item in (*chapter.records(), *chapter.history, *chapter.milestones())
+        ):
+            raise ValueError("puzzle evidence is newer than the game state")
+        for chapter in puzzles.chapters():
+            chapter.validate_completion_at(self.version)
+        facts = {item.id: item.value for item in self.facts}
+        if any(facts.get(fact) is not True for fact, _ in self.puzzle_milestones()):
+            raise ValueError("puzzle milestone requires its completed world fact")
+        if isinstance(puzzles, StarlinePuzzles) and puzzles.s03.published is not None:
+            if facts.get("scanned_segment") != puzzles.s03.published.segment:
+                raise ValueError(
+                    "published rail location does not match the world fact"
+                )
+        return self
+
+    def puzzle_milestones(self) -> tuple[tuple[str, Milestone], ...]:
+        puzzles = self.puzzles
+        if puzzles is None:
+            return ()
+        if isinstance(puzzles, LighthousePuzzles):
+            milestones = (
+                ("signal_locked", puzzles.l03.locked),
+                ("route_confirmed", puzzles.l05.confirmed),
+            )
+        else:
+            milestones = (
+                ("track_scanned", puzzles.s03.published),
+                ("rail_installed", puzzles.s03.installed),
+                ("train_dispatched", puzzles.s05.dispatched),
+            )
+        return tuple((fact, item) for fact, item in milestones if item is not None)
 
     def fact(self, identifier: str) -> Scalar:
         return next(item.value for item in self.facts if item.id == identifier)

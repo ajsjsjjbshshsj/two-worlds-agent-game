@@ -17,6 +17,7 @@ from pydantic import (
 
 from twoworlds.content.schema import ContentModel, Identifier, Role, Text, Version
 from twoworlds.domain.models import GameState
+from twoworlds.domain.puzzles import EvidenceContext, validate_puzzle_scope
 from twoworlds.domain.recap import PublicHistory
 
 Digest = Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
@@ -251,6 +252,18 @@ class SaveRecord(_Record):
             self.public_history.through_version,
         ) != (self.script_id, self.script_version, self.version):
             raise ValueError("save and public history identity/version differ")
+        if self.state.puzzles is not None:
+            validate_puzzle_scope(self.next_evidence_context(), self.state.puzzles)
+            history_versions = {
+                step.kind: step.version for step in self.public_history.milestones
+            }
+            if any(
+                history_versions.get(fact) != milestone.accepted_version
+                for fact, milestone in self.state.puzzle_milestones()
+            ):
+                raise ValueError(
+                    "puzzle milestone must match its public history version"
+                )
         role_counts = {"a": 0, "b": 0}
         for turn in self.dialogues:
             role_counts[turn.role] += 1
@@ -266,3 +279,11 @@ class SaveRecord(_Record):
                 "receipt versions must cover every version from 1 to save.version"
             )
         return self
+
+    def next_evidence_context(self) -> EvidenceContext:
+        return EvidenceContext(
+            save_id=self.id,
+            script_id=self.script_id,
+            script_version=self.script_version,
+            accepted_version=self.version + 1,
+        )

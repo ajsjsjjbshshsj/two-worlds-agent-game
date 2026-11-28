@@ -7,6 +7,8 @@ from twoworlds.content.schema import Identifier, ScriptVersion
 from .errors import DomainError
 from .mechanics import common, lighthouse, starline
 from .models import CommandResult, DeviceState, DomainEvent, GameState, StateValue
+from .puzzle_configuration import update_puzzle_configuration
+from .puzzles import LighthousePuzzles, StarlinePuzzles
 
 _CLUE_ID = TypeAdapter(Identifier)
 # Only these explicitly imported modules can execute rules. Content cannot name
@@ -36,6 +38,13 @@ def _require_script(script: ScriptVersion) -> ScriptVersion:
 
 def create_initial_state(script: ScriptVersion) -> GameState:
     script = _require_script(script)
+    puzzles = None
+    if script.puzzle_rules == "p0_v1":
+        puzzles = (
+            LighthousePuzzles()
+            if script.metadata.id == "lighthouse"
+            else StarlinePuzzles()
+        )
     state = GameState(
         script_id=script.metadata.id,
         script_version=script.metadata.content_version,
@@ -58,6 +67,7 @@ def create_initial_state(script: ScriptVersion) -> GameState:
         shared_clues=script.initial_state.shared_clues,
         votes=script.initial_state.votes,
         completed=script.initial_state.completed,
+        puzzles=puzzles,
     )
     try:
         state = state.model_copy(
@@ -81,6 +91,8 @@ def _unique(items) -> dict:
 
 
 def _validate_state(state: GameState, script: ScriptVersion) -> None:
+    if (state.puzzles is not None) != (script.puzzle_rules == "p0_v1"):
+        raise DomainError("INVALID_STATE")
     facts, definitions = _unique(state.facts), _unique(script.facts)
     if facts.keys() != definitions.keys() or any(
         type(item.value) is not type(definitions[item.id].initial_value)
@@ -289,7 +301,11 @@ def _apply_supported_command(
                 )
             )
     candidate = candidate.model_copy(
-        update={"observations": observations, "version": state.version + 1}
+        update={
+            "observations": observations,
+            "version": state.version + 1,
+            "puzzles": update_puzzle_configuration(state, candidate),
+        }
     )
     _validate_state(candidate, script)
     return CommandResult(
