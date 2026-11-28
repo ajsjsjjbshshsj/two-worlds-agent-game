@@ -22,6 +22,20 @@ from .errors import DomainError
 from .mechanics.common import conditions_met
 from .models import GameState
 from .persistence import DialogueTurn, Question, UTCDateTime
+from .puzzles import (
+    Beat,
+    Bridge,
+    Challenge,
+    EvidenceId,
+    EvidenceKind,
+    FarSample,
+    LighthousePuzzles,
+    NearSample,
+    Reply,
+    TideReading,
+    TideScan,
+    TideWindow,
+)
 from .visuals import VisualEffect, project_visuals
 from .recap import (
     PUBLIC_PROGRESS_FACTS,
@@ -52,11 +66,39 @@ class ObservationView(ContentModel):
     text: Text
 
 
+class PuzzleMilestoneView(ContentModel):
+    kind: Literal[
+        "signal_locked",
+        "route_confirmed",
+        "track_published",
+        "rail_installed",
+        "train_dispatched",
+    ]
+    accepted_version: PositiveInt
+
+
+class PuzzleEvidenceView(ContentModel):
+    id: EvidenceId
+    kind: EvidenceKind
+    beats: tuple[Beat, Beat] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    windows: tuple[TideWindow, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    segments: tuple[Bridge, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
 class PublicView(ContentModel):
     clues: tuple[ClueView, ...]
     ending: Identifier | None
     events: tuple[PublicEvent, ...] = ()
     recap: PublicRecap = PublicRecap()
+    puzzle_milestones: tuple[PuzzleMilestoneView, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class DialogueView(ContentModel):
@@ -73,6 +115,9 @@ class PersonalView(ContentModel):
     dialogue: tuple[DialogueView, ...] = ()
     devices: tuple[DeviceView, ...]
     observations: tuple[ObservationView, ...]
+    puzzle_evidence: tuple[PuzzleEvidenceView, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_serializer("devices")
     def device_object(
@@ -254,6 +299,49 @@ def _presentation(
     )
 
 
+def _puzzle_evidence(
+    state: GameState, role: Role
+) -> tuple[PuzzleEvidenceView, ...] | None:
+    if state.puzzles is None:
+        return None
+    return tuple(
+        PuzzleEvidenceView(
+            id=item.id,
+            kind=item.kind,
+            beats=item.beats if isinstance(item, (Challenge, Reply)) else None,
+            windows=item.windows if isinstance(item, (TideReading, TideScan)) else None,
+            segments=item.segments
+            if isinstance(item, (NearSample, FarSample))
+            else None,
+        )
+        for chapter in state.puzzles.chapters()
+        for item in chapter.active_evidence()
+        if item.role == role
+    )
+
+
+def _puzzle_milestones(state: GameState) -> tuple[PuzzleMilestoneView, ...] | None:
+    puzzles = state.puzzles
+    if puzzles is None:
+        return None
+    if isinstance(puzzles, LighthousePuzzles):
+        values = (
+            ("signal_locked", puzzles.l03.locked),
+            ("route_confirmed", puzzles.l05.confirmed),
+        )
+    else:
+        values = (
+            ("track_published", puzzles.s03.published),
+            ("rail_installed", puzzles.s03.installed),
+            ("train_dispatched", puzzles.s05.dispatched),
+        )
+    return tuple(
+        PuzzleMilestoneView(kind=kind, accepted_version=item.accepted_version)
+        for kind, item in values
+        if item is not None
+    )
+
+
 def project_save(
     state: GameState,
     script: ScriptVersion,
@@ -313,8 +401,10 @@ def project_save(
             ending=state.ending_id if state.completed else None,
             events=events,
             recap=recap,
+            puzzle_milestones=_puzzle_milestones(state),
         ),
         personal=PersonalView(
+            puzzle_evidence=_puzzle_evidence(state, role),
             clues=tuple(
                 ClueView(id=clue.id, text=clue.text)
                 for clue in clues

@@ -848,3 +848,125 @@ def test_rate_limit_create_uniqueness_cas_and_cleanup(repository_factory, now):
     assert repo.delete_expired_rate_limits(now + timedelta(seconds=60)) == 0
     assert repo.delete_expired_rate_limits(now + timedelta(seconds=121)) == 1
     assert repo.count_rate_limits() == 0
+
+
+def test_puzzle_candidates_share_save_cas_with_history_and_receipts(
+    repository_factory, account_factory, pair_record, save_record, script, now
+):
+    from twoworlds.content.schema import ScriptVersion
+    from twoworlds.domain.puzzles import (
+        Challenge,
+        EchoState,
+        EvidenceKind,
+        LighthousePuzzles,
+        require_current_evidence,
+    )
+
+    content = script.model_dump()
+    content["metadata"]["content_version"] = "1.1.0"
+    content["puzzle_rules"] = "p0_v1"
+    content["media"] = [
+        asset | {"content_version": "1.1.0"} for asset in content["media"]
+    ]
+    expanded = ScriptVersion.model_validate(content)
+    initial = SaveRecord.model_validate(
+        save_record.model_dump()
+        | {
+            "script_version": "1.1.0",
+            "state": create_initial_state(expanded),
+            "public_history": PublicHistory(
+                script_id="lighthouse", script_version="1.1.0"
+            ),
+        }
+    )
+    first, second = repository_factory(), repository_factory()
+    first.create_account(account_factory("a"))
+    first.create_account(account_factory("b"))
+    first.create_pair(pair_record)
+    first.join_pair(pair_record.id, "account_b", pair_record.invite_digest, now)
+    first.create_save(initial)
+    context = initial.next_evidence_context()
+    challenge = Challenge(
+        id=context.id_for(EvidenceKind.CHALLENGE),
+        accepted_version=1,
+        optics_rev=0,
+        beats=("short", "long"),
+    )
+    alternative = Challenge(
+        id=context.id_for(EvidenceKind.CHALLENGE, ordinal=1),
+        accepted_version=1,
+        ordinal=1,
+        optics_rev=0,
+        beats=("long", "short"),
+    )
+
+    def candidate(proof):
+        return SaveRecord.model_validate(
+            initial.model_dump()
+            | {
+                "version": 1,
+                "state": initial.state.model_dump()
+                | {
+                    "version": 1,
+                    "puzzles": LighthousePuzzles(l03=EchoState(challenge=proof)),
+                },
+                "public_history": append_public_history(
+                    initial.public_history, expanded, 1, ()
+                ),
+                "receipts": (
+                    CommandReceipt(
+                        actor_id="account_b",
+                        request_id=uuid4(),
+                        fingerprint="a" * 64,
+                        accepted_version=1,
+                        created_at=initial.updated_at,
+                    ),
+                ),
+            }
+        )
+
+    left, right = candidate(challenge), candidate(alternative)
+    with pytest.raises(ValueError, match="invalid evidence scope"):
+        SaveRecord.model_validate(left.model_dump() | {"id": "another_save"})
+    barrier = Barrier(2)
+
+    def race(repo, record):
+        assert repo.get_save(initial.id) == initial
+        barrier.wait(timeout=10)
+        return repo.compare_and_swap_save(initial.id, initial.version, record)
+
+    with ThreadPoolExecutor(2) as pool:
+        result = [
+            pool.submit(race, repo, record)
+            for repo, record in ((first, left), (second, right))
+        ]
+        outcomes = [future.result(timeout=10) for future in result]
+    assert sorted(outcomes) == [False, True]
+    winner, loser = (left, right) if outcomes[0] else (right, left)
+    first.close()
+    second.close()
+    reopened = repository_factory()
+    current = reopened.get_save(initial.id)
+    assert current == winner
+    assert (
+        current.version
+        == current.state.version
+        == current.public_history.through_version
+        == 1
+    )
+    assert current.receipts[0].accepted_version == 1
+    assert (
+        reopened.get_receipt(initial.id, "account_b", loser.receipts[0].request_id)
+        is None
+    )
+    approved = current.state.puzzles.l03.challenge
+    assert (
+        require_current_evidence(
+            current.next_evidence_context(),
+            current.state.puzzles,
+            approved.id,
+            EvidenceKind.CHALLENGE,
+            issuer="b",
+        )
+        == approved
+    )

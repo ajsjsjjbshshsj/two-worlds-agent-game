@@ -7,6 +7,7 @@ _MESSAGES = {
     "SCRIPT_MISMATCH": "当前状态与剧本版本不匹配。",
     "INVALID_COMMAND": "命令格式无效。",
     "UNKNOWN_ACTION": "当前规则不支持此操作。",
+    "EVIDENCE_STALE": "当前证据不可用，请刷新后重新确认。",
     "INVALID_ARGUMENTS": "操作参数无效。",
     "ROLE_FORBIDDEN": "当前角色不能执行此操作。",
     "ACTION_UNAVAILABLE": "当前阶段不能执行此操作。",

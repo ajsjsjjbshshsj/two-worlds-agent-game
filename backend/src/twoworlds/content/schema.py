@@ -418,6 +418,9 @@ class ScriptVersion(ContentModel):
     """一个不可变的剧本版本：所有声明在此汇总，引用完整性最后统一校验。"""
 
     metadata: ScriptMetadata
+    puzzle_rules: Literal["p0_v1"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     initial_state: InitialState
     scenes: Annotated[tuple[SceneDefinition, ...], Field(min_length=1)]
     facts: tuple[FactDefinition, ...]
@@ -434,5 +437,12 @@ class ScriptVersion(ContentModel):
         # 结构与跨表引用分开；该函数只在所有子模型已合法后调用。
         from ._references import validate_references
 
+        if self.puzzle_rules is not None and (
+            self.metadata.content_version == "1.0.0"
+            or self.metadata.id not in {"lighthouse", "starline"}
+        ):
+            raise ValueError(
+                "P0 puzzle rules require a new Lighthouse or Starline version"
+            )
         validate_references(self)
         return self
