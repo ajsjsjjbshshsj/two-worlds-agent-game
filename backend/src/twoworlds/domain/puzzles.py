@@ -278,13 +278,145 @@ class InvalidatedEvidence(_PuzzleModel):
     ordinal: Ordinal = 0
     reason: Literal["configuration_changed", "replaced", "consumed"]
 
+    @property
+    def role(self) -> Role:
+        return (
+            "a"
+            if self.kind
+            in {
+                EvidenceKind.REPLY,
+                EvidenceKind.TIDE_READING,
+                EvidenceKind.TIDE_RANGE,
+                EvidenceKind.TRACK_REFERENCE,
+                EvidenceKind.CLEARANCE,
+                EvidenceKind.LOCK,
+            }
+            else "b"
+        )
+
 
 class Milestone(_PuzzleModel):
     accepted_version: PositiveInt
 
 
-class TrackPublication(Milestone):
+class EvidenceMilestone(Milestone):
+    revision_fields: ClassVar[tuple[str, ...]]
+
+    def evidence(self) -> tuple[Evidence, ...]:
+        raise NotImplementedError
+
+    def require_prior_evidence(self) -> None:
+        if any(
+            item.accepted_version >= self.accepted_version for item in self.evidence()
+        ):
+            raise ValueError("puzzle milestone must follow its consumed evidence")
+
+
+class EchoCompletion(EvidenceMilestone):
+    revision_fields = ("optics_rev",)
+    optics_rev: Revision
+    challenge: Challenge
+    reply: Reply
+    verification: EchoVerification
+
+    def evidence(self) -> tuple[Evidence, ...]:
+        return self.challenge, self.reply, self.verification
+
+    @model_validator(mode="after")
+    def check_proof(self) -> Self:
+        EchoState(
+            optics_rev=self.optics_rev,
+            challenge=self.challenge,
+            reply=self.reply,
+            verification=self.verification,
+        )
+        self.require_prior_evidence()
+        return self
+
+
+class TideCompletion(EvidenceMilestone):
+    revision_fields = ("tide_config_rev",)
+    tide_config_rev: Revision
+    submitted_reading: TideReading
+    tide_range: TideRange
+    scan: TideScan
+    rescan: TideRescan
+    verification: TideVerification
+
+    def evidence(self) -> tuple[Evidence, ...]:
+        return (
+            self.submitted_reading,
+            self.tide_range,
+            self.scan,
+            self.rescan,
+            self.verification,
+        )
+
+    @model_validator(mode="after")
+    def check_proof(self) -> Self:
+        TideState(
+            tide_config_rev=self.tide_config_rev,
+            submitted_reading=self.submitted_reading,
+            tide_range=self.tide_range,
+            scan=self.scan,
+            rescan=self.rescan,
+            verification=self.verification,
+        )
+        self.require_prior_evidence()
+        return self
+
+
+class TrackPublication(EvidenceMilestone):
+    revision_fields = ("survey_rev",)
+    survey_rev: Revision
     segment: Literal["bridge_2"]
+    batch: SurveyBatch
+    reference: TrackReference
+    near: NearSample
+    far: FarSample
+    verification: TrackVerification
+
+    def evidence(self) -> tuple[Evidence, ...]:
+        return self.batch, self.reference, self.near, self.far, self.verification
+
+    @model_validator(mode="after")
+    def check_proof(self) -> Self:
+        SurveyState(
+            survey_rev=self.survey_rev,
+            batch=self.batch,
+            reference=self.reference,
+            near=self.near,
+            far=self.far,
+            verification=self.verification,
+        )
+        self.require_prior_evidence()
+        if self.segment != self.verification.segment:
+            raise ValueError("published segment must match the verified segment")
+        return self
+
+
+class ApproachCompletion(EvidenceMilestone):
+    revision_fields = ("track_rev", "drive_power_rev")
+    track_rev: Revision
+    drive_power_rev: Revision
+    clearance: Clearance
+    lock: PlatformLock
+    permit: ApproachPermit
+
+    def evidence(self) -> tuple[Evidence, ...]:
+        return self.clearance, self.lock, self.permit
+
+    @model_validator(mode="after")
+    def check_proof(self) -> Self:
+        ApproachState(
+            track_rev=self.track_rev,
+            drive_power_rev=self.drive_power_rev,
+            clearance=self.clearance,
+            lock=self.lock,
+            permit=self.permit,
+        )
+        self.require_prior_evidence()
+        return self
 
 
 class PuzzleState(_PuzzleModel):
@@ -309,6 +441,29 @@ class PuzzleState(_PuzzleModel):
             if (item := getattr(self, name)) is not None
         )
 
+    def consumed_evidence(self) -> tuple[Evidence, ...]:
+        return tuple(
+            evidence
+            for milestone in self.milestones()
+            if isinstance(milestone, EvidenceMilestone)
+            for evidence in milestone.evidence()
+        )
+
+    def validate_completion_at(self, version: int) -> None:
+        for milestone in self.milestones():
+            if not isinstance(milestone, EvidenceMilestone):
+                continue
+            commands_since_completion = version - milestone.accepted_version
+            if any(
+                not 0
+                <= getattr(self, field) - getattr(milestone, field)
+                <= commands_since_completion
+                for field in milestone.revision_fields
+            ):
+                raise ValueError(
+                    "puzzle completion generation does not match its save version"
+                )
+
     @model_validator(mode="after")
     def check_history(self) -> Self:
         active = self.records()
@@ -316,6 +471,18 @@ class PuzzleState(_PuzzleModel):
         keys = {item.kind for item in self.history}
         if len(keys) != len(self.history) or not keys <= allowed_kinds:
             raise ValueError("invalid evidence history")
+        consumed = {item.id: item for item in self.consumed_evidence()}
+        if consumed.keys() & {item.id for item in active}:
+            raise ValueError("consumed evidence cannot be active")
+        for item in self.history:
+            record = consumed.get(item.id)
+            if record is not None and (
+                item.reason != "consumed"
+                or item.kind != record.kind
+                or item.accepted_version != record.accepted_version
+                or item.ordinal != record.ordinal
+            ):
+                raise ValueError("history contradicts consumed evidence")
         ids = [item.id for item in (*active, *self.history)]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate evidence identity")
@@ -384,7 +551,7 @@ class EchoState(PuzzleState):
     challenge: Challenge | None = None
     reply: Reply | None = None
     verification: EchoVerification | None = None
-    locked: Milestone | None = None
+    locked: EchoCompletion | None = None
 
     @model_validator(mode="after")
     def check_challenge(self) -> Self:
@@ -426,7 +593,7 @@ class TideState(PuzzleState):
     scan: TideScan | None = None
     rescan: TideRescan | None = None
     verification: TideVerification | None = None
-    confirmed: Milestone | None = None
+    confirmed: TideCompletion | None = None
 
     def records(self) -> tuple[Evidence, ...]:
         records = self.active_evidence()
@@ -467,8 +634,8 @@ class TideState(PuzzleState):
         )
         if any(item.tide_config_rev != self.tide_config_rev for item in scans):
             raise ValueError("stale active tide scan")
-        if self.confirmed is not None and scans:
-            raise ValueError("confirmed route cannot have active scans")
+        if self.confirmed is not None and self.active_evidence():
+            raise ValueError("confirmed route cannot have active tide evidence")
         return self
 
     def change_tide_config(self) -> Self:
@@ -500,10 +667,19 @@ class SurveyState(PuzzleState):
     def check_batch(self) -> Self:
         if any(item.survey_rev != self.survey_rev for item in self.active_evidence()):
             raise ValueError("stale active survey evidence")
-        if self.batch and self.batch.reference_id != (
-            self.reference.id if self.reference else None
-        ):
-            raise ValueError("batch must reference the current survey marker")
+        if self.batch:
+            if self.batch.reference_id is not None and (
+                self.reference is None or self.batch.reference_id != self.reference.id
+            ):
+                raise ValueError("batch must reference the current survey marker")
+            # A marker added after the batch opens binds through the current slot.
+            # The batch and any earlier near sample retain their original identity.
+            if (
+                self.reference is not None
+                and self.reference.accepted_version <= self.batch.accepted_version
+                and self.batch.reference_id is None
+            ):
+                raise ValueError("batch must include the pre-existing survey marker")
         _require_parents(self.near, self.batch)
         _require_parents(self.far, self.batch, self.reference)
         _require_parents(
@@ -553,7 +729,7 @@ class ApproachState(PuzzleState):
     clearance: Clearance | None = None
     lock: PlatformLock | None = None
     permit: ApproachPermit | None = None
-    dispatched: Milestone | None = None
+    dispatched: ApproachCompletion | None = None
 
     @model_validator(mode="after")
     def check_approach(self) -> Self:
@@ -612,7 +788,11 @@ def _matches_scope(
 def validate_puzzle_scope(context: EvidenceContext, puzzles: Puzzles) -> None:
     """Called at the aggregate boundary, where the actual Save ID is known."""
     for chapter in puzzles.chapters():
-        for item in (*chapter.records(), *chapter.history):
+        for item in (
+            *chapter.records(),
+            *chapter.consumed_evidence(),
+            *chapter.history,
+        ):
             if item.accepted_version >= context.accepted_version or not _matches_scope(
                 context, item
             ):

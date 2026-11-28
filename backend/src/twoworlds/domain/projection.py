@@ -32,8 +32,10 @@ from .puzzles import (
     LighthousePuzzles,
     NearSample,
     Reply,
+    TideRange,
     TideReading,
     TideScan,
+    TideState,
     TideWindow,
 )
 from .visuals import VisualEffect, project_visuals
@@ -86,9 +88,19 @@ class PuzzleEvidenceView(ContentModel):
     windows: tuple[TideWindow, ...] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    reading_id: EvidenceId | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     segments: tuple[Bridge, ...] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+
+
+class PuzzleEvidenceHistoryView(ContentModel):
+    id: EvidenceId
+    kind: EvidenceKind
+    accepted_version: PositiveInt
+    reason: Literal["configuration_changed", "replaced", "consumed"]
 
 
 class PublicView(ContentModel):
@@ -116,6 +128,9 @@ class PersonalView(ContentModel):
     devices: tuple[DeviceView, ...]
     observations: tuple[ObservationView, ...]
     puzzle_evidence: tuple[PuzzleEvidenceView, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    puzzle_evidence_history: tuple[PuzzleEvidenceHistoryView, ...] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -304,18 +319,53 @@ def _puzzle_evidence(
 ) -> tuple[PuzzleEvidenceView, ...] | None:
     if state.puzzles is None:
         return None
+    result = []
+    for chapter in state.puzzles.chapters():
+        for item in chapter.records():
+            if isinstance(item, TideRange) and isinstance(chapter, TideState):
+                # B can refer to the active submission without reading A's source.
+                reading = chapter.submitted_reading if role == "a" else None
+                result.append(
+                    PuzzleEvidenceView(
+                        id=item.id,
+                        kind=item.kind,
+                        reading_id=reading.id if reading else None,
+                        windows=reading.windows if reading else None,
+                    )
+                )
+            elif item.role == role:
+                result.append(
+                    PuzzleEvidenceView(
+                        id=item.id,
+                        kind=item.kind,
+                        beats=item.beats
+                        if isinstance(item, (Challenge, Reply))
+                        else None,
+                        windows=item.windows
+                        if isinstance(item, (TideReading, TideScan))
+                        else None,
+                        segments=item.segments
+                        if isinstance(item, (NearSample, FarSample))
+                        else None,
+                    )
+                )
+    return tuple(result)
+
+
+def _puzzle_evidence_history(
+    state: GameState, role: Role
+) -> tuple[PuzzleEvidenceHistoryView, ...] | None:
+    if state.puzzles is None:
+        return None
     return tuple(
-        PuzzleEvidenceView(
+        PuzzleEvidenceHistoryView(
             id=item.id,
             kind=item.kind,
-            beats=item.beats if isinstance(item, (Challenge, Reply)) else None,
-            windows=item.windows if isinstance(item, (TideReading, TideScan)) else None,
-            segments=item.segments
-            if isinstance(item, (NearSample, FarSample))
-            else None,
+            accepted_version=item.accepted_version,
+            reason=item.reason,
         )
         for chapter in state.puzzles.chapters()
-        for item in chapter.active_evidence()
+        for item in chapter.history
         if item.role == role
     )
 
@@ -405,6 +455,7 @@ def project_save(
         ),
         personal=PersonalView(
             puzzle_evidence=_puzzle_evidence(state, role),
+            puzzle_evidence_history=_puzzle_evidence_history(state, role),
             clues=tuple(
                 ClueView(id=clue.id, text=clue.text)
                 for clue in clues

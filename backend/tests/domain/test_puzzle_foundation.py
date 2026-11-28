@@ -13,23 +13,25 @@ from twoworlds.domain.errors import DomainError
 from twoworlds.domain.models import GameState
 from twoworlds.domain.projection import project_save
 from twoworlds.domain.puzzles import (
+    ApproachCompletion,
     ApproachPermit,
     ApproachState,
     Challenge,
     Clearance,
+    EchoCompletion,
     EchoState,
     EchoVerification,
     EvidenceContext,
     EvidenceKind,
     FarSample,
     LighthousePuzzles,
-    Milestone,
     NearSample,
     PlatformLock,
     Reply,
     StarlinePuzzles,
     SurveyBatch,
     SurveyState,
+    TideCompletion,
     TideRange,
     TideReading,
     TideRescan,
@@ -419,7 +421,7 @@ def test_invalidations_preserve_independent_records_and_permanent_outcomes():
         proposed.change_survey_config().change_survey_config().active_evidence() == ()
     )
     published = SurveyState(
-        published=TrackPublication(accepted_version=6, segment="bridge_2")
+        published=completion(proposed, TrackPublication, 6, segment="bridge_2")
     )
     assert published.change_survey_config().published == published.published
     locked = approach()
@@ -431,7 +433,7 @@ def test_invalidations_preserve_independent_records_and_permanent_outcomes():
     )
     assert changed.lock is None and changed.clearance is None
     assert (changed.track_rev, changed.drive_power_rev) == (2, 3)
-    finished = ApproachState(dispatched=Milestone(accepted_version=4))
+    finished = ApproachState(dispatched=completion(locked, ApproachCompletion, 4))
     assert finished.change_drive_power().dispatched == finished.dispatched
 
 
@@ -456,12 +458,18 @@ def test_role_projection_exposes_only_own_active_whitelist(expanded_script):
             for chapter in state.puzzles.chapters()
             for item in chapter.active_evidence()
         }
-        assert {entry["id"] for entry in view["personal"]["puzzle_evidence"]} == {
-            key for key, item in by_id.items() if item.role == role
-        }
+        range_id = str(state.puzzles.l05.tide_range.id)
+        expected = {key for key, item in by_id.items() if item.role == role}
+        assert {
+            entry["id"] for entry in view["personal"]["puzzle_evidence"]
+        } == expected | {range_id}
+        if role == "b":
+            assert {"id": range_id, "kind": "tide_range"} in view["personal"][
+                "puzzle_evidence"
+            ]
         serialized = project_save(state, script, partner).model_dump_json()
-        for entry in view["personal"]["puzzle_evidence"]:
-            assert entry["id"] not in serialized
+        for identifier in expected - {range_id}:
+            assert identifier not in serialized
         assert "private_archive" not in serialized
         assert "optics_rev" not in serialized and "history" not in opposite["public"]
         assert "puzzles" not in view
@@ -506,3 +514,241 @@ def test_tide_generation_tracks_power_without_invalidating_other_chapters(
     assert state.puzzles.l05.tide_config_rev == 4
     assert state.puzzles.l03 == old.l03
     assert state.fact("clock_repaired") is True
+
+
+def completion(chapter, completion_type, version, **extra):
+    data = {
+        field: getattr(chapter, field)
+        for field in completion_type.model_fields
+        if hasattr(chapter, field)
+    }
+    return completion_type(accepted_version=version, **data, **extra)
+
+
+@pytest.mark.parametrize(
+    "reference_first", [True, False], ids=["reference-first", "near-first"]
+)
+def test_survey_validates_both_reference_orders(reference_first):
+    reference = evidence(
+        TrackReference,
+        1 if reference_first else 3,
+        story="starline",
+        survey_rev=0,
+        marker_key="bridge_marker",
+    )
+    batch = evidence(
+        SurveyBatch,
+        2 if reference_first else 1,
+        story="starline",
+        survey_rev=0,
+        reference_id=reference.id if reference_first else None,
+    )
+    near = evidence(
+        NearSample,
+        3 if reference_first else 2,
+        story="starline",
+        survey_rev=0,
+        batch_id=batch.id,
+        aim="near_anchor",
+        segments=("bridge_1", "bridge_2"),
+    )
+    collecting = SurveyState(
+        batch=batch, near=near, reference=reference if reference_first else None
+    )
+    ready = SurveyState.model_validate(
+        collecting.model_dump() | {"reference": reference}
+    )
+    assert ready.batch == batch and ready.near == near and ready.survey_rev == 0
+    far = evidence(
+        FarSample,
+        4,
+        story="starline",
+        survey_rev=0,
+        batch_id=batch.id,
+        reference_id=reference.id,
+        aim="bridge_anchor",
+        segments=("bridge_2", "bridge_3"),
+    )
+    proof = evidence(
+        TrackVerification,
+        5,
+        story="starline",
+        survey_rev=0,
+        batch_id=batch.id,
+        reference_id=reference.id,
+        near_id=near.id,
+        far_id=far.id,
+        segment="bridge_2",
+    )
+    confirmed = SurveyState.model_validate(
+        ready.model_dump() | {"far": far, "verification": proof}
+    )
+    for bad in (
+        {"far": far.model_copy(update={"reference_id": near.id})},
+        {"far": far.model_copy(update={"batch_id": near.id})},
+        {"reference": reference.model_copy(update={"survey_rev": 1})},
+        {"batch": batch.model_copy(update={"reference_id": near.id})},
+    ):
+        with pytest.raises(ValidationError):
+            SurveyState.model_validate(confirmed.model_dump() | bad)
+    changed = confirmed.change_survey_config().change_survey_config()
+    assert changed.survey_rev == 2 and not changed.active_evidence()
+    with pytest.raises(ValidationError):
+        SurveyState.model_validate(
+            confirmed.model_dump() | {"survey_rev": changed.survey_rev}
+        )
+    with pytest.raises(DomainError) as error:
+        require_current_evidence(
+            EvidenceContext(
+                save_id="save_a",
+                script_id="starline",
+                script_version="1.1.0",
+                accepted_version=8,
+            ),
+            StarlinePuzzles(s03=changed),
+            batch.id,
+            EvidenceKind.SURVEY_BATCH,
+            issuer="b",
+        )
+    assert error.value.code == "EVIDENCE_STALE"
+
+
+COMPLETIONS = (
+    (echo, EchoCompletion, "locked", "reply", "challenge_id", "optics_rev", 4, {}),
+    (tide, TideCompletion, "confirmed", "rescan", "scan_id", "tide_config_rev", 5, {}),
+    (
+        survey,
+        TrackPublication,
+        "published",
+        "far",
+        "batch_id",
+        "survey_rev",
+        6,
+        {"segment": "bridge_2"},
+    ),
+    (
+        approach,
+        ApproachCompletion,
+        "dispatched",
+        "permit",
+        "lock_id",
+        "drive_power_rev",
+        4,
+        {},
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "make,proof_type,slot,dependent,parent,revision,version,extra",
+    COMPLETIONS,
+    ids=["L03", "L05", "S03", "S05"],
+)
+def test_permanent_milestone_revalidates_every_consumed_record(
+    make,
+    proof_type,
+    slot,
+    dependent,
+    parent,
+    revision,
+    version,
+    extra,
+):
+    chapter = make()
+    with pytest.raises(ValidationError):
+        type(chapter).model_validate({slot: {"accepted_version": version} | extra})
+    proof = completion(chapter, proof_type, version, **extra)
+    valid = type(chapter).model_validate({slot: proof})
+    assert not valid.active_evidence()
+    assert set(valid.consumed_evidence()) == set(proof.evidence())
+    assert type(chapter).model_validate_json(valid.model_dump_json()) == valid
+
+    data = proof.model_dump()
+    for field in proof_type.model_fields.keys() - {
+        "accepted_version",
+        "segment",
+        *proof.revision_fields,
+    }:
+        with pytest.raises(ValidationError):
+            proof_type.model_validate(
+                {key: value for key, value in data.items() if key != field}
+            )
+    for bad in (
+        {dependent: data[dependent] | {parent: proof.evidence()[-1].id}},
+        {dependent: data[dependent] | {revision: 1}},
+        {"accepted_version": version - 1},
+    ):
+        with pytest.raises(ValidationError):
+            proof_type.model_validate(data | bad)
+
+    changed = {
+        "locked": EchoState.change_optics,
+        "confirmed": TideState.change_tide_config,
+        "published": SurveyState.change_survey_config,
+        "dispatched": ApproachState.change_drive_power,
+    }[slot](valid)
+    with pytest.raises(ValueError, match="generation"):
+        changed.validate_completion_at(version)
+    changed.validate_completion_at(version + 1)
+    assert getattr(changed, slot) == proof
+
+    source = proof.evidence()[0]
+    puzzles = (
+        StarlinePuzzles(**{"s03" if slot == "published" else "s05": changed})
+        if slot in {"published", "dispatched"}
+        else LighthousePuzzles(**{"l03" if slot == "locked" else "l05": changed})
+    )
+    with pytest.raises(DomainError) as rejected:
+        require_current_evidence(
+            EvidenceContext(
+                save_id="save_a",
+                script_id=puzzles.story,
+                script_version="1.1.0",
+                accepted_version=version + 2,
+            ),
+            puzzles,
+            source.id,
+            source.kind,
+            issuer=source.role,
+        )
+    assert rejected.value.code == "EVIDENCE_STALE"
+
+
+def test_published_bridge_world_facts_match_typed_completion(expanded_script):
+    initial = create_initial_state(expanded_script("starline"))
+    published = completion(survey(), TrackPublication, 6, segment="bridge_2")
+    data = initial.model_dump() | {
+        "version": 6,
+        "puzzles": StarlinePuzzles(s03=SurveyState(published=published)),
+    }
+
+    def with_facts(scanned, segment):
+        return data | {
+            "facts": [
+                fact.model_copy(
+                    update={
+                        "value": {
+                            "track_scanned": scanned,
+                            "scanned_segment": segment,
+                        }.get(fact.id, fact.value)
+                    }
+                )
+                for fact in initial.facts
+            ],
+        }
+
+    assert (
+        GameState.model_validate(with_facts(True, "bridge_2")).puzzles.s03.published
+        == published
+    )
+    for scanned, segment in (
+        (False, "bridge_2"),
+        (True, "bridge_1"),
+        (True, "unknown"),
+    ):
+        with pytest.raises(ValidationError):
+            GameState.model_validate(with_facts(scanned, segment))
+    with pytest.raises(ValidationError):
+        TrackPublication.model_validate(
+            published.model_dump() | {"segment": "bridge_1"}
+        )
