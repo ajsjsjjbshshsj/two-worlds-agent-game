@@ -6,6 +6,7 @@ import { useIdentityStore } from './stores/identity'
 import { useKeyboardViewport } from './composables/keyboard-viewport'
 import PwaStatus from './components/PwaStatus.vue'
 import NetworkGate from './components/NetworkGate.vue'
+import LocalDemoBanner from './components/LocalDemoBanner.vue'
 
 useKeyboardViewport()
 
@@ -76,6 +77,7 @@ watch(
 </script>
 
 <template>
+  <LocalDemoBanner />
   <NetworkGate :local-controls="route.name === 'game'">
     <main v-if="route.meta.requiresAuth && !identity.authenticated" class="space-content">
       <section class="resource-panel" aria-label="会话验证">

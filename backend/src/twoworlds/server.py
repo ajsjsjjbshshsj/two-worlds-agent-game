@@ -25,6 +25,7 @@ from copy import copy, deepcopy
 from ipaddress import ip_address
 import logging
 import os
+from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 
@@ -117,6 +118,10 @@ def create_server_app(
         )
 
     production = mode in {"production", "formal"}
+    if production and env.get("TWOWORLDS_DEMO_PUBLICATION_ROOT"):
+        raise ServerConfigurationError(
+            "TWOWORLDS_DEMO_PUBLICATION_ROOT is forbidden in production mode"
+        )
     if production and env.get("TWOWORLDS_EMAIL_MODE") != "smtp":
         raise ServerConfigurationError(
             "Production mode requires TWOWORLDS_EMAIL_MODE=smtp"
@@ -210,6 +215,18 @@ def create_server_app(
             import secrets
 
             secret = secrets.token_urlsafe(32)
+
+        demo_root = env.get("TWOWORLDS_DEMO_PUBLICATION_ROOT")
+        if demo_root:
+            if publication_store is not None:
+                raise ServerConfigurationError(
+                    "Demo publication root cannot be combined with an injected store"
+                )
+            from twoworlds.content.publication import PublicationStore
+
+            # Explicit local demo bundle only; never fall back to drafts or
+            # modify the packaged formal registry.
+            publication_store = PublicationStore(Path(demo_root))
 
         repository = SQLiteRepository(sqlite_path)
         return create_app(

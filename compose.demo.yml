@@ -1,10 +1,12 @@
 # TwoWorlds Local Demo Path Docker Compose
 # Usage:
-#   docker compose -f compose.demo.yml up -d
+#   python -m twoworlds.demo_content .local-demo-content   # from backend/, after uv sync
+#   docker compose -f compose.demo.yml up -d --build
 # Notes:
 #   Runs standalone FastAPI + SQLite + Vue SPA.
-#   Zero external AI calls, zero external cost.
-#   Isolated from production MongoDB configuration.
+#   Zero external AI calls, zero external cost, no real email.
+#   BOTH published ports are loopback-only; LAN/public access is not exposed.
+#   The generated .local-demo-content bundle is mounted read-only.
 
 services:
   backend:
@@ -19,13 +21,15 @@ services:
       TWOWORLDS_AI_MODE: demo
       TWOWORLDS_VERIFICATION_SECRET: ${TWOWORLDS_VERIFICATION_SECRET:-twoworlds-demo-verification-secret-32chars}
       TWOWORLDS_EMAIL_MODE: ${TWOWORLDS_EMAIL_MODE:-console}
+      TWOWORLDS_DEMO_PUBLICATION_ROOT: /demo-content/releases
       TWOWORLDS_ALLOWED_ORIGINS: ${TWOWORLDS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       TWOWORLDS_HOST: 0.0.0.0
       TWOWORLDS_PORT: 8000
     volumes:
       - sqlite_data:/data
+      - ./.local-demo-content:/demo-content:ro
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     networks:
       - twoworlds-demo-net
 
@@ -34,10 +38,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_API_BASE_URL: ""
+        VITE_DEMO_MODE: "true"
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     networks:
       - twoworlds-demo-net
 
